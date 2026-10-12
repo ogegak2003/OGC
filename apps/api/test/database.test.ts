@@ -166,3 +166,136 @@ describe('database schema and migrations', () => {
     expect(loaded.profile?.displayName).toBe('DB Test');
   });
 });
+
+describe('social graph constraints', () => {
+  let t: TestApp;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    prisma = t.prisma;
+  });
+
+  afterAll(async () => {
+    await t.close();
+  });
+
+  const user = () =>
+    prisma.user.create({
+      data: {
+        ogcId: `OGC${String(randomInt(100_000_000, 1_000_000_000))}`,
+        email: uniqueEmail(),
+        profile: { create: { displayName: 'Graph Test' } },
+      },
+    });
+
+  it('gives new profiles privacy-leaning defaults', async () => {
+    const u = await user();
+    const profile = await prisma.profile.findUniqueOrThrow({ where: { userId: u.id } });
+    expect(profile).toMatchObject({
+      profileVisibility: 'CONTACTS',
+      discoverable: true,
+      contactRequestPolicy: 'EVERYONE',
+      bio: null,
+      avatarKey: null,
+    });
+  });
+
+  it('rejects self-relationships of every kind', async () => {
+    const u = await user();
+    await expect(
+      prisma.contactRequest.create({ data: { senderId: u.id, recipientId: u.id } }),
+    ).rejects.toThrow(/contact_requests_not_self/);
+    await expect(
+      prisma.contact.create({ data: { ownerId: u.id, contactId: u.id } }),
+    ).rejects.toThrow(/contacts_not_self/);
+    await expect(
+      prisma.block.create({ data: { blockerId: u.id, blockedId: u.id } }),
+    ).rejects.toThrow(/blocks_not_self/);
+    await expect(
+      prisma.userReport.create({
+        data: { reporterId: u.id, reportedUserId: u.id, category: 'SPAM' },
+      }),
+    ).rejects.toThrow(/user_reports_not_self/);
+  });
+
+  it('allows only one pending request per pair, in either direction', async () => {
+    const [a, b] = [await user(), await user()];
+    await prisma.contactRequest.create({ data: { senderId: a.id, recipientId: b.id } });
+    await expect(
+      prisma.contactRequest.create({ data: { senderId: a.id, recipientId: b.id } }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    await expect(
+      prisma.contactRequest.create({ data: { senderId: b.id, recipientId: a.id } }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    // Answered requests do not count: a new request is possible afterwards.
+    await prisma.contactRequest.updateMany({
+      where: { senderId: a.id },
+      data: { status: 'CANCELLED', respondedAt: new Date() },
+    });
+    await prisma.contactRequest.create({ data: { senderId: b.id, recipientId: a.id } });
+  });
+
+  it('keeps request status and response time consistent', async () => {
+    const [a, b] = [await user(), await user()];
+    const req = await prisma.contactRequest.create({ data: { senderId: a.id, recipientId: b.id } });
+    await expect(
+      prisma.contactRequest.update({ where: { id: req.id }, data: { status: 'ACCEPTED' } }),
+    ).rejects.toThrow(/contact_requests_response_consistent/);
+  });
+
+  it('prevents duplicate contacts, blocks and open reports', async () => {
+    const [a, b] = [await user(), await user()];
+    await prisma.contact.create({ data: { ownerId: a.id, contactId: b.id } });
+    await expect(
+      prisma.contact.create({ data: { ownerId: a.id, contactId: b.id } }),
+    ).rejects.toMatchObject({
+      code: 'P2002',
+    });
+    await prisma.block.create({ data: { blockerId: a.id, blockedId: b.id } });
+    await expect(
+      prisma.block.create({ data: { blockerId: a.id, blockedId: b.id } }),
+    ).rejects.toMatchObject({
+      code: 'P2002',
+    });
+    await prisma.userReport.create({
+      data: { reporterId: a.id, reportedUserId: b.id, category: 'SPAM' },
+    });
+    await expect(
+      prisma.userReport.create({
+        data: { reporterId: a.id, reportedUserId: b.id, category: 'SPAM' },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('accepts only server-generated avatar keys', async () => {
+    const u = await user();
+    for (const bad of ['../../etc/passwd', 'avatars/photo.webp', `avatars/${randomUUID()}.exe`]) {
+      await expect(
+        prisma.profile.update({ where: { userId: u.id }, data: { avatarKey: bad } }),
+      ).rejects.toThrow(/profiles_avatar_key_format/);
+    }
+  });
+
+  it('cascades user deletion to relationships but keeps reports for moderators', async () => {
+    const [a, b] = [await user(), await user()];
+    await prisma.contact.create({ data: { ownerId: a.id, contactId: b.id } });
+    await prisma.block.create({ data: { blockerId: b.id, blockedId: a.id } });
+    await prisma.contactRequest.create({ data: { senderId: b.id, recipientId: a.id } });
+    await prisma.staffRoleAssignment.create({ data: { userId: a.id, role: 'MODERATOR' } });
+    const report = await prisma.userReport.create({
+      data: { reporterId: b.id, reportedUserId: a.id, category: 'SPAM' },
+    });
+
+    await prisma.user.delete({ where: { id: a.id } });
+
+    expect(
+      await prisma.contact.count({ where: { OR: [{ ownerId: a.id }, { contactId: a.id }] } }),
+    ).toBe(0);
+    expect(await prisma.block.count({ where: { blockedId: a.id } })).toBe(0);
+    expect(await prisma.contactRequest.count({ where: { recipientId: a.id } })).toBe(0);
+    expect(await prisma.staffRoleAssignment.count({ where: { userId: a.id } })).toBe(0);
+    const kept = await prisma.userReport.findUniqueOrThrow({ where: { id: report.id } });
+    expect(kept).toMatchObject({ reporterId: b.id, reportedUserId: null });
+  });
+});

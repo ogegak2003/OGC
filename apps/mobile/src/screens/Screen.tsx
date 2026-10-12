@@ -6,10 +6,13 @@ import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } fr
 export function Screen({
   title,
   subtitle,
+  onBack,
   children,
 }: {
   title?: string;
   subtitle?: string;
+  /** Shows a Back control (signed-in stack screens). */
+  onBack?: (() => void) | undefined;
   children: ReactNode;
 }) {
   return (
@@ -19,6 +22,11 @@ export function Screen({
     >
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <View style={styles.inner}>
+          {onBack ? (
+            <Text style={styles.back} accessibilityRole="button" onPress={onBack}>
+              ‹ Back
+            </Text>
+          ) : null}
           {title ? (
             <Text style={styles.title} accessibilityRole="header">
               {title}
@@ -40,7 +48,7 @@ export const text = StyleSheet.create({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.background },
-  content: { flexGrow: 1, justifyContent: 'center', padding: space[6], paddingTop: space[16] },
+  content: { flexGrow: 1, padding: space[6], paddingTop: space[16] },
   inner: { width: '100%', maxWidth: 440, alignSelf: 'center', gap: space[5] },
   title: {
     color: color.textPrimary,
@@ -49,4 +57,10 @@ const styles = StyleSheet.create({
     letterSpacing: -0.5,
   },
   subtitle: { color: color.textSecondary, fontSize: fontSize.md, marginTop: -space[3] },
+  back: {
+    color: color.accent,
+    fontSize: fontSize.md,
+    alignSelf: 'flex-start',
+    paddingVertical: space[1],
+  },
 });

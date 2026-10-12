@@ -9,6 +9,7 @@ import {
 import { ThrottlerException } from '@nestjs/throttler';
 import type { ApiErrorBody, ApiErrorCode } from '@ogc/types';
 import type { Request, Response } from 'express';
+import { ApiException } from '../errors.js';
 
 const GENERIC_MESSAGE = 'An unexpected error occurred';
 
@@ -62,9 +63,11 @@ export class HttpExceptionFilter implements ExceptionFilter {
     let code: ApiErrorCode | undefined;
 
     const clientError = exposedClientError(exception);
+    // ApiExceptions carry curated, client-safe messages, even for deliberate 5xx (e.g. 503).
+    const curated = exception instanceof ApiException;
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
-      if (statusCode < 500) {
+      if (statusCode < 500 || curated) {
         message = messageFrom(exception);
         code = codeFrom(exception);
       }
@@ -73,7 +76,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
       message = clientError.message;
     }
 
-    if (statusCode >= 500) {
+    if (statusCode >= 500 && curated) {
+      this.logger.warn({ requestId, code }, message);
+    } else if (statusCode >= 500) {
       this.logger.error(
         { err: exception, requestId },
         exception instanceof Error ? exception.message : 'Non-error thrown',

@@ -45,9 +45,11 @@ Enforced by review now and by lint rules (import restrictions) once modules exis
 
 ## Domain modules
 
-Implemented so far: **Identity**, **Authentication**, and **Audit** (Phase 1), plus an `Email`
-delivery port. See [identity-and-authentication.md](identity-and-authentication.md) and
-[data-model.md](data-model.md).
+Implemented so far: **Identity**, **Authentication**, **Audit** (Phase 1); **Profiles**,
+**Contacts**, **Privacy/Blocks**, **Reports**, and the shared **Relationships** service
+(Phase 2); plus `Email` and `Storage` ports. See
+[identity-and-authentication.md](identity-and-authentication.md),
+[social-graph.md](social-graph.md) and [data-model.md](data-model.md).
 
 | Module             | Responsibility                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------- |

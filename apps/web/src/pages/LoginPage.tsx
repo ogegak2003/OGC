@@ -1,15 +1,18 @@
 import { loginRequestSchema } from '@ogc/validation';
 import { type SyntheticEvent, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { useAuth } from '../auth/auth-context';
 import { AuthLayout } from '../components/AuthLayout';
 import { Alert, Button, PasswordField, TextField } from '../components/ui';
 import { errorMessage, fieldErrors } from '../lib/form';
+import { safeNext } from '../lib/redirect';
 import styles from './forms.module.css';
 
 export function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
+  const [params] = useSearchParams();
+  const next = safeNext(params.get('next'));
   const [values, setValues] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [formError, setFormError] = useState<string>();
@@ -27,7 +30,7 @@ export function LoginPage() {
     setBusy(true);
     try {
       const account = await login(values);
-      void navigate(account.accountStatus === 'PENDING_VERIFICATION' ? '/verify' : '/home', {
+      void navigate(account.accountStatus === 'PENDING_VERIFICATION' ? '/verify' : next, {
         replace: true,
       });
     } catch (error) {

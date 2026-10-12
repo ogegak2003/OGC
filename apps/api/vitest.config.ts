@@ -1,4 +1,6 @@
 import { existsSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
 // Local runs read TEST_DATABASE_URL from apps/api/.env; CI sets it directly.
@@ -12,6 +14,8 @@ const baseEnv = {
   CORS_ORIGINS: 'http://localhost:5173',
   WEB_APP_URL: 'http://localhost:5173',
   EMAIL_TRANSPORT: 'disabled',
+  STORAGE_DRIVER: 'local',
+  STORAGE_LOCAL_DIR: join(tmpdir(), 'ogc-test-storage'),
   // Integration tests simulate distinct clients with X-Forwarded-For.
   TRUST_PROXY_HOPS: '1',
 };

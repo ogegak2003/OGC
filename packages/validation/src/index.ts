@@ -39,3 +39,26 @@ export type {
   RegisterRequest,
   VerifyEmailRequest,
 } from './auth.js';
+export {
+  BIO_MAX_LENGTH,
+  CONTACT_REQUEST_POLICIES,
+  PAGE_SIZE_DEFAULT,
+  PAGE_SIZE_MAX,
+  PROFILE_VISIBILITIES,
+  REPORT_CATEGORIES,
+  REPORT_DESCRIPTION_MAX_LENGTH,
+  bioSchema,
+  contactRequestSchema,
+  ogcIdInputSchema,
+  pageQuerySchema,
+  privacySettingsUpdateSchema,
+  reportUserRequestSchema,
+  updateProfileRequestSchema,
+} from './social.js';
+export type {
+  PageQuery,
+  ReportUserInput,
+  ReportUserRequest,
+  UpdateProfileInput,
+  UpdateProfileRequest,
+} from './social.js';

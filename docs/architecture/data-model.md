@@ -21,6 +21,12 @@ users ─┬─ 1:1 ─ profiles
        ├─ 1:N ─ sessions             (also linked directly for "all sessions of a user")
        └─ 1:N ─ email_verification_tokens
 
+users ─┬─ 1:N ─ contact_requests     (as sender / as recipient)
+       ├─ 1:N ─ contacts             (as owner / as contact; one row per direction)
+       ├─ 1:N ─ blocks               (as blocker / as blocked)
+       ├─ 1:N ─ user_reports         (as reporter / as reported; SET NULL on delete)
+       └─ 1:N ─ staff_roles
+
 audit_events                          (no foreign keys — outlives what it describes)
 ```
 
@@ -42,7 +48,10 @@ plain column so history survives account deletion.
 
 ### `profiles`
 
-`user_id` (PK, FK), `display_name` varchar(64) (CHECK not blank), timestamps.
+`user_id` (PK, FK), `display_name` varchar(64) (CHECK not blank, **not unique**), `bio`
+varchar(280), `avatar_key` (unique; CHECK `avatars/<uuid>.webp`), `profile_visibility`
+(`CONTACTS` default), `discoverable` (default true), `contact_request_policy` (`EVERYONE`
+default), timestamps.
 
 ### `credentials`
 
@@ -89,6 +98,34 @@ issuing a new token consumes outstanding ones).
 
 Indexed by `(user_id, created_at)` and `(type, created_at)`. **Append-only**: a trigger
 rejects `UPDATE` and `DELETE`.
+
+### `contact_requests`
+
+`sender_id`, `recipient_id` (FKs, cascade), `status` (`PENDING`/`ACCEPTED`/`DECLINED`/`CANCELLED`),
+`created_at`, `responded_at`. CHECK not self; CHECK `responded_at` set exactly when not pending;
+**partial unique index on the unordered pair where `status = 'PENDING'`**. Indexes
+`(recipient_id, status, id)` and `(sender_id, status, id)` serve the request lists.
+
+### `contacts`
+
+`owner_id`, `contact_id` (FKs, cascade), `created_at`. Unique `(owner_id, contact_id)`; index
+`(owner_id, id)` for pagination; CHECK not self. Written in pairs by the accept transaction.
+
+### `blocks`
+
+`blocker_id`, `blocked_id` (FKs, cascade), `created_at`. Unique pair; index `(blocker_id, id)` and
+`(blocked_id)`; CHECK not self.
+
+### `user_reports`
+
+`reporter_id`, `reported_user_id` (FKs, **SET NULL** so reports survive account deletion),
+`category` (enum), `description` varchar(1000), `status` (`OPEN`/`RESOLVED`/`DISMISSED`),
+timestamps. Partial unique index: one OPEN report per reporter, reported user and category;
+CHECK not self.
+
+### `staff_roles`
+
+`(user_id, role)` primary key; `role` is `MODERATOR` or `ADMIN`. Granted by operators only.
 
 ## Migrations
 

@@ -1,0 +1,99 @@
+.shell {
+  min-height: 100dvh;
+  padding-bottom: 5rem;
+  background: radial-gradient(70rem 30rem at 50% -10%, rgb(212 170 79 / 0.06), transparent 70%);
+}
+
+@media (min-width: 760px) {
+  .shell {
+    padding-bottom: 0;
+  }
+}
+
+.header {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ogc-space-6);
+  padding: var(--ogc-space-3) max(var(--ogc-space-5), calc((100% - 64rem) / 2));
+  background: rgb(11 11 10 / 0.85);
+  border-bottom: 1px solid var(--ogc-color-border);
+  backdrop-filter: blur(12px);
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  font-weight: 600;
+  letter-spacing: 0.24em;
+}
+
+/* Bottom tab bar on phones, inline navigation from tablet width. */
+.nav {
+  position: fixed;
+  inset: auto 0 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  padding: var(--ogc-space-2) var(--ogc-space-2)
+    calc(var(--ogc-space-2) + env(safe-area-inset-bottom));
+  background: var(--ogc-color-surface);
+  border-top: 1px solid var(--ogc-color-border);
+}
+
+@media (min-width: 760px) {
+  .nav {
+    position: static;
+    display: flex;
+    gap: var(--ogc-space-1);
+    padding: 0;
+    background: none;
+    border: 0;
+  }
+}
+
+.link {
+  padding: var(--ogc-space-2) var(--ogc-space-3);
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 500;
+  text-align: center;
+  text-decoration: none;
+  border-radius: var(--ogc-radius-md);
+  transition: color var(--ogc-duration-fast) var(--ogc-easing-standard);
+}
+
+.link:hover {
+  color: var(--ogc-color-text-primary);
+}
+
+.active {
+  color: var(--ogc-color-accent);
+  background: var(--ogc-color-surface-raised);
+}
+
+.main {
+  display: grid;
+  gap: var(--ogc-space-6);
+  width: min(100% - 2.5rem, 64rem);
+  margin: 0 auto;
+  padding: var(--ogc-space-8) 0 var(--ogc-space-12);
+  animation: enter var(--ogc-duration-slow) var(--ogc-easing-enter) both;
+}
+
+.title {
+  margin: 0;
+  font-size: var(--ogc-font-size-2xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+}

@@ -1,40 +1,3 @@
-.page {
-  min-height: 100dvh;
-  background: radial-gradient(70rem 30rem at 50% -10%, rgb(212 170 79 / 0.07), transparent 70%);
-}
-
-.header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  width: min(100% - 2.5rem, 64rem);
-  margin: 0 auto;
-  padding: var(--ogc-space-5) 0;
-}
-
-.logo {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--ogc-space-3);
-  font-weight: 600;
-  letter-spacing: 0.24em;
-}
-
-.main {
-  display: grid;
-  gap: var(--ogc-space-8);
-  width: min(100% - 2.5rem, 64rem);
-  margin: 0 auto;
-  padding: var(--ogc-space-6) 0 var(--ogc-space-16);
-  animation: enter var(--ogc-duration-slow) var(--ogc-easing-enter) both;
-}
-
-.greeting {
-  margin: 0;
-  color: var(--ogc-color-text-secondary);
-  font-size: var(--ogc-font-size-lg);
-}
-
 /* ---------- OGC ID card ---------- */
 .identity {
   display: grid;
@@ -97,11 +60,10 @@
 }
 
 .liveRegion {
-  position: absolute;
-  width: 1px;
-  height: 1px;
-  overflow: hidden;
-  clip-path: inset(50%);
+  min-height: 1.25rem;
+  margin: 0;
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
 }
 
 /* ---------- Account details ---------- */
@@ -164,4 +126,36 @@
     opacity: 0;
     transform: translateY(8px);
   }
+}
+
+.person {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-4);
+  margin-bottom: var(--ogc-space-4);
+}
+
+.displayName {
+  margin: 0;
+  font-size: var(--ogc-font-size-xl);
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.edit {
+  color: var(--ogc-color-accent);
+  font-size: var(--ogc-font-size-sm);
+  text-decoration: none;
+}
+
+.edit:hover {
+  text-decoration: underline;
+}
+
+.bio {
+  max-width: 32rem;
+  margin: 0;
+  color: var(--ogc-color-text-primary);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
 }

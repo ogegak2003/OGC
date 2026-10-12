@@ -1,4 +1,4 @@
-import type { AccountView, OgcId } from '@ogc/types';
+import type { AccountView, OgcId, OwnProfile, PublicProfile } from '@ogc/types';
 import { render } from '@testing-library/react';
 import { MemoryRouter } from 'react-router';
 import { vi } from 'vitest';
@@ -62,4 +62,41 @@ export function renderApp(path: string) {
 
 export function bodyOf(init: RequestInit | undefined): unknown {
   return typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+}
+
+export function ownProfile(overrides: Partial<OwnProfile> = {}): OwnProfile {
+  return {
+    ogcId: 'OGC306841127' as OgcId,
+    displayName: 'Ada Lovelace',
+    bio: null,
+    avatarUrl: null,
+    memberSince: '2026-10-12T10:00:00.000Z',
+    privacy: { profileVisibility: 'CONTACTS', discoverable: true, contactRequests: 'EVERYONE' },
+    ...overrides,
+  };
+}
+
+export function publicProfile(overrides: Partial<PublicProfile> = {}): PublicProfile {
+  return {
+    ogcId: 'OGC482731905' as OgcId,
+    displayName: 'Grace Hopper',
+    bio: null,
+    avatarUrl: null,
+    memberSince: null,
+    relationship: 'NONE',
+    canSendContactRequest: true,
+    pendingRequestId: null,
+    ...overrides,
+  };
+}
+
+export const emptyPage = { items: [], nextCursor: null };
+
+/** Routes for a signed-in ACTIVE user with an own profile. */
+export function signedInRoutes(profile: OwnProfile = ownProfile()): Record<string, Handler> {
+  return {
+    'GET /api/v1/auth/me': () =>
+      json(account({ ogcId: profile.ogcId, displayName: profile.displayName })),
+    'GET /api/v1/profile': () => json(profile),
+  };
 }

@@ -14,3 +14,5 @@ export { tokens } from './tokens/index.js';
 export type { Tokens } from './tokens/index.js';
 export { toCssVariables } from './css.js';
 export { contrastRatio } from './contrast.js';
+export { qrSvgPath } from './qr.js';
+export type { QrPath } from './qr.js';

@@ -38,6 +38,7 @@ apps/mobile/ios/
 
 # Development email outbox (may contain verification links)
 .dev-outbox/
+.dev-storage/
 
 # Testing
 coverage/

@@ -9,7 +9,21 @@ import {
   type VerifyEmailResponse,
   WEB_CLIENT,
 } from '@ogc/types';
-import type { LoginRequest, RegisterRequest } from '@ogc/validation';
+import type {
+  BlockView,
+  ContactRequestResult,
+  ContactRequestView,
+  ContactView,
+  OwnProfile,
+  Page,
+  PublicProfile,
+} from '@ogc/types';
+import type {
+  LoginRequest,
+  RegisterRequest,
+  ReportUserRequest,
+  UpdateProfileRequest,
+} from '@ogc/validation';
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
@@ -25,7 +39,7 @@ export class ApiError extends Error {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST';
+  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal | undefined;
   /** Retry once after refreshing the session when the access cookie has expired. */
@@ -59,13 +73,15 @@ async function send<T>(path: string, options: RequestOptions = {}): Promise<T> {
     Accept: 'application/json',
     [CLIENT_HEADER]: WEB_CLIENT,
   };
-  if (body !== undefined) headers['Content-Type'] = 'application/json';
+  const isForm = body instanceof FormData;
+  // FormData sets its own multipart boundary header.
+  if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
 
   const response = await fetch(`${API_BASE_URL}${path}`, {
     method,
     headers,
     credentials: 'same-origin',
-    ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+    ...(body !== undefined ? { body: isForm ? body : JSON.stringify(body) } : {}),
     ...(signal ? { signal } : {}),
   });
 
@@ -105,4 +121,57 @@ export const api = {
     }),
   resendVerification: () =>
     send<{ message: string }>('/v1/auth/verify-email/resend', { method: 'POST' }),
+
+  // ---------- Profile ----------
+  profile: (signal?: AbortSignal) => send<OwnProfile>('/v1/profile', { signal }),
+  updateProfile: (body: UpdateProfileRequest) =>
+    send<OwnProfile>('/v1/profile', { method: 'PATCH', body }),
+  uploadAvatar: (file: Blob) => {
+    const form = new FormData();
+    form.append('avatar', file);
+    return send<OwnProfile>('/v1/profile/avatar', { method: 'POST', body: form });
+  },
+  removeAvatar: () => send<OwnProfile>('/v1/profile/avatar', { method: 'DELETE' }),
+
+  // ---------- Discovery and public profiles ----------
+  discover: (input: string, signal?: AbortSignal) =>
+    send<PublicProfile>(`/v1/discovery/ogc/${encodeURIComponent(input)}`, { signal }),
+  publicProfile: (ogcId: string, signal?: AbortSignal) =>
+    send<PublicProfile>(`/v1/profiles/${encodeURIComponent(ogcId)}`, { signal }),
+
+  // ---------- Contacts ----------
+  contacts: (cursor?: string, signal?: AbortSignal) =>
+    send<Page<ContactView>>(`/v1/contacts${pageQuery(cursor)}`, { signal }),
+  incomingRequests: (cursor?: string, signal?: AbortSignal) =>
+    send<Page<ContactRequestView>>(`/v1/contacts/requests/incoming${pageQuery(cursor)}`, {
+      signal,
+    }),
+  outgoingRequests: (cursor?: string, signal?: AbortSignal) =>
+    send<Page<ContactRequestView>>(`/v1/contacts/requests/outgoing${pageQuery(cursor)}`, {
+      signal,
+    }),
+  sendContactRequest: (ogcId: string) =>
+    send<ContactRequestResult>('/v1/contacts/requests', { method: 'POST', body: { ogcId } }),
+  acceptRequest: (id: string) =>
+    send<undefined>(`/v1/contacts/requests/${encodeURIComponent(id)}/accept`, { method: 'POST' }),
+  declineRequest: (id: string) =>
+    send<undefined>(`/v1/contacts/requests/${encodeURIComponent(id)}/decline`, { method: 'POST' }),
+  cancelRequest: (id: string) =>
+    send<undefined>(`/v1/contacts/requests/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  removeContact: (ogcId: string) =>
+    send<undefined>(`/v1/contacts/${encodeURIComponent(ogcId)}`, { method: 'DELETE' }),
+
+  // ---------- Blocks and reports ----------
+  blocks: (cursor?: string, signal?: AbortSignal) =>
+    send<Page<BlockView>>(`/v1/blocks${pageQuery(cursor)}`, { signal }),
+  block: (ogcId: string) =>
+    send<undefined>(`/v1/blocks/${encodeURIComponent(ogcId)}`, { method: 'POST' }),
+  unblock: (ogcId: string) =>
+    send<undefined>(`/v1/blocks/${encodeURIComponent(ogcId)}`, { method: 'DELETE' }),
+  reportUser: (body: ReportUserRequest) =>
+    send<{ received: true }>('/v1/reports/users', { method: 'POST', body }),
 };
+
+function pageQuery(cursor: string | undefined): string {
+  return cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
+}

@@ -240,3 +240,111 @@ Hashes are PHC strings; outdated parameters are upgraded at the next successful 
 
 **Consequences.** Can switch to the built-in implementation once it is stable, without
 changing stored hashes.
+
+---
+
+## ADR-015: No usernames for now
+
+**Status:** Accepted (Phase 2)
+
+**Context.** Many messaging apps have `@usernames`. OGC already has a unique, human-readable,
+shareable identifier: the OGC ID.
+
+**Decision.** Do not introduce usernames in Phase 2. Display names are free-form and **not
+unique**; the OGC ID is the canonical identity.
+
+**Consequences.** No name-squatting, no impersonation through look-alike handles, no
+handle-change history to manage, and no new enumeration surface (handles are guessable;
+random OGC IDs are not). If memorable handles are wanted later, they must come with
+uniqueness under Unicode confusable normalisation, reserved and brand names, change limits,
+and moderation — a product decision first.
+
+---
+
+## ADR-016: Contacts, requests and blocks are separate relational models
+
+**Status:** Accepted (Phase 2)
+
+**Decision.** `contact_requests` (state machine with sender, timestamps and a partial unique
+index for one pending request per pair), `contacts` (one row per direction), and `blocks`
+(independent of contact state). All relationship rules live in `RelationshipService`.
+
+**Consequences.** Messaging can answer "are they contacts / is either blocked / who asked"
+with single indexed lookups. Blocking can never be confused with "declined". Per-direction
+contact rows cost twice the rows but give O(1) membership checks and per-owner metadata.
+
+---
+
+## ADR-017: Profile photos: object storage, re-encoding and authorised delivery
+
+**Status:** Accepted (Phase 2)
+
+**Decision.** Binary media never goes into PostgreSQL. An `ObjectStorage` port with a
+development-only local adapter (production: S3-compatible, to be chosen). Uploads are
+detected by content, decoded with a pixel limit, and re-encoded to 512×512 WebP with
+`sharp`; keys are server-generated UUIDs. Photos are served through the API so each request
+is authorised against the owner's privacy settings, rather than through public URLs.
+
+**Consequences.** Metadata and payloads are stripped; no path or filename handling; old
+photos are deleted. Serving through the API costs bandwidth — a CDN with signed, short-lived
+URLs can replace it later without changing clients' `avatarUrl` contract.
+
+---
+
+## ADR-018: Lightweight mobile navigation
+
+**Status:** Accepted (Phase 2)
+
+**Decision.** A small in-house stack navigator (with Android back handling) instead of Expo
+Router or React Navigation for now. Screens use only `useNavigation()`.
+
+**Consequences.** No new native dependencies this phase. Revisit when the app needs tabs,
+native transitions, or route-level deep linking (Phase 3 messaging is the likely trigger).
+
+---
+
+## ADR-019: Authenticate before rate limiting; limit signed-in traffic per account
+
+**Status:** Accepted (Phase 2) — amends the Phase 1 guard order
+
+**Decision.** `AuthGuard` runs before `OgcThrottlerGuard`, which keys signed-in requests by
+account and anonymous ones by IP. Sensitive endpoints (discovery, requests, reports) set
+per-account limits.
+
+**Consequences.** An enumerator cannot evade discovery limits by rotating IPs; they would
+need many verified accounts. Anonymous floods against protected endpoints are rejected by
+authentication (a cheap indexed lookup) rather than throttled first.
+
+---
+
+## ADR-020: Identity links: custom scheme today, universal links next
+
+**Status:** Accepted (Phase 2); domain pending approval
+
+**Decision.** QR codes encode `ogc://id/<OGC ID>` (opens the app). The web app serves the
+same identity at `/id/<OGC ID>` and "Share my OGC" sends that https link. Once an official
+domain is approved: host `/.well-known/apple-app-site-association` and `assetlinks.json`,
+add associated domains / intent filters to the app, and switch the QR payload to
+`https://<domain>/id/<OGC ID>` so scans work with or without the app. The parser keeps
+accepting `ogc://` links indefinitely.
+
+---
+
+## ADR-021: Staff roles as the first authorization layer
+
+**Status:** Accepted (Phase 2)
+
+**Decision.** A `staff_roles` table (`MODERATOR`, `ADMIN`) loaded into `AuthContext` from
+the database on every request, and `@RequireStaffRole(...)` on staff endpoints. Roles are
+granted only by operators (database/CLI); no API grants roles and client-supplied role
+claims are ignored.
+
+**Consequences.** Report access is restricted today. The full admin console, role
+management UI, and MFA for staff come in Phase 9.
+
+---
+
+## ADR-006 amendment (Phase 2)
+
+`@ogc/ui` now also holds **platform-neutral visual primitives** that both clients must render
+identically — currently `qrSvgPath()`. It still contains no React or platform code.

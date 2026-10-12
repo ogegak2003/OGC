@@ -2,7 +2,7 @@
   "name": "@ogc/ui",
   "version": "0.0.0",
   "private": true,
-  "description": "OGC design tokens — the single source of truth for the visual identity across web and mobile",
+  "description": "OGC design tokens and platform-neutral visual primitives (e.g. QR paths) for web and mobile",
   "license": "UNLICENSED",
   "type": "module",
   "sideEffects": false,
@@ -24,8 +24,12 @@
   "devDependencies": {
     "@ogc/config": "workspace:*",
     "@ogc/eslint-config": "workspace:*",
+    "@types/qrcode": "1.5.6",
     "eslint": "10.12.0",
     "typescript": "~6.0.3",
     "vitest": "5.0.3"
+  },
+  "dependencies": {
+    "qrcode": "1.5.4"
   }
 }

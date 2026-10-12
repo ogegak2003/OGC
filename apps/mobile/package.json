@@ -20,10 +20,12 @@
     "@ogc/ui": "workspace:*",
     "@ogc/validation": "workspace:*",
     "expo": "~57.0.27",
+    "expo-image-picker": "~57.0.20",
     "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "react": "19.2.3",
     "react-native": "0.86.3",
+    "react-native-svg": "15.15.4",
     "zod": "4.6.5"
   },
   "devDependencies": {

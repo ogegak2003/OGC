@@ -53,6 +53,48 @@ enum AuditEventType {
   EMAIL_VERIFICATION_SENT
   EMAIL_VERIFIED
   EMAIL_VERIFICATION_FAILED
+  PROFILE_UPDATED
+  PRIVACY_SETTINGS_CHANGED
+  USER_BLOCKED
+  USER_UNBLOCKED
+  USER_REPORTED
+}
+
+enum ProfileVisibility {
+  EVERYONE
+  CONTACTS
+}
+
+enum ContactRequestPolicy {
+  EVERYONE
+  NOBODY
+}
+
+enum ContactRequestStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  CANCELLED
+}
+
+enum ReportCategory {
+  SPAM
+  HARASSMENT
+  IMPERSONATION
+  INAPPROPRIATE_CONTENT
+  SCAM_OR_FRAUD
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum StaffRole {
+  MODERATOR
+  ADMIN
 }
 
 /// An OGC account. Identity only: credentials, profile and sessions live in their own tables.
@@ -72,16 +114,32 @@ model User {
   devices                 Device[]
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
+  staffRoles              StaffRoleAssignment[]
+  contactRequestsSent     ContactRequest[]         @relation("ContactRequestSender")
+  contactRequestsReceived ContactRequest[]         @relation("ContactRequestRecipient")
+  contacts                Contact[]                @relation("ContactOwner")
+  contactOf               Contact[]                @relation("ContactTarget")
+  blocksMade              Block[]                  @relation("Blocker")
+  blocksReceived          Block[]                  @relation("Blocked")
+  reportsMade             UserReport[]             @relation("Reporter")
+  reportsReceived         UserReport[]             @relation("ReportedUser")
 
   @@map("users")
 }
 
-/// Public-facing presentation of a user. Separate from identity so it can evolve independently.
+/// Public-facing presentation of a user, plus the privacy settings that govern its exposure.
 model Profile {
-  userId      String   @id @map("user_id") @db.Uuid
-  displayName String   @map("display_name") @db.VarChar(64)
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  userId               String               @id @map("user_id") @db.Uuid
+  /// Not unique: the OGC ID is the identifier (ADR-015).
+  displayName          String               @map("display_name") @db.VarChar(64)
+  bio                  String?              @db.VarChar(280)
+  /// Server-generated object-storage key of the processed avatar; never a client filename.
+  avatarKey            String?              @unique @map("avatar_key") @db.VarChar(128)
+  profileVisibility    ProfileVisibility    @default(CONTACTS) @map("profile_visibility")
+  discoverable         Boolean              @default(true)
+  contactRequestPolicy ContactRequestPolicy @default(EVERYONE) @map("contact_request_policy")
+  createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -90,16 +148,16 @@ model Profile {
 
 /// An authentication method. One row per method type per user; passkeys/OAuth add types later.
 model Credential {
-  id                String         @id @default(uuid(7)) @db.Uuid
-  userId            String         @map("user_id") @db.Uuid
-  type              CredentialType
+  id               String         @id @default(uuid(7)) @db.Uuid
+  userId           String         @map("user_id") @db.Uuid
+  type             CredentialType
   /// Argon2id PHC string. Never returned by any API or written to logs.
-  secretHash        String         @map("secret_hash") @db.VarChar(255)
-  failedLoginCount  Int            @default(0) @map("failed_login_count")
-  lockedUntil       DateTime?      @map("locked_until") @db.Timestamptz(3)
-  lastUsedAt        DateTime?      @map("last_used_at") @db.Timestamptz(3)
-  createdAt         DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt         DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  secretHash       String         @map("secret_hash") @db.VarChar(255)
+  failedLoginCount Int            @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?      @map("locked_until") @db.Timestamptz(3)
+  lastUsedAt       DateTime?      @map("last_used_at") @db.Timestamptz(3)
+  createdAt        DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
@@ -126,19 +184,19 @@ model Device {
 
 /// An authenticated session on one device. Tokens are opaque; only their SHA-256 hashes are stored.
 model Session {
-  id                String                   @id @default(uuid(7)) @db.Uuid
-  userId            String                   @map("user_id") @db.Uuid
-  deviceId          String                   @map("device_id") @db.Uuid
-  accessTokenHash   String                   @unique @map("access_token_hash") @db.Char(64)
-  accessExpiresAt   DateTime                 @map("access_expires_at") @db.Timestamptz(3)
+  id               String                   @id @default(uuid(7)) @db.Uuid
+  userId           String                   @map("user_id") @db.Uuid
+  deviceId         String                   @map("device_id") @db.Uuid
+  accessTokenHash  String                   @unique @map("access_token_hash") @db.Char(64)
+  accessExpiresAt  DateTime                 @map("access_expires_at") @db.Timestamptz(3)
   /// Hash of the current refresh token; replaced on every rotation.
-  refreshTokenHash  String                   @map("refresh_token_hash") @db.Char(64)
+  refreshTokenHash String                   @map("refresh_token_hash") @db.Char(64)
   /// Absolute lifetime: the session cannot be refreshed past this point.
-  expiresAt         DateTime                 @map("expires_at") @db.Timestamptz(3)
-  lastUsedAt        DateTime                 @default(now()) @map("last_used_at") @db.Timestamptz(3)
-  revokedAt         DateTime?                @map("revoked_at") @db.Timestamptz(3)
-  revocationReason  SessionRevocationReason? @map("revocation_reason")
-  createdAt         DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt        DateTime                 @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt       DateTime                 @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  revokedAt        DateTime?                @map("revoked_at") @db.Timestamptz(3)
+  revocationReason SessionRevocationReason? @map("revocation_reason")
+  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
@@ -166,17 +224,98 @@ model EmailVerificationToken {
 /// Append-only security event log. No foreign keys: audit history outlives the records it describes.
 /// UPDATE and DELETE are rejected by a database trigger.
 model AuditEvent {
-  id         String         @id @default(uuid(7)) @db.Uuid
-  type       AuditEventType
-  userId     String?        @map("user_id") @db.Uuid
-  sessionId  String?        @map("session_id") @db.Uuid
-  ipAddress  String?        @map("ip_address") @db.Inet
-  userAgent  String?        @map("user_agent") @db.VarChar(256)
+  id        String         @id @default(uuid(7)) @db.Uuid
+  type      AuditEventType
+  userId    String?        @map("user_id") @db.Uuid
+  sessionId String?        @map("session_id") @db.Uuid
+  ipAddress String?        @map("ip_address") @db.Inet
+  userAgent String?        @map("user_agent") @db.VarChar(256)
   /// Non-sensitive context only (e.g. failure reason). Never credentials or tokens.
-  metadata   Json?
-  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  metadata  Json?
+  createdAt DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
 
   @@index([userId, createdAt])
   @@index([type, createdAt])
   @@map("audit_events")
+}
+
+/// Platform staff roles (moderation, administration). Granted only by operators, never by clients.
+model StaffRoleAssignment {
+  userId    String    @map("user_id") @db.Uuid
+  role      StaffRole
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([userId, role])
+  @@map("staff_roles")
+}
+
+/// A request to become contacts. At most one PENDING request per pair of users (partial unique index).
+model ContactRequest {
+  id          String               @id @default(uuid(7)) @db.Uuid
+  senderId    String               @map("sender_id") @db.Uuid
+  recipientId String               @map("recipient_id") @db.Uuid
+  status      ContactRequestStatus @default(PENDING)
+  createdAt   DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  respondedAt DateTime?            @map("responded_at") @db.Timestamptz(3)
+
+  sender    User @relation("ContactRequestSender", fields: [senderId], references: [id], onDelete: Cascade)
+  recipient User @relation("ContactRequestRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, status, id])
+  @@index([senderId, status, id])
+  @@map("contact_requests")
+}
+
+/// An accepted contact, stored once per direction so each side can be listed and annotated cheaply.
+model Contact {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  ownerId   String   @map("owner_id") @db.Uuid
+  contactId String   @map("contact_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  owner   User @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  contact User @relation("ContactTarget", fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([ownerId, contactId])
+  @@index([ownerId, id])
+  @@index([contactId])
+  @@map("contacts")
+}
+
+/// One user blocking another. Independent of contact state.
+model Block {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  blockerId String   @map("blocker_id") @db.Uuid
+  blockedId String   @map("blocked_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  blocker User @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blocked User @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+
+  @@unique([blockerId, blockedId])
+  @@index([blockerId, id])
+  @@index([blockedId])
+  @@map("blocks")
+}
+
+/// A user's report about another user, for moderators. Survives deletion of either account.
+model UserReport {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  reporterId     String?        @map("reporter_id") @db.Uuid
+  reportedUserId String?        @map("reported_user_id") @db.Uuid
+  category       ReportCategory
+  description    String?        @db.VarChar(1000)
+  status         ReportStatus   @default(OPEN)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  reporter     User? @relation("Reporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  reportedUser User? @relation("ReportedUser", fields: [reportedUserId], references: [id], onDelete: SetNull)
+
+  @@index([status, id])
+  @@index([reportedUserId])
+  @@index([reporterId, createdAt])
+  @@map("user_reports")
 }

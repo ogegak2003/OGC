@@ -44,6 +44,8 @@ Source of truth: `apps/api/src/config/env.schema.ts`.
 | `EMAIL_TRANSPORT`   | `disabled`                         | `disabled` (send nothing) or `outbox` (development files; rejected in production)   |
 | `EMAIL_OUTBOX_DIR`  | `.dev-outbox`                      | Where the outbox writes emails                                                      |
 | `COOKIE_SECURE`     | `true` in production, else `false` | Secure flag and `__Host-`/`__Secure-` cookie prefixes; must be `true` in production |
+| `STORAGE_DRIVER`    | `disabled`                         | `disabled` (uploads refused) or `local` (development files; rejected in production) |
+| `STORAGE_LOCAL_DIR` | `.dev-storage`                     | Where the local storage adapter keeps media                                         |
 | `TEST_DATABASE_URL` | —                                  | Tests only: disposable database (name must end in `_test`; reset on every run)      |
 
 ## Adding a variable

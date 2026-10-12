@@ -17,3 +17,20 @@ export type {
   VerifyEmailResponse,
 } from './auth.js';
 export { CLIENT_HEADER, WEB_CLIENT } from './auth.js';
+export type {
+  BlockView,
+  ContactRequestPolicy,
+  ContactRequestResult,
+  ContactRequestView,
+  ContactView,
+  OwnProfile,
+  Page,
+  PrivacySettings,
+  ProfileSummary,
+  ProfileVisibility,
+  PublicProfile,
+  Relationship,
+  ReportCategory,
+  ReportStatus,
+  UserReportView,
+} from './social.js';

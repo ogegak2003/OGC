@@ -3,10 +3,17 @@ import type {
   ApiErrorBody,
   ApiErrorCode,
   AuthResponse,
+  BlockView,
+  ContactRequestResult,
+  ContactRequestView,
+  ContactView,
   DevicePlatform,
+  OwnProfile,
+  Page,
+  PublicProfile,
   RegisterResponse,
 } from '@ogc/types';
-import type { RegisterRequest } from '@ogc/validation';
+import type { RegisterRequest, ReportUserRequest, UpdateProfileRequest } from '@ogc/validation';
 import type { TokenStore } from '../auth/token-store';
 
 export class ApiError extends Error {
@@ -43,17 +50,23 @@ export class ApiClient {
 
   private async send<T>(
     path: string,
-    init: { method?: 'GET' | 'POST'; body?: unknown; auth?: boolean; retry?: boolean } = {},
+    init: {
+      method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+      body?: unknown;
+      auth?: boolean;
+      retry?: boolean;
+    } = {},
   ): Promise<T> {
     const { method = 'GET', body, auth = false, retry = true } = init;
     const headers: Record<string, string> = { Accept: 'application/json' };
-    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    const isForm = body instanceof FormData;
+    if (body !== undefined && !isForm) headers['Content-Type'] = 'application/json';
     if (auth && this.accessToken) headers.Authorization = `Bearer ${this.accessToken}`;
 
     const response = await this.fetchImpl(`${this.options.baseUrl}${path}`, {
       method,
       headers,
-      ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
+      ...(body !== undefined ? { body: isForm ? body : JSON.stringify(body) } : {}),
     });
 
     if (response.status === 401 && auth && retry && (await this.refresh())) {
@@ -132,8 +145,115 @@ export class ApiClient {
     }
   }
 
+  // ---------- Profile ----------
+  profile(): Promise<OwnProfile> {
+    return this.send('/v1/profile', { auth: true });
+  }
+
+  updateProfile(body: UpdateProfileRequest): Promise<OwnProfile> {
+    return this.send('/v1/profile', { method: 'PATCH', body, auth: true });
+  }
+
+  /** Uploads a local image file (from the image picker). The server re-validates and re-encodes it. */
+  uploadAvatar(file: { uri: string; mimeType: string }): Promise<OwnProfile> {
+    const form = new FormData();
+    // React Native's FormData accepts a { uri, name, type } file descriptor.
+    form.append('avatar', {
+      uri: file.uri,
+      name: 'avatar',
+      type: file.mimeType,
+    } as unknown as Blob);
+    return this.send('/v1/profile/avatar', { method: 'POST', body: form, auth: true });
+  }
+
+  removeAvatar(): Promise<OwnProfile> {
+    return this.send('/v1/profile/avatar', { method: 'DELETE', auth: true });
+  }
+
+  /** Image source for a profile photo: fetched with the bearer token so privacy rules apply. */
+  avatarSource(avatarUrl: string | null): { uri: string; headers: Record<string, string> } | null {
+    if (!avatarUrl || !this.accessToken) return null;
+    const origin = this.options.baseUrl.replace(/\/api\/?$/, '');
+    return {
+      uri: `${origin}${avatarUrl}`,
+      headers: { Authorization: `Bearer ${this.accessToken}` },
+    };
+  }
+
+  // ---------- Discovery and profiles ----------
+  discover(input: string): Promise<PublicProfile> {
+    return this.send(`/v1/discovery/ogc/${encodeURIComponent(input)}`, { auth: true });
+  }
+
+  publicProfile(ogcId: string): Promise<PublicProfile> {
+    return this.send(`/v1/profiles/${encodeURIComponent(ogcId)}`, { auth: true });
+  }
+
+  // ---------- Contacts ----------
+  contacts(cursor?: string): Promise<Page<ContactView>> {
+    return this.send(`/v1/contacts${page(cursor)}`, { auth: true });
+  }
+
+  incomingRequests(cursor?: string): Promise<Page<ContactRequestView>> {
+    return this.send(`/v1/contacts/requests/incoming${page(cursor)}`, { auth: true });
+  }
+
+  outgoingRequests(cursor?: string): Promise<Page<ContactRequestView>> {
+    return this.send(`/v1/contacts/requests/outgoing${page(cursor)}`, { auth: true });
+  }
+
+  sendContactRequest(ogcId: string): Promise<ContactRequestResult> {
+    return this.send('/v1/contacts/requests', { method: 'POST', body: { ogcId }, auth: true });
+  }
+
+  acceptRequest(id: string): Promise<void> {
+    return this.send(`/v1/contacts/requests/${encodeURIComponent(id)}/accept`, {
+      method: 'POST',
+      auth: true,
+    });
+  }
+
+  declineRequest(id: string): Promise<void> {
+    return this.send(`/v1/contacts/requests/${encodeURIComponent(id)}/decline`, {
+      method: 'POST',
+      auth: true,
+    });
+  }
+
+  cancelRequest(id: string): Promise<void> {
+    return this.send(`/v1/contacts/requests/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      auth: true,
+    });
+  }
+
+  removeContact(ogcId: string): Promise<void> {
+    return this.send(`/v1/contacts/${encodeURIComponent(ogcId)}`, { method: 'DELETE', auth: true });
+  }
+
+  // ---------- Blocks and reports ----------
+  blocks(cursor?: string): Promise<Page<BlockView>> {
+    return this.send(`/v1/blocks${page(cursor)}`, { auth: true });
+  }
+
+  block(ogcId: string): Promise<void> {
+    return this.send(`/v1/blocks/${encodeURIComponent(ogcId)}`, { method: 'POST', auth: true });
+  }
+
+  unblock(ogcId: string): Promise<void> {
+    return this.send(`/v1/blocks/${encodeURIComponent(ogcId)}`, { method: 'DELETE', auth: true });
+  }
+
+  reportUser(body: ReportUserRequest): Promise<{ received: true }> {
+    return this.send('/v1/reports/users', { method: 'POST', body, auth: true });
+  }
+
   private async forget(): Promise<void> {
     this.accessToken = undefined;
     await this.options.store.clear();
   }
+}
+
+function page(cursor: string | undefined): string {
+  return cursor ? `?cursor=${encodeURIComponent(cursor)}` : '';
 }

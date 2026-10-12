@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { Navigate } from 'react-router';
+import { Navigate, useLocation } from 'react-router';
 import { Spinner } from '../components/ui';
 import { useAuth } from './auth-context';
 
@@ -12,8 +12,13 @@ export function RequireAccount({
   allowPending?: boolean;
 }) {
   const { state } = useAuth();
+  const location = useLocation();
   if (state.status === 'loading') return <Spinner label="Loading your account" />;
-  if (state.status === 'signed-out') return <Navigate to="/login" replace />;
+  if (state.status === 'signed-out') {
+    // Remember where the user was going (e.g. an OGC profile link) for after sign-in.
+    const next = encodeURIComponent(location.pathname + location.search);
+    return <Navigate to={`/login?next=${next}`} replace />;
+  }
   const pending = state.account.accountStatus === 'PENDING_VERIFICATION';
   if (pending && !allowPending) return <Navigate to="/verify" replace />;
   if (!pending && allowPending) return <Navigate to="/home" replace />;

@@ -22,7 +22,13 @@ export type ApiErrorCode =
   | 'EMAIL_NOT_VERIFIED'
   | 'INVALID_VERIFICATION_TOKEN'
   | 'CSRF_REJECTED'
-  | 'RATE_LIMITED';
+  | 'RATE_LIMITED'
+  | 'NOT_FOUND'
+  | 'FORBIDDEN'
+  | 'CONFLICT'
+  | 'CONTACT_REQUESTS_DISABLED'
+  | 'INVALID_MEDIA'
+  | 'MEDIA_UNAVAILABLE';
 
 /**
  * Error body returned by the API. Never contains stack traces or internal

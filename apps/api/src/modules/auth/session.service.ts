@@ -100,7 +100,9 @@ export class SessionService {
     if (!isAccessToken(accessToken)) throw unauthenticated();
     const session = await this.prisma.session.findUnique({
       where: { accessTokenHash: hashToken(accessToken) },
-      include: { user: { select: { ogcId: true, status: true } } },
+      include: {
+        user: { select: { ogcId: true, status: true, staffRoles: { select: { role: true } } } },
+      },
     });
     const now = Date.now();
     if (
@@ -132,6 +134,7 @@ export class SessionService {
       sessionId: session.id,
       deviceId: session.deviceId,
       via,
+      staffRoles: session.user.staffRoles.map((assignment) => assignment.role),
     };
   }
 

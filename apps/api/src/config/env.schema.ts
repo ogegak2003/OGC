@@ -37,6 +37,9 @@ export const envSchema = z
     /** `outbox` writes emails to local files (development only); `disabled` sends nothing. */
     EMAIL_TRANSPORT: z.enum(['disabled', 'outbox']).default('disabled'),
     EMAIL_OUTBOX_DIR: z.string().min(1).default('.dev-outbox'),
+    /** `local` stores media on disk (development only); `disabled` turns uploads off. */
+    STORAGE_DRIVER: z.enum(['disabled', 'local']).default('disabled'),
+    STORAGE_LOCAL_DIR: z.string().min(1).default('.dev-storage'),
     /** Defaults to true outside development and test. Required in production. */
     COOKIE_SECURE: z
       .enum(['true', 'false'])
@@ -75,6 +78,13 @@ export const envSchema = z
         code: 'custom',
         path: ['EMAIL_TRANSPORT'],
         message: 'The development email outbox cannot be used in production',
+      });
+    }
+    if (env.STORAGE_DRIVER === 'local') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['STORAGE_DRIVER'],
+        message: 'Local disk storage cannot be used in production; configure object storage',
       });
     }
   });

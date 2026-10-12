@@ -42,6 +42,13 @@ With `EMAIL_TRANSPORT=outbox` (the default in `.env.example`), the API writes ea
 `apps/api/.dev-outbox/` instead of sending it. To create an account locally: register in
 the web app, open the newest `*-verify-email-*.txt` file there, and follow the link.
 
+With `STORAGE_DRIVER=local`, profile photos are stored under `apps/api/.dev-storage/`
+(gitignored).
+
+To try staff-only endpoints locally, grant a role directly in the database, e.g.
+`INSERT INTO staff_roles (user_id, role) SELECT id, 'MODERATOR' FROM users WHERE ogc_id = 'OGC…';`
+There is intentionally no API for granting roles.
+
 ## Production-like stack
 
 ```bash

@@ -1,6 +1,14 @@
 import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { account, bodyOf, json, mockApi, renderApp, unauthenticated } from '../test/helpers';
+import {
+  account,
+  bodyOf,
+  json,
+  mockApi,
+  ownProfile,
+  renderApp,
+  unauthenticated,
+} from '../test/helpers';
 
 afterEach(() => {
   cleanup();
@@ -74,6 +82,7 @@ describe('sign in', () => {
     const fetchMock = mockApi({
       ...signedOut,
       'POST /api/v1/auth/login': () => json({ account: account(), session: {} }),
+      'GET /api/v1/profile': () => json(ownProfile()),
     });
     renderApp('/login');
     await screen.findByRole('heading', { name: 'Sign in to OGC' });
@@ -85,7 +94,7 @@ describe('sign in', () => {
     expect(screen.getByText('OGC 306 841 127')).toBeTruthy();
     const qr = screen.getByRole('img', { name: 'QR code for OGC306841127' });
     expect(qr.closest('figure')?.getAttribute('data-payload')).toBe('ogc://id/OGC306841127');
-    expect(screen.getByText('Verified')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Share my OGC' })).toBeTruthy();
 
     const login = fetchMock.mock.calls.find(([url]) => url === '/api/v1/auth/login');
     expect(bodyOf(login?.[1])).toEqual({
@@ -199,6 +208,7 @@ describe('signed-in home', () => {
     let signedIn = true;
     mockApi({
       'GET /api/v1/auth/me': () => (signedIn ? json(account()) : unauthenticated()),
+      'GET /api/v1/profile': () => json(ownProfile()),
       'POST /api/v1/auth/refresh': unauthenticated,
       'POST /api/v1/auth/logout': () => {
         signedIn = false;

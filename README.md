@@ -3,9 +3,10 @@
 OGC is a global communication platform built around a permanent public **OGC identity**
 (`OGC000001`, `OGC000002`, …) that does not depend on exposing a phone number.
 
-> **Status: Phase 1 — identity and authentication.** Users can create an account, verify
-> their email, sign in on web and mobile, and receive a random, permanent OGC ID. Messaging
-> and calls are not built yet. See [the roadmap](docs/product/roadmap.md).
+> **Status: Phase 2 — profiles, contacts and identity discovery.** People can create an
+> account, manage their profile and privacy, find each other by OGC ID or QR code, add and
+> manage contacts, block and report. Messaging and calls are not built yet. See
+> [the roadmap](docs/product/roadmap.md).
 
 © ObagaGlobal Ltd. Proprietary — see [LICENSE](LICENSE).
 
@@ -86,7 +87,7 @@ Run a single workspace with a filter, e.g. `pnpm --filter @ogc/api test`.
 
 ## Documentation
 
-- Product: [overview](docs/product/overview.md) · [OGC identity](docs/product/ogc-identity.md) · [roadmap](docs/product/roadmap.md)
-- Architecture: [overview](docs/architecture/overview.md) · [identity & authentication](docs/architecture/identity-and-authentication.md) · [data model](docs/architecture/data-model.md) · [decisions](docs/architecture/decisions.md)
+- Product: [overview](docs/product/overview.md) · [profiles & contacts](docs/product/profiles-and-contacts.md) · [OGC identity](docs/product/ogc-identity.md) · [roadmap](docs/product/roadmap.md)
+- Architecture: [overview](docs/architecture/overview.md) · [identity & authentication](docs/architecture/identity-and-authentication.md) · [social graph](docs/architecture/social-graph.md) · [data model](docs/architecture/data-model.md) · [decisions](docs/architecture/decisions.md)
 - Development: [setup](docs/development/setup.md) · [environment variables](docs/development/environment.md) · [Git workflow](docs/development/git-workflow.md)
-- Security: [principles & controls](docs/security/security-principles.md) · [authentication](docs/security/authentication.md) · [dependency policy](docs/security/dependency-policy.md)
+- Security: [principles & controls](docs/security/security-principles.md) · [authentication](docs/security/authentication.md) · [social safety](docs/security/social-safety.md) · [dependency policy](docs/security/dependency-policy.md)

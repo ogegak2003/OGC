@@ -173,3 +173,43 @@ export function setCookies(res: request.Response): string[] {
   const raw = res.headers['set-cookie'] as unknown;
   return Array.isArray(raw) ? (raw as string[]) : [];
 }
+
+export interface TestUser {
+  email: string;
+  ogcId: string;
+  userId: string;
+  accessToken: string;
+  /** Adds this user's bearer token and a unique client IP to a request. */
+  as: (req: request.Test) => request.Test;
+}
+
+/** Registers, verifies and signs in a new ACTIVE user. */
+export async function signedInUser(t: TestApp, displayName = 'Test User'): Promise<TestUser> {
+  const email = await createActiveAccount(t);
+  const { accessToken } = await nativeTokens(t, email);
+  const user = await t.prisma.user.findUniqueOrThrow({ where: { email } });
+  if (displayName !== 'Test User') {
+    await t.prisma.profile.update({ where: { userId: user.id }, data: { displayName } });
+  }
+  return {
+    email,
+    ogcId: user.ogcId,
+    userId: user.id,
+    accessToken,
+    as: (req) =>
+      req.set('Authorization', `Bearer ${accessToken}`).set('X-Forwarded-For', clientIp()),
+  };
+}
+
+/** Makes `a` and `b` contacts through the public API. */
+export async function makeContacts(t: TestApp, a: TestUser, b: TestUser): Promise<void> {
+  await a
+    .as(request(t.server).post('/api/v1/contacts/requests'))
+    .send({ ogcId: b.ogcId })
+    .expect(201);
+  const incoming = await b
+    .as(request(t.server).get('/api/v1/contacts/requests/incoming'))
+    .expect(200);
+  const id = (incoming.body as { items: { id: string }[] }).items[0]?.id ?? '';
+  await b.as(request(t.server).post(`/api/v1/contacts/requests/${id}/accept`)).expect(204);
+}

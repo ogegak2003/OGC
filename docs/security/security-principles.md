@@ -23,7 +23,8 @@ This document lists what exists today and what each later phase must add.
 
 ## Controls in place
 
-Phase 1 authentication controls are detailed in [authentication.md](authentication.md).
+Phase 1 authentication controls are detailed in [authentication.md](authentication.md);
+Phase 2 social and media controls in [social-safety.md](social-safety.md).
 
 | Control                                     | Implementation                                                                                                                         | Verification                                        |
 | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
@@ -56,6 +57,10 @@ Phase 1 authentication controls are detailed in [authentication.md](authenticati
 | Append-only audit log                       | `audit_events` with a database trigger rejecting UPDATE/DELETE                                                                         | Database integration test                           |
 | Database integrity                          | Unique indexes, FKs, CHECK constraints, immutable OGC IDs, migration drift check                                                       | Database integration tests                          |
 | Mobile credential storage                   | Refresh token in Keychain/Keystore (`expo-secure-store`, device-only); access token in memory; no AsyncStorage                         | Mobile unit tests                                   |
+| Social access control                       | Role-scoped queries (no IDOR), centralised `RelationshipService`, strict schemas (no mass assignment)                                  | Phase 2 integration tests                           |
+| Enumeration resistance (discovery)          | Exact lookup only, per-account limits, identical 404s for hidden/blocked/unknown                                                       | `discovery.test.ts`                                 |
+| Upload safety                               | Content sniffing, size and pixel limits, re-encoding, server-generated keys, authorised delivery                                       | `avatar-image`, `adapters`, `profiles` tests        |
+| Staff-only data                             | `@RequireStaffRole`, database-backed roles                                                                                             | `blocks-reports.test.ts`                            |
 
 ## Required in later phases
 
