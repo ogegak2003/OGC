@@ -1,0 +1,14 @@
+**/node_modules
+**/dist
+**/build
+**/coverage
+**/.turbo
+**/.expo
+**/.env
+**/.env.*
+!**/.env.example
+**/*.log
+.git
+.github
+apps/api/src/generated
+docs

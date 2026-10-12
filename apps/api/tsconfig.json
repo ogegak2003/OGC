@@ -1,0 +1,10 @@
+{
+  "extends": "@ogc/config/tsconfig/node.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true
+  },
+  "include": ["src", "test", "prisma.config.ts", "vitest.config.ts"]
+}

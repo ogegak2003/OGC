@@ -1,0 +1,35 @@
+{
+  "expo": {
+    "name": "OGC",
+    "slug": "ogc",
+    "scheme": "ogc",
+    "version": "0.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0B0A",
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#0B0B0A"
+    },
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.obagaglobal.ogc"
+    },
+    "android": {
+      "package": "com.obagaglobal.ogc",
+      "adaptiveIcon": {
+        "backgroundColor": "#0B0B0A",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "allowBackup": false,
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    }
+  }
+}

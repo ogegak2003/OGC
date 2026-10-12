@@ -1,0 +1,70 @@
+# OGC local development stack.
+#
+#   pnpm db:up              # PostgreSQL only (default)
+#   docker compose -f infrastructure/docker/docker-compose.yml --profile app up --build
+#                           # PostgreSQL + API + web, as production-like containers
+#
+# Credentials come from infrastructure/docker/.env (copy .env.example). Ports bind
+# to 127.0.0.1 only so local services are not exposed to the network.
+
+name: ogc
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ogc}
+      POSTGRES_USER: ${POSTGRES_USER:-ogc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in infrastructure/docker/.env}
+    ports:
+      - '127.0.0.1:${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    profiles: [app]
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LOG_LEVEL: info
+      TRUST_PROXY_HOPS: 1
+      # Browsers reach the API same-origin via the web container's /api proxy, so no CORS.
+      CORS_ORIGINS: ''
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ogc}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ogc}?schema=public
+    ports:
+      - '127.0.0.1:${API_PORT:-3000}:3000'
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+  web:
+    profiles: [app]
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/web.Dockerfile
+    depends_on:
+      - api
+    ports:
+      - '127.0.0.1:${WEB_PORT:-8080}:8080'
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+
+volumes:
+  postgres-data:

@@ -1,0 +1,16 @@
+// OGC database schema.
+//
+// Phase 0 intentionally defines no models. Domain models (identity, accounts,
+// messaging, …) are introduced in later phases, each via a reviewed migration.
+// Connection settings live in prisma.config.ts and come from DATABASE_URL.
+
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
