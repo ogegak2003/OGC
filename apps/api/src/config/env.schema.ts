@@ -29,13 +29,52 @@ export const envSchema = z
       .refine((value) => /^postgres(?:ql)?:\/\//.test(value), {
         message: 'DATABASE_URL must be a postgresql:// connection string',
       }),
+    /** Public URL of the web client; used to build links in emails. */
+    WEB_APP_URL: z
+      .url()
+      .transform((value) => value.replace(/\/+$/, ''))
+      .default('http://localhost:5173'),
+    /** `outbox` writes emails to local files (development only); `disabled` sends nothing. */
+    EMAIL_TRANSPORT: z.enum(['disabled', 'outbox']).default('disabled'),
+    EMAIL_OUTBOX_DIR: z.string().min(1).default('.dev-outbox'),
+    /** Defaults to true outside development and test. Required in production. */
+    COOKIE_SECURE: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .optional(),
   })
+  .transform((env) => ({
+    ...env,
+    COOKIE_SECURE: env.COOKIE_SECURE ?? env.NODE_ENV === 'production',
+  }))
   .superRefine((env, ctx) => {
-    if (env.NODE_ENV === 'production' && env.CORS_ORIGINS.some((o) => !o.startsWith('https://'))) {
+    if (env.NODE_ENV !== 'production') return;
+    if (env.CORS_ORIGINS.some((o) => !o.startsWith('https://'))) {
       ctx.addIssue({
         code: 'custom',
         path: ['CORS_ORIGINS'],
         message: 'Production CORS origins must use https://',
+      });
+    }
+    if (!env.WEB_APP_URL.startsWith('https://')) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['WEB_APP_URL'],
+        message: 'Production WEB_APP_URL must use https://',
+      });
+    }
+    if (!env.COOKIE_SECURE) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['COOKIE_SECURE'],
+        message: 'Cookies must be Secure in production',
+      });
+    }
+    if (env.EMAIL_TRANSPORT === 'outbox') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['EMAIL_TRANSPORT'],
+        message: 'The development email outbox cannot be used in production',
       });
     }
   });

@@ -3,8 +3,9 @@
 OGC is a global communication platform built around a permanent public **OGC identity**
 (`OGC000001`, `OGC000002`, …) that does not depend on exposing a phone number.
 
-> **Status: Phase 0 — engineering foundation.** No product features (accounts, messaging,
-> calls) exist yet. See [the roadmap](docs/product/roadmap.md).
+> **Status: Phase 1 — identity and authentication.** Users can create an account, verify
+> their email, sign in on web and mobile, and receive a random, permanent OGC ID. Messaging
+> and calls are not built yet. See [the roadmap](docs/product/roadmap.md).
 
 © ObagaGlobal Ltd. Proprietary — see [LICENSE](LICENSE).
 
@@ -61,6 +62,7 @@ pnpm db:up
 # API configuration
 cp apps/api/.env.example apps/api/.env
 
+pnpm --filter @ogc/api db:migrate   # apply database migrations
 pnpm dev            # API on :3000, web on :5173, Expo dev server
 ```
 
@@ -85,6 +87,6 @@ Run a single workspace with a filter, e.g. `pnpm --filter @ogc/api test`.
 ## Documentation
 
 - Product: [overview](docs/product/overview.md) · [OGC identity](docs/product/ogc-identity.md) · [roadmap](docs/product/roadmap.md)
-- Architecture: [overview](docs/architecture/overview.md) · [decisions](docs/architecture/decisions.md)
+- Architecture: [overview](docs/architecture/overview.md) · [identity & authentication](docs/architecture/identity-and-authentication.md) · [data model](docs/architecture/data-model.md) · [decisions](docs/architecture/decisions.md)
 - Development: [setup](docs/development/setup.md) · [environment variables](docs/development/environment.md) · [Git workflow](docs/development/git-workflow.md)
-- Security: [principles & controls](docs/security/security-principles.md) · [dependency policy](docs/security/dependency-policy.md)
+- Security: [principles & controls](docs/security/security-principles.md) · [authentication](docs/security/authentication.md) · [dependency policy](docs/security/dependency-policy.md)

@@ -36,6 +36,9 @@ apps/mobile/ios/
 *.mobileprovision
 *.pem
 
+# Development email outbox (may contain verification links)
+.dev-outbox/
+
 # Testing
 coverage/
 

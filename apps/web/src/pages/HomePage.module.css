@@ -1,0 +1,167 @@
+.page {
+  min-height: 100dvh;
+  background: radial-gradient(70rem 30rem at 50% -10%, rgb(212 170 79 / 0.07), transparent 70%);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: min(100% - 2.5rem, 64rem);
+  margin: 0 auto;
+  padding: var(--ogc-space-5) 0;
+}
+
+.logo {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  font-weight: 600;
+  letter-spacing: 0.24em;
+}
+
+.main {
+  display: grid;
+  gap: var(--ogc-space-8);
+  width: min(100% - 2.5rem, 64rem);
+  margin: 0 auto;
+  padding: var(--ogc-space-6) 0 var(--ogc-space-16);
+  animation: enter var(--ogc-duration-slow) var(--ogc-easing-enter) both;
+}
+
+.greeting {
+  margin: 0;
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-lg);
+}
+
+/* ---------- OGC ID card ---------- */
+.identity {
+  display: grid;
+  gap: var(--ogc-space-8);
+  align-items: center;
+  padding: var(--ogc-space-8);
+  background: linear-gradient(
+    145deg,
+    var(--ogc-color-surface-raised),
+    var(--ogc-color-surface) 60%
+  );
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-xl);
+  box-shadow: var(--ogc-elevation-high);
+}
+
+@media (min-width: 760px) {
+  .identity {
+    grid-template-columns: 1fr auto;
+    padding: var(--ogc-space-10) var(--ogc-space-12);
+  }
+}
+
+.identityText {
+  display: grid;
+  gap: var(--ogc-space-3);
+}
+
+.label {
+  margin: 0;
+  color: var(--ogc-color-accent);
+  font-size: var(--ogc-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+}
+
+.ogcId {
+  margin: 0;
+  color: var(--ogc-color-text-primary);
+  font-family: var(--ogc-font-mono);
+  font-size: clamp(2rem, 6vw, 3.5rem);
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
+}
+
+.explainer {
+  max-width: 32rem;
+  margin: var(--ogc-space-2) 0 0;
+  color: var(--ogc-color-text-secondary);
+}
+
+.actions {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  margin-top: var(--ogc-space-3);
+}
+
+.liveRegion {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+}
+
+/* ---------- Account details ---------- */
+.details {
+  padding: var(--ogc-space-6) var(--ogc-space-8);
+  background: var(--ogc-color-surface);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-lg);
+}
+
+.sectionTitle {
+  margin: 0 0 var(--ogc-space-4);
+  font-size: var(--ogc-font-size-md);
+  font-weight: 600;
+}
+
+.list {
+  display: grid;
+  margin: 0;
+}
+
+.list > div {
+  display: grid;
+  gap: var(--ogc-space-1);
+  padding: var(--ogc-space-4) 0;
+  border-top: 1px solid var(--ogc-color-border);
+}
+
+@media (min-width: 640px) {
+  .list > div {
+    grid-template-columns: 12rem 1fr;
+  }
+}
+
+.list dt {
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-sm);
+}
+
+.list dd {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ogc-space-2);
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.badge {
+  padding: 0.125rem var(--ogc-space-2);
+  color: var(--ogc-color-success);
+  font-size: var(--ogc-font-size-xs);
+  font-weight: 600;
+  border: 1px solid rgb(93 190 138 / 0.4);
+  border-radius: var(--ogc-radius-full);
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}

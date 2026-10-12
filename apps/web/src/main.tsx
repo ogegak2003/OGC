@@ -2,7 +2,9 @@ import 'virtual:ogc-tokens.css';
 import './styles/global.css';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
+import { BrowserRouter } from 'react-router';
 import { App } from './app/App';
+import { AuthProvider } from './auth/AuthProvider';
 
 const container = document.getElementById('root');
 if (!container) {
@@ -11,6 +13,10 @@ if (!container) {
 
 createRoot(container).render(
   <StrictMode>
-    <App />
+    <BrowserRouter>
+      <AuthProvider>
+        <App />
+      </AuthProvider>
+    </BrowserRouter>
   </StrictMode>,
 );

@@ -4,14 +4,21 @@ import { APP_FILTER, APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { LoggerModule } from 'nestjs-pino';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter.js';
+import {
+  LOG_DESTINATION,
+  type LogDestination,
+  LogDestinationModule,
+} from './common/logging/log-destination.module.js';
 import { loggerConfig } from './common/logging/logger.config.js';
 import { type Env, validateEnv } from './config/env.schema.js';
 import { DatabaseModule } from './database/database.module.js';
+import { AuthGuard } from './modules/auth/auth.guard.js';
+import { AuthModule } from './modules/auth/auth.module.js';
 import { HealthModule } from './modules/health/health.module.js';
 
 /**
- * Root module of the modular monolith. Each business domain (identity,
- * messaging, …) is added later as its own module under src/modules.
+ * Root module of the modular monolith. Each business domain lives in its own
+ * module under src/modules (see docs/architecture/overview.md).
  */
 @Module({
   imports: [
@@ -23,12 +30,16 @@ import { HealthModule } from './modules/health/health.module.js';
       validate: validateEnv,
     }),
     LoggerModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) =>
-        loggerConfig({
-          LOG_LEVEL: config.get('LOG_LEVEL', { infer: true }),
-          NODE_ENV: config.get('NODE_ENV', { infer: true }),
-        }),
+      imports: [LogDestinationModule],
+      inject: [ConfigService, LOG_DESTINATION],
+      useFactory: (config: ConfigService<Env, true>, destination: LogDestination) =>
+        loggerConfig(
+          {
+            LOG_LEVEL: config.get('LOG_LEVEL', { infer: true }),
+            NODE_ENV: config.get('NODE_ENV', { infer: true }),
+          },
+          destination,
+        ),
     }),
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
@@ -41,9 +52,12 @@ import { HealthModule } from './modules/health/health.module.js';
     }),
     DatabaseModule,
     HealthModule,
+    AuthModule,
   ],
   providers: [
+    // Order matters: rate limiting runs before (cheaper than) authentication.
     { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useExisting: AuthGuard },
     { provide: APP_FILTER, useClass: HttpExceptionFilter },
   ],
 })

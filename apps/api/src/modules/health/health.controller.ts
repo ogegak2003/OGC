@@ -4,7 +4,9 @@ import type { HealthResponse, ReadinessResponse } from '@ogc/types';
 import type { Response } from 'express';
 import { PrismaService } from '../../database/prisma.service.js';
 import { SERVICE_NAME, SERVICE_VERSION } from '../../service-info.js';
+import { Public } from '../auth/decorators.js';
 
+@Public()
 @SkipThrottle()
 @Controller('health')
 export class HealthController {

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { validateEnv } from './env.schema.js';
 
 const base = { DATABASE_URL: 'postgresql://user:secret-value@localhost:5432/ogc' };
+const production = { ...base, NODE_ENV: 'production', WEB_APP_URL: 'https://ogc.test' };
 
 describe('validateEnv', () => {
   it('applies safe defaults', () => {
@@ -36,10 +37,9 @@ describe('validateEnv', () => {
     expect(() =>
       validateEnv({ ...base, NODE_ENV: 'production', CORS_ORIGINS: 'http://ogc.test' }),
     ).toThrow(/CORS_ORIGINS/);
-    expect(
-      validateEnv({ ...base, NODE_ENV: 'production', CORS_ORIGINS: 'https://ogc.test' })
-        .CORS_ORIGINS,
-    ).toEqual(['https://ogc.test']);
+    expect(validateEnv({ ...production, CORS_ORIGINS: 'https://ogc.test' }).CORS_ORIGINS).toEqual([
+      'https://ogc.test',
+    ]);
   });
 
   it('never echoes supplied values in error messages', () => {
@@ -50,5 +50,27 @@ describe('validateEnv', () => {
     } catch (error) {
       expect(String(error)).not.toContain(secret);
     }
+  });
+
+  it('derives secure cookies from the environment', () => {
+    expect(validateEnv(base).COOKIE_SECURE).toBe(false);
+    expect(validateEnv(production).COOKIE_SECURE).toBe(true);
+    expect(validateEnv({ ...base, COOKIE_SECURE: 'true' }).COOKIE_SECURE).toBe(true);
+  });
+
+  it('enforces production guardrails', () => {
+    expect(() => validateEnv({ ...production, WEB_APP_URL: 'http://ogc.test' })).toThrow(
+      /WEB_APP_URL/,
+    );
+    expect(() => validateEnv({ ...production, COOKIE_SECURE: 'false' })).toThrow(/COOKIE_SECURE/);
+    expect(() => validateEnv({ ...production, EMAIL_TRANSPORT: 'outbox' })).toThrow(
+      /EMAIL_TRANSPORT/,
+    );
+  });
+
+  it('strips trailing slashes from WEB_APP_URL', () => {
+    expect(validateEnv({ ...base, WEB_APP_URL: 'http://localhost:5173/' }).WEB_APP_URL).toBe(
+      'http://localhost:5173',
+    );
   });
 });

@@ -1,1 +1,41 @@
-export { formatOgcId, isOgcId, ogcIdSchema, parseOgcId, OGC_ID_PATTERN } from './ogc-id.js';
+export {
+  OGC_ID_DIGITS,
+  OGC_ID_MAX,
+  OGC_ID_MIN,
+  OGC_ID_PATTERN,
+  OGC_ID_PREFIX,
+  formatOgcIdForDisplay,
+  isOgcId,
+  normalizeOgcId,
+  ogcIdFromNumber,
+  ogcIdSchema,
+  parseOgcId,
+} from './ogc-id.js';
+export { DEFAULT_OGC_LINK_BASE, buildOgcIdLink, parseOgcIdLink } from './ogc-link.js';
+export {
+  DEVICE_PLATFORMS,
+  DISPLAY_NAME_MAX_LENGTH,
+  EMAIL_MAX_LENGTH,
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  deviceInfoSchema,
+  displayNameSchema,
+  emailSchema,
+  existingPasswordSchema,
+  loginRequestSchema,
+  newPasswordSchema,
+  normalizeEmail,
+  normalizePassword,
+  refreshRequestSchema,
+  registerRequestSchema,
+  verifyEmailRequestSchema,
+} from './auth.js';
+export type {
+  DeviceInfo,
+  LoginInput,
+  LoginRequest,
+  RefreshRequest,
+  RegisterInput,
+  RegisterRequest,
+  VerifyEmailRequest,
+} from './auth.js';

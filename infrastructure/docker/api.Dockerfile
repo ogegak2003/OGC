@@ -13,6 +13,13 @@ RUN pnpm turbo run build --filter=@ogc/api...
 RUN pnpm --filter=@ogc/api deploy --prod --legacy /out \
  && cp -r apps/api/dist /out/dist
 
+# ---- Migrate: one-shot job that applies database migrations, then exits ----
+# Kept separate so the runtime image contains no Prisma CLI or migration tooling.
+FROM build AS migrate
+WORKDIR /repo/apps/api
+USER node
+CMD ["./node_modules/.bin/prisma", "migrate", "deploy"]
+
 # ---- Runtime: minimal, non-root ----
 FROM node:24.18.0-alpine AS runtime
 ENV NODE_ENV=production

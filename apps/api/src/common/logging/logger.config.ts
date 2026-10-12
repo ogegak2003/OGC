@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import type { Params } from 'nestjs-pino';
+import type { LogDestination } from './log-destination.module.js';
 import type { Env } from '../../config/env.schema.js';
 
 /** Accept caller-supplied request IDs only if they are short and safe to log. */
@@ -17,6 +18,10 @@ export const REDACTED_PATHS = [
   '*.accessToken',
   '*.refreshToken',
   '*.secret',
+  '*.secretHash',
+  '*.tokenHash',
+  '*.accessTokenHash',
+  '*.refreshTokenHash',
 ];
 
 export function resolveRequestId(req: IncomingMessage, res: ServerResponse): string {
@@ -27,24 +32,26 @@ export function resolveRequestId(req: IncomingMessage, res: ServerResponse): str
   return id;
 }
 
-export function loggerConfig(env: Pick<Env, 'LOG_LEVEL' | 'NODE_ENV'>): Params {
-  return {
-    pinoHttp: {
-      level: env.LOG_LEVEL,
-      genReqId: resolveRequestId,
-      redact: { paths: REDACTED_PATHS, censor: '[REDACTED]' },
-      // Keep request logs small: no bodies, no query strings with potential tokens.
-      serializers: {
-        req: (req: { id: unknown; method: unknown; url?: unknown }) => ({
-          id: req.id,
-          method: req.method,
-          path: typeof req.url === 'string' ? req.url.split('?')[0] : undefined,
-        }),
-        res: (res: { statusCode: unknown }) => ({ statusCode: res.statusCode }),
-      },
-      ...(env.NODE_ENV === 'development'
-        ? { transport: { target: 'pino-pretty', options: { singleLine: true } } }
-        : {}),
+export function loggerConfig(
+  env: Pick<Env, 'LOG_LEVEL' | 'NODE_ENV'>,
+  destination: LogDestination = null,
+): Params {
+  const options = {
+    level: env.LOG_LEVEL,
+    genReqId: resolveRequestId,
+    redact: { paths: REDACTED_PATHS, censor: '[REDACTED]' },
+    // Keep request logs small: no bodies, no query strings with potential tokens.
+    serializers: {
+      req: (req: { id: unknown; method: unknown; url?: unknown }) => ({
+        id: req.id,
+        method: req.method,
+        path: typeof req.url === 'string' ? req.url.split('?')[0] : undefined,
+      }),
+      res: (res: { statusCode: unknown }) => ({ statusCode: res.statusCode }),
     },
+    ...(env.NODE_ENV === 'development' && !destination
+      ? { transport: { target: 'pino-pretty', options: { singleLine: true } } }
+      : {}),
   };
+  return { pinoHttp: destination ? [options, destination] : options };
 }

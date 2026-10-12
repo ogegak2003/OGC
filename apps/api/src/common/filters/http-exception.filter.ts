@@ -6,7 +6,8 @@ import {
   HttpStatus,
   Logger,
 } from '@nestjs/common';
-import type { ApiErrorBody } from '@ogc/types';
+import { ThrottlerException } from '@nestjs/throttler';
+import type { ApiErrorBody, ApiErrorCode } from '@ogc/types';
 import type { Request, Response } from 'express';
 
 const GENERIC_MESSAGE = 'An unexpected error occurred';
@@ -17,6 +18,14 @@ function messageFrom(exception: HttpException): string {
   const { message } = body as { message?: unknown };
   if (Array.isArray(message)) return message.map(String).join('; ');
   return typeof message === 'string' ? message : exception.message;
+}
+
+function codeFrom(exception: HttpException): ApiErrorCode | undefined {
+  if (exception instanceof ThrottlerException) return 'RATE_LIMITED';
+  const body = exception.getResponse();
+  if (typeof body !== 'object') return undefined;
+  const { code } = body as { code?: unknown };
+  return typeof code === 'string' ? (code as ApiErrorCode) : undefined;
 }
 
 /**
@@ -50,12 +59,14 @@ export class HttpExceptionFilter implements ExceptionFilter {
 
     let statusCode: number = HttpStatus.INTERNAL_SERVER_ERROR;
     let message = GENERIC_MESSAGE;
+    let code: ApiErrorCode | undefined;
 
     const clientError = exposedClientError(exception);
     if (exception instanceof HttpException) {
       statusCode = exception.getStatus();
       if (statusCode < 500) {
         message = messageFrom(exception);
+        code = codeFrom(exception);
       }
     } else if (clientError) {
       statusCode = clientError.status;
@@ -75,6 +86,7 @@ export class HttpExceptionFilter implements ExceptionFilter {
       statusCode,
       error: statusName ?? 'ERROR',
       message,
+      ...(code ? { code } : {}),
       ...(requestId ? { requestId } : {}),
     };
     response.status(statusCode).json(body);

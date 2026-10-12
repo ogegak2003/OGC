@@ -29,17 +29,22 @@
 
 Source of truth: `apps/api/src/config/env.schema.ts`.
 
-| Variable            | Default       | Description                                                             |
-| ------------------- | ------------- | ----------------------------------------------------------------------- |
-| `NODE_ENV`          | `development` | `development`, `test`, or `production`                                  |
-| `HOST`              | `0.0.0.0`     | Bind address                                                            |
-| `PORT`              | `3000`        | HTTP port                                                               |
-| `LOG_LEVEL`         | `info`        | Pino level (`silent` in tests)                                          |
-| `CORS_ORIGINS`      | _(empty)_     | Comma-separated exact origins; must be `https://` in production         |
-| `TRUST_PROXY_HOPS`  | `0`           | Number of trusted reverse proxies (affects client IP for rate limiting) |
-| `RATE_LIMIT_TTL_MS` | `60000`       | Rate-limit window                                                       |
-| `RATE_LIMIT_MAX`    | `120`         | Requests per window per client                                          |
-| `DATABASE_URL`      | **required**  | `postgresql://` connection string                                       |
+| Variable            | Default                            | Description                                                                         |
+| ------------------- | ---------------------------------- | ----------------------------------------------------------------------------------- |
+| `NODE_ENV`          | `development`                      | `development`, `test`, or `production`                                              |
+| `HOST`              | `0.0.0.0`                          | Bind address                                                                        |
+| `PORT`              | `3000`                             | HTTP port                                                                           |
+| `LOG_LEVEL`         | `info`                             | Pino level (`silent` in tests)                                                      |
+| `CORS_ORIGINS`      | _(empty)_                          | Comma-separated exact origins; must be `https://` in production                     |
+| `TRUST_PROXY_HOPS`  | `0`                                | Number of trusted reverse proxies (affects client IP for rate limiting)             |
+| `RATE_LIMIT_TTL_MS` | `60000`                            | Rate-limit window                                                                   |
+| `RATE_LIMIT_MAX`    | `120`                              | Requests per window per client                                                      |
+| `DATABASE_URL`      | **required**                       | `postgresql://` connection string                                                   |
+| `WEB_APP_URL`       | `http://localhost:5173`            | Web client URL for links in emails; `https://` in production                        |
+| `EMAIL_TRANSPORT`   | `disabled`                         | `disabled` (send nothing) or `outbox` (development files; rejected in production)   |
+| `EMAIL_OUTBOX_DIR`  | `.dev-outbox`                      | Where the outbox writes emails                                                      |
+| `COOKIE_SECURE`     | `true` in production, else `false` | Secure flag and `__Host-`/`__Secure-` cookie prefixes; must be `true` in production |
+| `TEST_DATABASE_URL` | —                                  | Tests only: disposable database (name must end in `_test`; reset on every run)      |
 
 ## Adding a variable
 

@@ -1,0 +1,10 @@
+.frame {
+  margin: 0;
+  padding: var(--ogc-space-3);
+  line-height: 0;
+  background: var(--ogc-color-text-primary);
+  border-radius: var(--ogc-radius-lg);
+  box-shadow:
+    0 0 0 1px rgb(212 170 79 / 0.5),
+    var(--ogc-elevation-medium);
+}

@@ -43,7 +43,11 @@ Enforced by review now and by lint rules (import restrictions) once modules exis
 5. Shared client/server contracts live in `packages/types` and `packages/validation`,
    never imported from app internals.
 
-## Planned domain modules
+## Domain modules
+
+Implemented so far: **Identity**, **Authentication**, and **Audit** (Phase 1), plus an `Email`
+delivery port. See [identity-and-authentication.md](identity-and-authentication.md) and
+[data-model.md](data-model.md).
 
 | Module             | Responsibility                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------- |
@@ -67,7 +71,7 @@ Enforced by review now and by lint rules (import restrictions) once modules exis
 Cross-cutting: **Authorization (RBAC)** is a platform capability used by every module —
 guards plus policy checks in services — not a module that others reach into.
 
-## API conventions (established in Phase 0)
+## API conventions
 
 - Base path `/api`, URI versioning: `/api/v1/...`
 - Liveness `GET /api/v1/health` (process only); readiness `GET /api/v1/health/ready`
@@ -75,13 +79,16 @@ guards plus policy checks in services — not a module that others reach into.
 - Errors always use the `ApiErrorBody` shape from `@ogc/types`; 5xx details are never
   exposed. Every response carries an `X-Request-Id` that matches the server logs.
 - All configuration comes from validated environment variables (`src/config/env.schema.ts`).
+- Every route requires authentication unless marked `@Public()`; handlers take identity only
+  from `@CurrentAuth()`.
+- Request bodies are validated with shared Zod schemas (`ZodValidationPipe`); unknown fields
+  are rejected. Errors carry a stable `code` (e.g. `INVALID_CREDENTIALS`).
 
 ## Data
 
-PostgreSQL via Prisma 7 (driver adapter `@prisma/adapter-pg`). Phase 0 has **no models**:
-the schema, client generation, and connection lifecycle are in place, and the first models
-arrive with Phase 1 through reviewed migrations (`prisma migrate dev`). Guidelines for when
-they do:
+PostgreSQL via Prisma 7 (driver adapter `@prisma/adapter-pg`). Phase 1 introduced the first
+models (users, profiles, credentials, devices, sessions, verification tokens, audit events) —
+see [data-model.md](data-model.md). Guidelines:
 
 - Internal primary keys are UUIDs (v7 for index locality); OGC identities are a separate
   unique column.

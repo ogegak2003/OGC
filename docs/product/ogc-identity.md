@@ -1,38 +1,43 @@
 # OGC identity
 
-> **Status: provisional.** The format below is implemented in `@ogc/validation` so that
-> every app agrees on it, but it requires owner approval before identities are issued.
+Every OGC account has a permanent, public **OGC ID** — the way people find and contact each
+other, without exposing a phone number or email address.
 
 ## Format
 
-`OGC` followed by a sequence number:
+`OGC` followed by **9 random digits**, the first of which is not zero:
 
-| Sequence number | Canonical identity |
-| --------------- | ------------------ |
-| 1               | `OGC000001`        |
-| 42              | `OGC000042`        |
-| 999 999         | `OGC999999`        |
-| 1 000 000       | `OGC1000000`       |
+| Canonical      | Displayed         |
+| -------------- | ----------------- |
+| `OGC482731905` | `OGC 482 731 905` |
+| `OGC914205377` | `OGC 914 205 377` |
 
-Rules:
+- **Random:** drawn with a cryptographically secure generator — never sequential, never
+  derived from time, row numbers, email, or phone number. IDs reveal nothing about sign-up
+  order or user numbers.
+- **Unique:** guaranteed by the database; collisions are retried with a new random ID.
+- **Immutable:** a database trigger prevents an issued ID from ever changing.
+- **Human-friendly:** shown in groups of three; input like `ogc 482 731 905` is normalised.
+- **Safe to share:** it identifies an account but grants no access.
 
-1. Uppercase `OGC` prefix.
-2. Numbers below one million are zero-padded to six digits.
-3. Numbers of one million and above use their natural width, with no leading zeros.
-4. Every number therefore has **exactly one** canonical form (`OGC0000001` is invalid).
-5. `OGC000000` is never issued.
+Why 9 digits rather than 6: a 6-digit space holds only 900 000 IDs — not enough for a
+global platform, and random guesses would hit real accounts most of the time. 9 digits give
+900 million IDs ([ADR-008](../architecture/decisions.md#adr-008-random-9-digit-ogc-ids),
+pending owner approval).
 
-Implementation: `packages/validation/src/ogc-id.ts` (`OGC_ID_PATTERN`, `ogcIdSchema`,
-`parseOgcId`, `isOgcId`, `formatOgcId`), with tests alongside. Code that needs an identity
-uses the branded `OgcId` type from `@ogc/types`, which can only be produced by validation.
+Implementation: `packages/validation/src/ogc-id.ts` (format, normalisation, display) and
+`apps/api/src/modules/identity` (secure generation and collision handling).
 
-## Open questions for later phases
+## Sharing by QR code
 
-- **Assignment strategy.** Sequential numbers reveal sign-up order and approximate user
-  count, and make identities enumerable. Alternatives: randomised allocation within the
-  numeric space, reserved ranges, or vanity identities. Decide before Phase 2.
-- **Reserved identities.** e.g. low numbers for ObagaGlobal official accounts.
-- **Permanence.** What happens to an identity when an account is deleted (never reissued is
-  the safe default).
-- **Internal vs public identifiers.** The database primary key should be an internal
-  identifier (e.g. UUIDv7), with the OGC identity as a separate unique public attribute.
+An OGC QR code encodes only the public identity link `ogc://id/OGC482731905` — never
+passwords, tokens, keys, or private account data. Scanning will open the person's profile
+and contact flow (Phase 2). Once a public web domain is approved, the link becomes an https
+universal link so it also works without the app installed.
+
+## Open questions
+
+- **Reserved identities** (e.g. memorable IDs for ObagaGlobal official accounts).
+- **Vanity IDs** — whether users may choose or pay for memorable IDs (affects fairness and
+  enumeration).
+- **Deleted accounts** — IDs are never reissued (recommended default).

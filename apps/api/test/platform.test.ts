@@ -8,10 +8,12 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vites
 import { AppModule } from '../src/app.module.js';
 import { configureApp } from '../src/bootstrap/configure-app.js';
 import { PrismaService } from '../src/database/prisma.service.js';
+import { Public } from '../src/modules/auth/decorators.js';
 
 /** The server type accepted by supertest's `request()`. */
 type App = Parameters<typeof request>[0];
 
+@Public()
 @Controller('test-errors')
 class ThrowingController {
   @Get()
