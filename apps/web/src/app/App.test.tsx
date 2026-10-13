@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   account,
@@ -219,4 +219,36 @@ describe('signed-in home', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Sign out' }));
     expect(await screen.findByRole('heading', { name: 'Sign in to OGC' })).toBeTruthy();
   });
+
+  it('keeps every destination reachable from the phone tab bar', async () => {
+    mockApi({
+      'GET /api/v1/auth/me': () => json(account()),
+      'GET /api/v1/profile': () => json(ownProfile()),
+    });
+    renderApp('/home');
+    const [, tabBar] = await screen.findAllByRole('navigation', { name: 'Main' });
+    const tabs = within(required(tabBar));
+    for (const name of ['Messages', 'Channels', 'Alerts', 'Contacts']) {
+      expect(tabs.getByRole('link', { name })).toBeTruthy();
+    }
+    const more = tabs.getByRole('button', { name: 'More' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(tabs.queryByRole('link', { name: 'Discover' })).toBeNull();
+
+    fireEvent.click(more);
+    expect(more.getAttribute('aria-expanded')).toBe('true');
+    for (const name of ['My OGC', 'Discover', 'Privacy']) {
+      expect(tabs.getByRole('link', { name })).toBeTruthy();
+    }
+    expect(tabs.getByRole('button', { name: 'Sign out' })).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(more.getAttribute('aria-expanded')).toBe('false');
+    expect(tabs.queryByRole('link', { name: 'Discover' })).toBeNull();
+  });
 });
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('Expected element');
+  return value;
+}

@@ -22,6 +22,7 @@ import {
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Pressable, Share, Switch, Text, View } from 'react-native';
 import { communityApi } from '../../api/community';
+import { webAppUrl } from '../../config/runtime';
 import { useAuth } from '../../auth/AuthProvider';
 import { Avatar, LinkQrCode } from '../../components/identity';
 import { Button, Field, Notice } from '../../components/ui';
@@ -31,14 +32,6 @@ import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
 import { social } from '../social/styles';
-
-/**
- * Web app origin used in shared invitation links (`EXPO_PUBLIC_WEB_APP_URL`,
- * public by design). Links open the web app's /join page; the token sits in
- * the URL fragment.
- */
-const configuredWeb: unknown = process.env.EXPO_PUBLIC_WEB_APP_URL;
-const LINK_ORIGIN = typeof configuredWeb === 'string' ? configuredWeb : 'http://localhost:5173';
 
 const ROLE_LABEL = { OWNER: 'Owner', ADMIN: 'Admin', MODERATOR: 'Moderator', MEMBER: 'Member' };
 
@@ -426,7 +419,7 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
                 Share it now — OGC keeps only a hash and can’t show it again. It expires in 7 days.
               </Text>
               <LinkQrCode
-                payload={buildInviteUrl(LINK_ORIGIN, link.token)}
+                payload={buildInviteUrl(webAppUrl, link.token)}
                 label={`Invitation QR code for ${group.name}`}
               />
               <Button
@@ -434,7 +427,7 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
                 onPress={() => {
                   void Share.share({
                     title: `Join ${group.name} on OGC`,
-                    message: buildInviteUrl(LINK_ORIGIN, link.token),
+                    message: buildInviteUrl(webAppUrl, link.token),
                   });
                 }}
               />

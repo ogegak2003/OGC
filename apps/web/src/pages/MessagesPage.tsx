@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
 import { ConversationList } from '../components/messaging/ConversationList';
 import { ConversationPanel } from '../components/messaging/ConversationPanel';
@@ -30,7 +30,7 @@ export function MessagesPage() {
   }, [engine, conversationId, conversation]);
 
   return (
-    <AppShell title="Messages" layout="full">
+    <AppShell title="Messages" layout="full" focused={Boolean(conversationId)}>
       <div className={[styles.layout, conversationId ? styles.showPanel : ''].join(' ')}>
         <ConversationList
           activeId={conversationId}
@@ -45,10 +45,20 @@ export function MessagesPage() {
           <ConversationPanel key={conversation.id} conversation={conversation} />
         ) : (
           <section className={styles.panelEmpty} aria-label="No conversation selected">
+            {conversationId ? (
+              // Phones show this panel without the list: always offer the way back.
+              <Link to="/messages" className={styles.back} aria-label="Back to conversations">
+                ‹
+              </Link>
+            ) : null}
             {status === 'error' ? (
               <Alert>Secure messaging could not start on this device. {error}</Alert>
             ) : conversationId && status === 'ready' ? (
               <p className={styles.sidebarNote}>This conversation isn’t available.</p>
+            ) : conversationId ? (
+              <p className={styles.sidebarNote} role="status">
+                Opening conversation…
+              </p>
             ) : (
               <>
                 <p className={styles.emptyTitle}>Private by design</p>

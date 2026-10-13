@@ -112,7 +112,11 @@ export function PostCard({
               actions.openThread?.(post);
             }}
           >
-            {post.replyCount > 0 ? `${String(post.replyCount)} replies` : 'Reply'}
+            {post.replyCount === 1
+              ? '1 reply'
+              : post.replyCount > 0
+                ? `${String(post.replyCount)} replies`
+                : 'Reply'}
           </button>
         ) : null}
         {!hidden || canModerate ? (

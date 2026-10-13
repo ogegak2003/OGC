@@ -11,4 +11,20 @@ export default defineConfig(
       globals: { module: 'writable', require: 'readonly' },
     },
   },
+  {
+    // Expo config plugins are loaded by Node as CommonJS.
+    files: ['plugins/**/*.js'],
+    languageOptions: {
+      sourceType: 'commonjs',
+      globals: { module: 'writable', require: 'readonly' },
+    },
+    rules: { '@typescript-eslint/no-require-imports': 'off' },
+  },
+  {
+    // Build tooling run with Node.
+    files: ['scripts/**/*.mjs'],
+    languageOptions: {
+      globals: { process: 'readonly', console: 'readonly', Buffer: 'readonly' },
+    },
+  },
 );

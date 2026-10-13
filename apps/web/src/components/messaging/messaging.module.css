@@ -269,6 +269,7 @@
 }
 
 .panelEmpty {
+  position: relative;
   align-items: center;
   justify-content: center;
   gap: var(--ogc-space-2);
@@ -293,6 +294,12 @@
   font-size: 1.6rem;
   text-decoration: none;
   border-radius: var(--ogc-radius-full);
+}
+
+.panelEmpty > .back {
+  position: absolute;
+  top: var(--ogc-space-3);
+  left: var(--ogc-space-4);
 }
 
 @media (min-width: 900px) {
@@ -324,7 +331,10 @@
 }
 
 .peerStatus {
+  overflow: hidden;
   color: var(--ogc-color-text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
   font-size: var(--ogc-font-size-xs);
 }
 
@@ -716,6 +726,29 @@
 .input:focus {
   border-color: var(--ogc-color-accent);
   outline: none;
+}
+
+/* A narrow input keeps its hint on one line instead of growing to two. */
+.input::placeholder {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Phones: give the text field as much of the row as the controls allow. */
+@media (max-width: 399px) {
+  .composer {
+    padding-inline: var(--ogc-space-2);
+  }
+
+  .composeRow {
+    gap: var(--ogc-space-1);
+  }
+
+  .sendButton {
+    min-width: 0;
+    padding: 0 var(--ogc-space-3);
+  }
 }
 
 .iconButton {
@@ -1112,7 +1145,7 @@
 
 .segmented {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--ogc-space-1);
   padding: var(--ogc-space-1);
   background: var(--ogc-color-background);
@@ -1124,9 +1157,14 @@
 .segmentActive {
   display: grid;
   place-items: center;
-  min-height: 2.25rem;
+  min-height: 2.75rem;
+  padding: var(--ogc-space-1) var(--ogc-space-2);
   font-size: var(--ogc-font-size-sm);
   font-weight: 600;
+  font-family: inherit;
+  line-height: 1.25;
+  text-align: center;
+  border: 0;
   border-radius: var(--ogc-radius-sm);
   cursor: pointer;
 }
@@ -1140,6 +1178,7 @@
 
 .segment {
   color: var(--ogc-color-text-secondary);
+  background: none;
 }
 
 .segmentActive {
@@ -1337,6 +1376,17 @@
   flex-wrap: wrap;
   align-items: center;
   gap: var(--ogc-space-2);
+}
+
+/* In a post the menu sits at the end of the footer row (not beside a bubble). */
+.postFooter .menuWrap {
+  position: relative;
+  top: auto;
+  margin-left: auto;
+}
+
+.postFooter .menu {
+  right: 0;
 }
 
 .postHeader .rowTime {

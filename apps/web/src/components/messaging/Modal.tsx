@@ -1,4 +1,5 @@
 import { type ReactNode, useEffect, useId, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import styles from './messaging.module.css';
 
 const FOCUSABLE =
@@ -7,6 +8,8 @@ const FOCUSABLE =
 /**
  * Accessible modal dialog: labelled, focus moves inside on open, Tab is
  * trapped, Escape closes, and focus returns to the opener afterwards.
+ * Rendered into <body> so it always covers the viewport and the tab bar,
+ * whatever the page layout around the opener.
  */
 export function Modal({
   title,
@@ -48,7 +51,7 @@ export function Modal({
     }
   };
 
-  return (
+  return createPortal(
     <div
       className={styles.backdrop}
       onMouseDown={(event) => {
@@ -73,6 +76,7 @@ export function Modal({
         </div>
         {children}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -83,9 +83,26 @@ describe('realtime gateway', () => {
     await expect(
       connectSocket(baseUrl, { cookie, origin: 'https://evil.example' }).connected,
     ).rejects.toThrow();
+    // The API's own origin is not enough for a cookie session.
+    await expect(
+      connectSocket(baseUrl, { cookie, origin: new URL(baseUrl).origin }).connected,
+    ).rejects.toThrow();
     const allowed = connectSocket(baseUrl, { cookie, origin: 'http://localhost:5173' });
     sockets.push(allowed.socket);
     await expect(allowed.connected).resolves.toBeUndefined();
+  });
+
+  it('accepts native apps, which send the API’s own origin with a bearer token', async () => {
+    const native = connectSocket(baseUrl, {
+      token: aliceDevice.token,
+      origin: new URL(baseUrl).origin,
+    });
+    sockets.push(native.socket);
+    await expect(native.connected).resolves.toBeUndefined();
+    await expect(
+      connectSocket(baseUrl, { token: aliceDevice.token, origin: 'https://evil.example' })
+        .connected,
+    ).rejects.toThrow();
   });
 
   it('pushes new messages to the recipient and the sender’s other devices only', async () => {

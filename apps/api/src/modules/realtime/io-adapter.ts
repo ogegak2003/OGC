@@ -19,6 +19,21 @@ export function allowedRealtimeOrigins(config: ConfigService<Env, true>): Set<st
 }
 
 /**
+ * True when `origin` names the server the request was sent to. Native WebSocket
+ * stacks (React Native on Android and iOS) send such an Origin, derived from the
+ * socket URL. It is not cross-site, and cookie sessions still require an
+ * allowlisted Origin (see the gateway), so accepting it keeps the hijacking defence.
+ */
+export function isSameHostOrigin(origin: string, host: string | undefined): boolean {
+  if (!host) return false;
+  try {
+    return new URL(origin).host === host.toLowerCase();
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Socket.IO server setup: the versioned path, bounded payloads, an Origin
  * allowlist (defence against cross-site WebSocket hijacking with cookies), and
  * the Redis adapter for cross-instance fan-out when Redis is configured.
@@ -62,10 +77,14 @@ export class OgcIoAdapter extends IoAdapter {
       pingTimeout: 20_000,
       connectTimeout: 10_000,
       cors: { origin: [...origins], credentials: true },
-      // Browsers always send Origin; native apps send none. A foreign Origin is rejected.
+      // Browsers send their page's Origin; native apps send none or the API's own origin.
+      // Any other Origin is rejected.
       allowRequest: (req, callback) => {
         const origin = req.headers.origin;
-        callback(null, origin === undefined || origins.has(origin));
+        callback(
+          null,
+          origin === undefined || origins.has(origin) || isSameHostOrigin(origin, req.headers.host),
+        );
       },
     };
     // Nest's adapter accepts partial options and fills in Socket.IO's defaults.

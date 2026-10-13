@@ -29,6 +29,7 @@ import {
   View,
 } from 'react-native';
 import { communityApi } from '../../api/community';
+import { webAppUrl } from '../../config/runtime';
 import { useAuth } from '../../auth/AuthProvider';
 import { Avatar, LinkQrCode } from '../../components/identity';
 import { Button, Field, Notice } from '../../components/ui';
@@ -38,8 +39,6 @@ import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
 import { social } from '../social/styles';
 
-const configuredWeb: unknown = process.env.EXPO_PUBLIC_WEB_APP_URL;
-const LINK_ORIGIN = typeof configuredWeb === 'string' ? configuredWeb : 'http://localhost:5173';
 const NOT_E2EE =
   'Community channels are not end-to-end encrypted: OGC can read posts for moderation and search.';
 
@@ -722,7 +721,7 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
           {link ? (
             <>
               <LinkQrCode
-                payload={buildInviteUrl(LINK_ORIGIN, link.token)}
+                payload={buildInviteUrl(webAppUrl, link.token)}
                 label={`Invitation QR code for ${channel.name}`}
               />
               <Button
@@ -730,7 +729,7 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
                 onPress={() => {
                   void Share.share({
                     title: `Join ${channel.name} on OGC`,
-                    message: buildInviteUrl(LINK_ORIGIN, link.token),
+                    message: buildInviteUrl(webAppUrl, link.token),
                   });
                 }}
               />

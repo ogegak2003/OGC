@@ -102,6 +102,30 @@ that is not on a local host. Start PostgreSQL first (`pnpm db:up`). Run only uni
 `pnpm test` limits Turborepo to two concurrent test tasks: starting DOM-environment and Jest
 workers in parallel on a typical laptop can exceed Vitest's worker start-up timeout.
 
+### Responsive web check
+
+`apps/web/scripts/responsive-audit.mjs` opens the web app in headless Chrome at widths 320,
+360, 375, 390, 430, 768, 1024, 1280, 1440 and 1920 px (plus two phone landscapes), with
+realistic data it seeds through the API and the real encryption engine. For every page it
+reports horizontal overflow, controls off screen or covered by other elements, dialogs larger
+than the viewport, and — for messaging — whether phones show one pane at a time with a way
+back and a usable composer. It saves a screenshot of each view.
+
+```powershell
+pnpm db:up; pnpm build                      # packages/*/dist are used for seeding
+pnpm --filter @ogc/api dev                  # in one terminal
+pnpm --filter @ogc/web dev                  # in another
+node apps/web/scripts/responsive-audit.mjs <output-dir>
+# quicker: $env:AUDIT_WIDTHS = "320,768"; $env:AUDIT_ROUTES = "messages,channels"
+```
+
+It needs Chrome (`CHROME_PATH`), a development database only, and registers three accounts
+per run — the API allows ten registrations per hour from one address. Its rapid page loads
+also exceed the realtime limit of 30 socket connections per minute per address, so some
+screenshots show the "Offline — reconnecting" banner; that is expected during the audit. Exit
+code 1 means a defect was found; look at the screenshots too, as not every visual problem is
+measurable.
+
 ## Editor
 
 Recommended VS Code extensions are listed in `.vscode/extensions.json`. Formatting uses

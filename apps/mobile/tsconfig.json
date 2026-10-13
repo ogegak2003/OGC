@@ -13,5 +13,5 @@
     "allowJs": false,
     "types": ["react-native"]
   },
-  "include": ["index.ts", "src"]
+  "include": ["index.ts", "app.config.ts", "src"]
 }

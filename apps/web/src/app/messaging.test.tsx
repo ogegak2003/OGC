@@ -47,9 +47,10 @@ describe('conversation list', () => {
     const list = await screen.findByRole('region', { name: 'Conversations' });
     expect(await within(list).findByText('Grace Hopper')).toBeTruthy();
     expect(within(list).getByLabelText('3 unread')).toBeTruthy();
-    expect(
-      within(screen.getByRole('navigation', { name: 'Main' })).getByLabelText('3 unread'),
-    ).toBeTruthy();
+    // Header navigation (wide screens) and tab bar (phones) both show the count.
+    for (const nav of screen.getAllByRole('navigation', { name: 'Main' })) {
+      expect(within(nav).getByLabelText('3 unread')).toBeTruthy();
+    }
   });
 
   it('starts a conversation with a contact', async () => {

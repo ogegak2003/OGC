@@ -63,3 +63,6 @@ desktop.ini
 !.vscode/settings.json
 *.swp
 *~
+
+# Local Android build toolchain (JDK, Android SDK) — never committed
+.toolchain/
