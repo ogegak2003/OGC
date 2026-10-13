@@ -50,6 +50,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: 'OGC',
   slug: 'ogc',
+  // Expo account that owns the EAS project (builds, credentials, environment variables).
+  owner: 'obagaglobal-ltd',
   scheme: 'ogc',
   version: VERSION,
   orientation: 'portrait',
@@ -139,5 +141,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ],
   extra: {
     profile: PROFILE,
+    // EAS project @obagaglobal-ltd/ogc (created with `eas init`). Keep this ID: changing it
+    // detaches the app from its builds, credentials and environment variables.
+    eas: { projectId: '20ebd5df-819e-4aa6-a904-bd10969bae5f' },
   },
 });

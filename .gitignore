@@ -35,6 +35,9 @@ apps/mobile/ios/
 *.key
 *.mobileprovision
 *.pem
+# EAS local credentials (passwords) and credentials downloaded by `eas credentials`
+apps/mobile/credentials.json
+apps/mobile/credentials/
 
 # Development email outbox (may contain verification links)
 .dev-outbox/

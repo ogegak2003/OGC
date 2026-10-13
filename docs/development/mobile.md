@@ -138,43 +138,110 @@ pnpm --filter @ogc/mobile android:build bundle
 ```
 
 Upload the AAB to Google Play with **Play App Signing** enabled (Google keeps the app signing
-key; you keep the upload key). Increase `BUILD_NUMBER` in `app.config.ts` for every upload.
+key; you keep the upload key). For local builds, increase `BUILD_NUMBER` in `app.config.ts`
+for every upload; EAS builds number themselves (below).
 
 ### EAS Build (cloud, Android and iOS)
 
+EAS commands run from **`apps/mobile`** (the Expo project inside the pnpm workspace; EAS
+uploads the whole repository and installs it with pnpm). The CLI is used through `npx` at a
+pinned version, so no global install is needed:
+
 ```powershell
-npm install -g eas-cli
-eas login                                   # your Expo account
-cd apps/mobile
-eas init                                    # links the project (adds the EAS project ID)
-eas env:create --environment production --name EXPO_PUBLIC_API_BASE_URL --value https://api.your-domain.example/api --visibility plaintext
-eas env:create --environment production --name EXPO_PUBLIC_WEB_APP_URL --value https://your-domain.example --visibility plaintext
-eas build --platform android --profile preview      # installable APK for testers
-eas build --platform android --profile production   # AAB for Google Play
+cd C:\Users\PC\OGC\apps\mobile
+npx eas-cli@24.13.0 login        # your Expo account; credentials are typed in your terminal
+npx eas-cli@24.13.0 whoami       # check
+npx eas-cli@24.13.0 init         # once: creates/links the EAS project and adds its ID to the config
 ```
 
-EAS stores signing credentials on Expo's servers (or uses yours); nothing is committed here.
+The project is **`@obagaglobal-ltd/ogc`** (ID `20ebd5df-819e-4aa6-a904-bd10969bae5f`), owned by
+the `obagaglobal-ltd` Expo organisation (`owner` and `extra.eas.projectId` in `app.config.ts`).
+`eas init` cannot edit a TypeScript config, so the ID was added by hand; keep it: a different
+ID detaches the app from its builds, credentials and environment variables. Account members
+need access to the `obagaglobal-ltd` organisation on expo.dev.
+
+| Profile (`eas.json`) | iOS                                                      | Android   | Endpoints                    |
+| -------------------- | -------------------------------------------------------- | --------- | ---------------------------- |
+| `development`        | Simulator, Debug (loads JavaScript from Metro)           | debug APK | emulator/simulator defaults  |
+| `preview`            | Release, internal (ad hoc: registered iPhones)           | APK       | EAS `preview` environment    |
+| `production`         | Release, **store** distribution (TestFlight / App Store) | AAB       | EAS `production` environment |
+
+All profiles extend `base`, which pins **Node 24.18.0** and **pnpm 11.12.0** to match the
+repository (`engines`, `packageManager`; the workspace uses pnpm 11 settings). Build numbers
+are managed by EAS (`appVersionSource: remote`, `autoIncrement` on production), starting
+from the value in `app.config.ts`.
+
+Preview and production builds read their public endpoints from EAS environment variables.
+`app.config.ts` stops the build if they are missing, plain HTTP, localhost or a LAN address:
+
+```powershell
+npx eas-cli@24.13.0 env:create --environment production --name EXPO_PUBLIC_API_BASE_URL --value https://api.your-domain.example/api --visibility plaintext
+npx eas-cli@24.13.0 env:create --environment production --name EXPO_PUBLIC_WEB_APP_URL --value https://your-domain.example --visibility plaintext
+npx eas-cli@24.13.0 config --platform ios --profile production   # resolved configuration
+```
+
+They are public values (compiled into the app). Never store secrets in `EXPO_PUBLIC_*`.
+
+```powershell
+npx eas-cli@24.13.0 build --platform android --profile preview      # installable APK
+npx eas-cli@24.13.0 build --platform android --profile production   # AAB for Google Play
+```
+
+EAS stores signing credentials on Expo's servers (or uses yours). Local credential files
+(`credentials.json`, `credentials/`, `*.p12`, `*.p8`, `*.mobileprovision`, `*.keystore`) are
+git-ignored; never commit them.
 
 ## Building iOS
 
 iOS apps can only be compiled on **macOS with Xcode**. On Windows, use **EAS Build** (cloud
-macOS builders):
+macOS builders), from `apps/mobile`:
 
-| Goal                          | Command                                                                           | Requirements                                                                          |
-| ----------------------------- | --------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- |
-| Simulator build               | `eas build --platform ios --profile development`                                  | Expo account                                                                          |
-| Install on registered iPhones | `eas device:create`, then `eas build --platform ios --profile preview`            | Apple Developer Program membership (paid), devices registered for ad-hoc distribution |
-| TestFlight / App Store        | `eas build --platform ios --profile production`, then `eas submit --platform ios` | Apple Developer Program, App Store Connect app record for `com.obagaglobal.ogc`       |
+| Goal                                 | Command                                                                              | Requirements                                                                                            |
+| ------------------------------------ | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------- |
+| Native compile check / Simulator app | `npx eas-cli@24.13.0 build --platform ios --profile development`                     | Expo account only                                                                                       |
+| Install on registered iPhones        | `npx eas-cli@24.13.0 device:create`, then `… build --platform ios --profile preview` | Apple Developer Program (paid), registered devices, `preview` endpoints                                 |
+| TestFlight / App Store               | `… build --platform ios --profile production`, then `… submit --platform ios`        | Apple Developer Program, production HTTPS endpoints, App Store Connect record for `com.obagaglobal.ogc` |
 
-EAS can create and manage the distribution certificate and provisioning profiles when you
-sign in with your Apple ID during the build; keep `.p12`, `.p8` and `.mobileprovision` files
-out of the repository (they are git-ignored). On a Mac you can also build locally:
-`npx expo prebuild --platform ios` then `npx expo run:ios --device` (Xcode 16+, CocoaPods).
+**Verified:** the `development` profile built successfully on EAS on 2026-10-13 (build
+`a7134ac1-1fa6-40d0-ad66-838b9ab369b2`, about 6 minutes): a universal (arm64 + x86_64)
+`OGC.app` for the iOS Simulator, iOS 16.4+. To run such a build you need a Mac with Xcode:
+`npx eas-cli@24.13.0 build:run --platform ios --latest` installs it in a simulator; start
+Metro (`pnpm --filter @ogc/mobile dev`) because Debug builds load JavaScript from it.
+
+**Signing.** Device and store builds must be signed, which needs an **Apple Developer
+Program** membership ($99/year) on the Apple ID that will own the app. Run the first such
+build interactively in your own terminal: EAS asks you to sign in to Apple there and then
+creates and stores the distribution certificate and provisioning profile. Do not share
+Apple passwords or codes with anyone else. Check what EAS holds with
+`npx eas-cli@24.13.0 credentials --platform ios`.
+
+**Not dependent on a development server.** `preview` and `production` use the Release
+configuration, which embeds the JavaScript bundle; there is no development client. Only the
+`development` profile loads JavaScript from Metro.
+
+**Production network security.** Release builds use HTTPS only (App Transport Security
+without exceptions); an `https://` API also makes realtime use `wss://`.
 
 iOS configuration in `app.config.ts`: bundle ID `com.obagaglobal.ogc`, portrait, full screen
-on iPad, microphone and photo-library usage descriptions, dark interface. Keys are stored in
-the iOS Keychain through `expo-secure-store`. When submitting, answer App Store Connect's
-encryption export questions accurately: OGC uses end-to-end encryption.
+on iPad, microphone and photo-library usage descriptions only (no camera or Face ID), dark
+interface. Keys are stored in the iOS Keychain through `expo-secure-store`. When submitting,
+answer App Store Connect's encryption export questions accurately: OGC uses end-to-end
+encryption. On a Mac you can also build locally: `npx expo prebuild --platform ios` then
+`npx expo run:ios --device` (Xcode 16+, CocoaPods).
+
+### Troubleshooting EAS
+
+- **"An Expo user account is required"**: run `npx eas-cli@24.13.0 login`.
+- **"EXPO_PUBLIC_API_BASE_URL must be set / must be a public https URL"** on preview or
+  production: create the environment variables above for that environment.
+- **Install step fails on pnpm settings**: the profile must extend `base` (pnpm 11).
+- **"missing ios.infoPlist.ITSAppUsesNonExemptEncryption"** warning: expected. It is left
+  unset on purpose because OGC uses end-to-end encryption, which must be declared in App
+  Store Connect (export compliance) rather than marked exempt.
+- **"Resolved … environment"** shows which EAS environment a build uses; every profile in
+  `eas.json` names its own (`development`, `preview`, `production`).
+- **Signing prompts in a non-interactive run**: run the build once without
+  `--non-interactive` so EAS can set up credentials with your Apple account.
 
 ## Checks
 
