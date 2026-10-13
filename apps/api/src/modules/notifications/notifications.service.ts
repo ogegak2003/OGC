@@ -4,6 +4,7 @@ import { DomainEventBus } from '../../common/events/domain-events.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AuthContext } from '../auth/auth-context.js';
 import { PresenceStore } from '../realtime/presence.store.js';
+import { CommunityNotificationsService } from './community-notifications.service.js';
 import { type PushNotification, PushProvider } from './push-provider.js';
 
 /**
@@ -22,14 +23,24 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     private readonly provider: PushProvider,
     private readonly presence: PresenceStore,
     private readonly events: DomainEventBus,
+    private readonly community: CommunityNotificationsService,
   ) {}
 
   onModuleInit(): void {
     this.unsubscribe = this.events.subscribe((event) => {
       if (event.type !== 'message.created' || event.recipientIds.length === 0) return;
-      this.notifyNewMessage(event.conversationId, event.recipientIds).catch((error: unknown) => {
-        this.logger.warn({ err: error }, 'Push notification failed');
-      });
+      this.notifyNewMessage(event.conversationId, event.recipientIds, event.mentionedIds).catch(
+        (error: unknown) => {
+          this.logger.warn({ err: error }, 'Push notification failed');
+        },
+      );
+      if (event.mentionedIds.length > 0) {
+        this.notifyMentions(event.conversationId, event.messageId, event.mentionedIds).catch(
+          (error: unknown) => {
+            this.logger.warn({ err: error }, 'Mention notification failed');
+          },
+        );
+      }
     });
   }
 
@@ -54,12 +65,35 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
     await this.prisma.pushToken.deleteMany({ where: { deviceId: auth.deviceId } });
   }
 
-  async notifyNewMessage(conversationId: string, recipientIds: string[]): Promise<number> {
+  /**
+   * Generic "New message" push to recipients' offline devices, honouring each
+   * member's notification level and mute (groups: `MENTIONS` only pushes when
+   * the sender declared a mention of them).
+   */
+  async notifyNewMessage(
+    conversationId: string,
+    recipientIds: string[],
+    mentionedIds: string[] = [],
+  ): Promise<number> {
     const now = new Date();
+    const mentioned = new Set(mentionedIds);
+    const preferences = await this.prisma.conversationParticipant.findMany({
+      where: { conversationId, userId: { in: recipientIds } },
+      select: { userId: true, notificationLevel: true, mutedUntil: true },
+    });
+    const wanted = preferences
+      .filter(
+        (p) =>
+          !(p.mutedUntil && p.mutedUntil > now) &&
+          (p.notificationLevel === 'ALL' ||
+            (p.notificationLevel === 'MENTIONS' && mentioned.has(p.userId))),
+      )
+      .map((p) => p.userId);
+    if (wanted.length === 0) return 0;
     const tokens = await this.prisma.pushToken.findMany({
       where: {
         device: {
-          userId: { in: recipientIds },
+          userId: { in: wanted },
           sessions: { some: { revokedAt: null, expiresAt: { gt: now } } },
         },
       },
@@ -78,5 +112,32 @@ export class NotificationsService implements OnModuleInit, OnModuleDestroy {
       }));
     await this.provider.send(notifications);
     return notifications.length;
+  }
+
+  /** In-app mention notifications (once per message and person), unless they turned them off. */
+  private async notifyMentions(
+    conversationId: string,
+    messageId: string,
+    mentionedIds: string[],
+  ): Promise<void> {
+    const [group, preferences] = await Promise.all([
+      this.prisma.groupProfile.findUnique({
+        where: { conversationId },
+        select: { name: true },
+      }),
+      this.prisma.conversationParticipant.findMany({
+        where: { conversationId, userId: { in: mentionedIds }, notificationLevel: { not: 'NONE' } },
+        select: { userId: true },
+      }),
+    ]);
+    if (!group) return;
+    await this.community.notify(
+      preferences.map((p) => ({
+        userId: p.userId,
+        type: 'MENTION' as const,
+        dedupeKey: `mention:${messageId}`,
+        data: { conversationId, messageId, groupName: group.name },
+      })),
+    );
   }
 }

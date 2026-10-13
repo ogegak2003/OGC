@@ -1,4 +1,10 @@
-import type { Draft, LocalMessage, MessagingEvent, OutgoingAttachment } from '@ogc/messaging';
+import type {
+  Draft,
+  LocalMessage,
+  MessagingEvent,
+  OutgoingAttachment,
+  TimelineEvent,
+} from '@ogc/messaging';
 import type { ConversationView, OgcId, ReactionType, ServerToClientEvents } from '@ogc/types';
 import type { AttachmentDescriptor } from '@ogc/validation';
 import { vi } from 'vitest';
@@ -16,6 +22,7 @@ export function conversationView(overrides: Partial<ConversationView> = {}): Con
     id: 'c0ffee00-0000-4000-8000-000000000001',
     type: 'DIRECT',
     peer: { ogcId: PEER, displayName: 'Grace Hopper', avatarUrl: null },
+    group: null,
     version: 3,
     lastActivityAt: new Date().toISOString(),
     lastMessage: null,
@@ -89,7 +96,7 @@ export class FakeEngine implements MessagingEngine {
   });
   openDirect = vi.fn((ogcId: string) => {
     const existing =
-      this.list.find((c) => c.peer.ogcId === ogcId) ??
+      this.list.find((c) => c.peer?.ogcId === ogcId) ??
       conversationView({
         id: crypto.randomUUID(),
         peer: { ogcId: ogcId as OgcId, displayName: 'New Friend', avatarUrl: null },
@@ -100,6 +107,16 @@ export class FakeEngine implements MessagingEngine {
   });
   messages = (conversationId: string) =>
     Promise.resolve([...(this.data.get(conversationId) ?? [])]);
+  events = new Map<string, TimelineEvent[]>();
+  timeline = (conversationId: string) =>
+    Promise.resolve([...(this.events.get(conversationId) ?? [])]);
+  forgetConversation = vi.fn((conversationId: string) => {
+    this.list = this.list.filter((c) => c.id !== conversationId);
+    this.data.delete(conversationId);
+    this.emit({ type: 'removed', conversationId });
+    this.emit({ type: 'conversations' });
+    return Promise.resolve();
+  });
   syncConversation = vi.fn(() => Promise.resolve());
   syncAll = vi.fn(() => Promise.resolve(0));
   send = vi.fn((conversationId: string, draft: Draft & { forwardedFromId?: string }) => {

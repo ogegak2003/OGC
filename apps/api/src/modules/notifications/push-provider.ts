@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 import { Logger } from '@nestjs/common';
-import type { PushProviderName } from '@ogc/types';
+import type { NotificationType, PushProviderName } from '@ogc/types';
 
 /**
  * A push notification. Content is deliberately generic: message text is
@@ -14,9 +14,33 @@ export interface PushNotification {
   provider: PushProviderName;
   token: string;
   title: 'OGC';
-  body: 'New message';
-  data: { type: 'message'; conversationId: string };
+  body: 'New message' | CommunityPushBody;
+  data:
+    | { type: 'message'; conversationId: string }
+    | { type: 'community'; notification: NotificationType };
 }
+
+/**
+ * Fixed push texts for community notifications: never names, message text or
+ * post content (ADR-036). The type system rejects anything else.
+ */
+export const COMMUNITY_PUSH_BODY = {
+  GROUP_INVITATION: 'You have a new group invitation',
+  GROUP_MEMBER_ADDED: 'You were added to a group',
+  GROUP_MEMBER_REMOVED: 'Your group membership changed',
+  GROUP_ROLE_CHANGED: 'Your role in a group changed',
+  GROUP_DETAILS_CHANGED: 'A group was updated',
+  MENTION: 'You were mentioned',
+  CHANNEL_ANNOUNCEMENT: 'New announcement',
+  CHANNEL_ROLE_CHANGED: 'Your role in a channel changed',
+  CHANNEL_JOIN_REQUEST: 'New request to join a channel',
+  CHANNEL_REQUEST_APPROVED: 'Your request to join a channel was approved',
+  CHANNEL_MEMBER_REMOVED: 'Your channel membership changed',
+  MODERATION_RESULT: 'A report you made was reviewed',
+  INVITATION_EXPIRED: 'An invitation you sent expired',
+} as const satisfies Record<NotificationType, string>;
+
+export type CommunityPushBody = (typeof COMMUNITY_PUSH_BODY)[NotificationType];
 
 export abstract class PushProvider {
   abstract readonly name: string;

@@ -1,43 +1,79 @@
-import type { LocalMessage } from '@ogc/messaging';
-import type { ConversationView } from '@ogc/types';
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  type LocalMessage,
+  type TimelineEvent,
+  conversationAvatar,
+  conversationTitle,
+  describeEvent,
+  mentionsIn,
+} from '@ogc/messaging';
+import type { ConversationView, GroupMemberView } from '@ogc/types';
+import { formatOgcIdForDisplay } from '@ogc/validation';
+import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../../lib/api';
+import { groupsApi } from '../../lib/community-api';
 import { attachmentKind, dayLabel, safeFileName, safeMime, sameDay } from '../../messaging/format';
-import { useConversationMessages } from '../../messaging/hooks';
+import { useConversationMessages, useTimeline } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
 import { Avatar } from '../Avatar';
-import { Alert } from '../ui';
+import { Alert, Spinner } from '../ui';
 import { type ComposerSubmit, Composer } from './Composer';
-import { ForwardDialog, SafetyNumberDialog } from './Dialogs';
+import { ForwardDialog, ReportMessageDialog, SafetyNumberDialog } from './Dialogs';
 import { type MessageActions, MessageBubble } from './MessageBubble';
 import styles from './messaging.module.css';
+
+const GroupInfoPanel = lazy(() =>
+  import('../groups/GroupInfoPanel').then((m) => ({ default: m.GroupInfoPanel })),
+);
 
 function errorMessage(error: unknown): string {
   const { code, status } = error as { code?: string; status?: number };
   if (code === 'BLOCKED') return 'Unblock this person to send messages.';
+  if (code === 'ARCHIVED') return 'This group is archived and read-only.';
   if (status === 429) return 'You’re sending messages too quickly. They’ll be sent shortly.';
   if (status === 0) return 'You’re offline. Your message will be sent when you reconnect.';
   if (status === 413) return 'That file is too large.';
   return error instanceof Error ? error.message : 'Something went wrong.';
 }
 
+type TimelineItem =
+  | { kind: 'message'; at: string; message: LocalMessage }
+  | { kind: 'event'; at: string; event: TimelineEvent };
+
 export function ConversationPanel({ conversation }: { conversation: ConversationView }) {
   const { engine, typing, presence, connection, setTyping, watchPresence } = useMessaging();
   const messages = useConversationMessages(conversation.id);
+  const events = useTimeline(conversation.id);
   const [replyTo, setReplyTo] = useState<LocalMessage | null>(null);
   const [editing, setEditing] = useState<LocalMessage | null>(null);
   const [forwarding, setForwarding] = useState<LocalMessage | null>(null);
+  const [reporting, setReporting] = useState<LocalMessage | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [showInfo, setShowInfo] = useState(false);
   const [error, setError] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState<LocalMessage | null>(null);
+  const [members, setMembers] = useState<GroupMemberView[]>([]);
   const bottom = useRef<HTMLDivElement>(null);
   const peer = conversation.peer;
+  const group = conversation.group;
   const blocked = conversation.blockedByMe;
+  const title = conversationTitle(conversation);
+  const avatar = conversationAvatar(conversation);
+  const myOgcId = engine?.ogcId ?? '';
 
   useEffect(() => {
-    watchPresence([peer.ogcId]);
-  }, [peer.ogcId, watchPresence]);
+    if (peer) watchPresence([peer.ogcId]);
+  }, [peer, watchPresence]);
+
+  // Groups: the member directory names senders and timeline events (refreshed on changes).
+  useEffect(() => {
+    if (!group) return;
+    const controller = new AbortController();
+    groupsApi.members(conversation.id, controller.signal).then(setMembers, () => undefined);
+    return () => {
+      controller.abort();
+    };
+  }, [group, conversation.id, conversation.version]);
 
   // Sync when opened, then keep the read receipt current while the conversation is visible.
   useEffect(() => {
@@ -51,7 +87,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
     void engine.markRead(conversation.id).catch(() => undefined);
   }, [engine, conversation.id, newestSeq]);
 
-  const count = messages?.length ?? 0;
+  const count = (messages?.length ?? 0) + events.length;
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
   }, [count, conversation.id]);
@@ -60,6 +96,30 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
     () => new Map((messages ?? []).filter((m) => m.id).map((m) => [m.id, m])),
     [messages],
   );
+  const names = useMemo(
+    () => new Map(members.map((m) => [m.profile.ogcId as string, m.profile.displayName])),
+    [members],
+  );
+  const nameOf = (ogcId: string | null): string => {
+    if (!ogcId) return 'Someone';
+    if (ogcId === myOgcId) return 'You';
+    const name = names.get(ogcId);
+    // Members without a display name (or former members) are shown by OGC ID.
+    if (name !== undefined && name !== '') return name;
+    return formatOgcIdForDisplay(ogcId as never);
+  };
+
+  const items = useMemo<TimelineItem[]>(() => {
+    const list: TimelineItem[] = [
+      ...(messages ?? []).map((message) => ({
+        kind: 'message' as const,
+        at: message.createdAt,
+        message,
+      })),
+      ...events.map((event) => ({ kind: 'event' as const, at: event.createdAt, event })),
+    ];
+    return list.sort((a, b) => a.at.localeCompare(b.at));
+  }, [messages, events]);
 
   const run = (task: Promise<unknown>) => {
     setError(undefined);
@@ -67,6 +127,9 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
       setError(errorMessage(cause));
     });
   };
+
+  const moderator = group !== null && group.myRole !== 'MEMBER';
+  const writable = group ? group.canPost : !blocked;
 
   const actions: MessageActions = {
     reply: (message) => {
@@ -100,6 +163,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
     discard: (message) => {
       if (engine) run(engine.discardFailed(conversation.id, message.clientMessageId));
     },
+    report: setReporting,
   };
 
   const submit = async ({ text, files, voice }: ComposerSubmit) => {
@@ -135,10 +199,20 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
       }
       const reply = replyTo?.id;
       setReplyTo(null);
+      // Mentions are found here, on the device; only the mentioned OGC IDs go to the server.
+      const mentions = group
+        ? mentionsIn(
+            text,
+            members
+              .filter((m) => m.profile.ogcId !== myOgcId)
+              .map((m) => ({ ogcId: m.profile.ogcId, displayName: m.profile.displayName })),
+          )
+        : [];
       await engine.send(conversation.id, {
         ...(text ? { text } : {}),
         ...(attachments.length ? { attachments } : {}),
         ...(reply ? { replyToId: reply } : {}),
+        ...(mentions.length ? { mentions } : {}),
       });
     } catch (cause) {
       setError(errorMessage(cause));
@@ -147,37 +221,76 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
 
   const status = typing[conversation.id]
     ? 'typing…'
-    : presence[peer.ogcId] === 'ONLINE'
-      ? 'Online'
-      : 'End-to-end encrypted';
+    : group
+      ? `${String(group.memberCount)} ${group.memberCount === 1 ? 'member' : 'members'} · End-to-end encrypted`
+      : peer && presence[peer.ogcId] === 'ONLINE'
+        ? 'Online'
+        : 'End-to-end encrypted';
+
+  const headerInner = (
+    <>
+      <Avatar url={avatar.url} name={avatar.name} size={40} />
+      <span className={styles.peerText}>
+        <span className={styles.peerName}>{title}</span>
+        <span
+          className={typing[conversation.id] ? styles.rowTyping : styles.peerStatus}
+          aria-live="polite"
+        >
+          {status}
+        </span>
+      </span>
+    </>
+  );
 
   return (
-    <section className={styles.panel} aria-label={`Conversation with ${peer.displayName}`}>
+    <section
+      className={styles.panel}
+      aria-label={
+        group
+          ? `${group.kind === 'CHANNEL' ? 'Channel' : 'Group'}: ${title}`
+          : `Conversation with ${title}`
+      }
+    >
       <header className={styles.panelHeader}>
         <Link to="/messages" className={styles.back} aria-label="Back to conversations">
           ‹
         </Link>
-        <Link to={`/id/${peer.ogcId}`} className={styles.peer}>
-          <Avatar url={peer.avatarUrl} name={peer.displayName} size={40} />
-          <span className={styles.peerText}>
-            <span className={styles.peerName}>{peer.displayName}</span>
-            <span
-              className={typing[conversation.id] ? styles.rowTyping : styles.peerStatus}
-              aria-live="polite"
-            >
-              {status}
-            </span>
-          </span>
-        </Link>
-        <button
-          type="button"
-          className={styles.smallButton}
-          onClick={() => {
-            setVerifying(true);
-          }}
-        >
-          Verify
-        </button>
+        {peer ? (
+          <Link to={`/id/${peer.ogcId}`} className={styles.peer}>
+            {headerInner}
+          </Link>
+        ) : (
+          <button
+            type="button"
+            className={[styles.peer, styles.peerButton].join(' ')}
+            onClick={() => {
+              setShowInfo(true);
+            }}
+          >
+            {headerInner}
+          </button>
+        )}
+        {group ? (
+          <button
+            type="button"
+            className={styles.smallButton}
+            onClick={() => {
+              setShowInfo(true);
+            }}
+          >
+            Info
+          </button>
+        ) : (
+          <button
+            type="button"
+            className={styles.smallButton}
+            onClick={() => {
+              setVerifying(true);
+            }}
+          >
+            Verify
+          </button>
+        )}
       </header>
 
       {connection === 'offline' ? (
@@ -185,7 +298,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
           Offline — reconnecting. Messages you send are queued on this device.
         </p>
       ) : null}
-      {blocked ? (
+      {blocked && peer ? (
         <div className={styles.banner} role="status">
           You blocked {peer.displayName}. You won’t receive their messages.{' '}
           <button
@@ -199,6 +312,12 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
           </button>
         </div>
       ) : null}
+      {group?.archived ? (
+        <p className={styles.banner} role="status">
+          This {group.kind === 'CHANNEL' ? 'channel' : 'group'} is archived. You can read it, but
+          nobody can post.
+        </p>
+      ) : null}
 
       <div
         className={styles.log}
@@ -208,31 +327,48 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
         aria-relevant="additions"
       >
         {messages === undefined ? <p className={styles.sidebarNote}>Loading messages…</p> : null}
-        {messages?.length === 0 ? (
+        {messages?.length === 0 && events.length === 0 ? (
           <div className={styles.emptyConversation}>
-            <p className={styles.emptyTitle}>Say hello to {peer.displayName}</p>
+            <p className={styles.emptyTitle}>
+              {group ? `Welcome to ${title}` : `Say hello to ${title}`}
+            </p>
             <p className={styles.sidebarNote}>
-              Messages are end-to-end encrypted. Only your and {peer.displayName}’s devices can read
-              them — not OGC.
+              {group
+                ? 'Messages are end-to-end encrypted for the members’ devices — not readable by OGC. Members who join later can’t read earlier messages.'
+                : `Messages are end-to-end encrypted. Only your and ${title}’s devices can read them — not OGC.`}
             </p>
           </div>
         ) : null}
-        {messages?.map((message, index) => {
-          const previous = messages[index - 1];
-          const newDay = !previous || !sameDay(previous.createdAt, message.createdAt);
+        {items.map((item, index) => {
+          const previous = items[index - 1];
+          const newDay = !previous || !sameDay(previous.at, item.at);
+          const separator = newDay ? (
+            <p className={styles.day} role="separator">
+              {dayLabel(item.at)}
+            </p>
+          ) : null;
+          if (item.kind === 'event') {
+            return (
+              <Fragment key={`e-${item.event.id}`}>
+                {separator}
+                <p className={styles.timelineEvent}>
+                  {describeEvent(item.event, nameOf, group?.kind ?? 'GROUP')}
+                </p>
+              </Fragment>
+            );
+          }
+          const { message } = item;
           return (
             <Fragment key={message.clientMessageId}>
-              {newDay ? (
-                <p className={styles.day} role="separator">
-                  {dayLabel(message.createdAt)}
-                </p>
-              ) : null}
+              {separator}
               <MessageBubble
                 message={message}
                 conversation={conversation}
-                myOgcId={engine?.ogcId ?? ''}
+                myOgcId={myOgcId}
                 replyTarget={message.replyToId ? (byId.get(message.replyToId) ?? null) : undefined}
                 actions={actions}
+                senderName={group ? nameOf(message.senderOgcId) : undefined}
+                canModerate={moderator && !group.archived}
               />
             </Fragment>
           );
@@ -241,21 +377,30 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
       </div>
 
       {error ? <Alert>{error}</Alert> : null}
-      <Composer
-        key={editing?.clientMessageId ?? 'compose'}
-        disabled={blocked || !engine}
-        replyTo={replyTo}
-        editing={editing}
-        onCancelContext={() => {
-          setReplyTo(null);
-          setEditing(null);
-        }}
-        onSubmit={submit}
-        onTyping={(isTyping) => {
-          setTyping(conversation.id, isTyping);
-        }}
-        onError={setError}
-      />
+      {group && !group.canPost && !group.archived ? (
+        <p className={styles.composerNote}>
+          {group.postPolicy === 'MODERATORS'
+            ? 'Only moderators and admins can post here.'
+            : 'Only admins can post here.'}
+        </p>
+      ) : null}
+      {writable || blocked ? (
+        <Composer
+          key={editing?.clientMessageId ?? 'compose'}
+          disabled={blocked || !engine}
+          replyTo={replyTo}
+          editing={editing}
+          onCancelContext={() => {
+            setReplyTo(null);
+            setEditing(null);
+          }}
+          onSubmit={submit}
+          onTyping={(isTyping) => {
+            setTyping(conversation.id, isTyping);
+          }}
+          onError={setError}
+        />
+      ) : null}
 
       {forwarding ? (
         <ForwardDialog
@@ -269,6 +414,16 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
           }}
         />
       ) : null}
+      {reporting ? (
+        <ReportMessageDialog
+          conversationId={conversation.id}
+          message={reporting}
+          senderName={nameOf(reporting.senderOgcId)}
+          onClose={() => {
+            setReporting(null);
+          }}
+        />
+      ) : null}
       {verifying ? (
         <SafetyNumberDialog
           conversation={conversation}
@@ -277,11 +432,25 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
           }}
         />
       ) : null}
+      {showInfo && group ? (
+        <Suspense fallback={<Spinner label="Loading group details" />}>
+          <GroupInfoPanel
+            conversation={conversation}
+            members={members}
+            onMembersChanged={setMembers}
+            onClose={() => {
+              setShowInfo(false);
+            }}
+          />
+        </Suspense>
+      ) : null}
       {confirmDelete ? (
         <div className={styles.confirm} role="alertdialog" aria-label="Delete for everyone?">
           <p>
-            Delete this message for everyone? It will be removed from OGC and from both people’s
-            devices. Copies someone already saved or screenshotted can’t be recalled.
+            {confirmDelete.mine
+              ? 'Delete this message for everyone? It will be removed from OGC and from every member’s devices.'
+              : `Remove this message from ${nameOf(confirmDelete.senderOgcId)} for everyone? The removal is recorded in the group history (without its content).`}{' '}
+            Copies someone already saved or screenshotted can’t be recalled.
           </p>
           <div className={styles.confirmActions}>
             <button
@@ -302,7 +471,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
                 if (engine && target.id) run(engine.deleteForEveryone(conversation.id, target.id));
               }}
             >
-              Delete for everyone
+              {confirmDelete.mine ? 'Delete for everyone' : 'Remove for everyone'}
             </button>
           </div>
         </div>

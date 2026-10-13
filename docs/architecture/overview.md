@@ -48,11 +48,13 @@ Enforced by review now and by lint rules (import restrictions) once modules exis
 Implemented so far: **Identity**, **Authentication**, **Audit** (Phase 1); **Profiles**,
 **Contacts**, **Privacy/Blocks**, **Reports**, and the shared **Relationships** service
 (Phase 2); **Conversations/Messaging**, **E2EE device keys**, **Attachments**, **Realtime**
-and **Notifications** (Phase 3); plus `Email`, `Storage`, `Redis` and `Metrics` platform
+and **Notifications** (Phase 3); **Groups**, **Channels** (community), invitation links and
+in-app notifications in the **Community** module (Phase 4); plus `Email`, `Storage`, `Redis` and `Metrics` platform
 pieces. See [identity-and-authentication.md](identity-and-authentication.md),
 [social-graph.md](social-graph.md), [messaging.md](messaging.md),
-[encryption.md](encryption.md), [realtime.md](realtime.md), [sync.md](sync.md) and
-[data-model.md](data-model.md).
+[encryption.md](encryption.md), [realtime.md](realtime.md), [sync.md](sync.md),
+[groups.md](groups.md), [channels.md](channels.md),
+[community-encryption.md](community-encryption.md) and [data-model.md](data-model.md).
 
 | Module             | Responsibility                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------- |

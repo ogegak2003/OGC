@@ -20,7 +20,16 @@ export type MessagingLimitName =
   | 'e2ee'
   | 'typing'
   | 'presence'
-  | 'socketConnect';
+  | 'socketConnect'
+  | 'communityCreate'
+  | 'communityManage'
+  | 'invite'
+  | 'inviteLinkJoin'
+  | 'channelPost'
+  | 'moderation'
+  | 'discovery'
+  | 'communityReport'
+  | 'notifications';
 
 type RateLimitKey = Extract<keyof Env, `RATE_LIMIT_${string}`>;
 
@@ -41,6 +50,15 @@ export function messagingLimitsFrom(
     RATE_LIMIT_TYPING: read('RATE_LIMIT_TYPING'),
     RATE_LIMIT_PRESENCE: read('RATE_LIMIT_PRESENCE'),
     RATE_LIMIT_SOCKET_CONNECT: read('RATE_LIMIT_SOCKET_CONNECT'),
+    RATE_LIMIT_COMMUNITY_CREATE_PER_HOUR: read('RATE_LIMIT_COMMUNITY_CREATE_PER_HOUR'),
+    RATE_LIMIT_COMMUNITY_MANAGE: read('RATE_LIMIT_COMMUNITY_MANAGE'),
+    RATE_LIMIT_INVITE_PER_HOUR: read('RATE_LIMIT_INVITE_PER_HOUR'),
+    RATE_LIMIT_INVITE_LINK_JOIN_PER_HOUR: read('RATE_LIMIT_INVITE_LINK_JOIN_PER_HOUR'),
+    RATE_LIMIT_CHANNEL_POST: read('RATE_LIMIT_CHANNEL_POST'),
+    RATE_LIMIT_MODERATION: read('RATE_LIMIT_MODERATION'),
+    RATE_LIMIT_DISCOVERY: read('RATE_LIMIT_DISCOVERY'),
+    RATE_LIMIT_COMMUNITY_REPORT_PER_HOUR: read('RATE_LIMIT_COMMUNITY_REPORT_PER_HOUR'),
+    RATE_LIMIT_NOTIFICATIONS: read('RATE_LIMIT_NOTIFICATIONS'),
   };
   return {
     messageSend: { limit: env.RATE_LIMIT_MESSAGE_SEND, ttl: MINUTE },
@@ -55,6 +73,15 @@ export function messagingLimitsFrom(
     typing: { limit: env.RATE_LIMIT_TYPING, ttl: MINUTE },
     presence: { limit: env.RATE_LIMIT_PRESENCE, ttl: MINUTE },
     socketConnect: { limit: env.RATE_LIMIT_SOCKET_CONNECT, ttl: MINUTE },
+    communityCreate: { limit: env.RATE_LIMIT_COMMUNITY_CREATE_PER_HOUR, ttl: HOUR },
+    communityManage: { limit: env.RATE_LIMIT_COMMUNITY_MANAGE, ttl: MINUTE },
+    invite: { limit: env.RATE_LIMIT_INVITE_PER_HOUR, ttl: HOUR },
+    inviteLinkJoin: { limit: env.RATE_LIMIT_INVITE_LINK_JOIN_PER_HOUR, ttl: HOUR },
+    channelPost: { limit: env.RATE_LIMIT_CHANNEL_POST, ttl: MINUTE },
+    moderation: { limit: env.RATE_LIMIT_MODERATION, ttl: MINUTE },
+    discovery: { limit: env.RATE_LIMIT_DISCOVERY, ttl: MINUTE },
+    communityReport: { limit: env.RATE_LIMIT_COMMUNITY_REPORT_PER_HOUR, ttl: HOUR },
+    notifications: { limit: env.RATE_LIMIT_NOTIFICATIONS, ttl: MINUTE },
   };
 }
 

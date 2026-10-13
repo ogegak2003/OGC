@@ -32,6 +32,32 @@ export function OgcQrCode({ ogcId, size = 220 }: { ogcId: OgcId; size?: number }
   );
 }
 
+/**
+ * QR code for a link the user chose to share (e.g. an invitation link). The
+ * caller decides what may be encoded; identity QR codes use `OgcQrCode`.
+ */
+export function LinkQrCode({
+  payload,
+  label,
+  size = 220,
+}: {
+  payload: string;
+  label: string;
+  size?: number;
+}) {
+  const { path, size: modules } = useMemo(() => qrSvgPath(payload), [payload]);
+  const quiet = 2;
+  const box = modules + quiet * 2;
+  return (
+    <View style={styles.qrFrame} accessibilityRole="image" accessibilityLabel={label}>
+      <Svg width={size} height={size} viewBox={`${-quiet} ${-quiet} ${box} ${box}`}>
+        <Path d={`M${-quiet} ${-quiet}h${box}v${box}h${-box}z`} fill="#F5F2EA" />
+        <Path d={path} fill="#0B0B0A" />
+      </Svg>
+    </View>
+  );
+}
+
 /** Profile photo fetched with the session token (so privacy rules apply), with an initials fallback. */
 export function Avatar({
   url,

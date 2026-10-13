@@ -1,4 +1,4 @@
-import type { AttachmentKind } from '@ogc/types';
+import type { AttachmentKind, ConversationEventView, ConversationView } from '@ogc/types';
 import type { LocalMessage } from './payload.js';
 
 /**
@@ -96,4 +96,75 @@ export function duration(ms: number): string {
 /** Audio types a client may play from decrypted bytes. */
 export function playableAudio(mime: string): boolean {
   return /^audio\/(webm|ogg|mp4|mpeg|aac|wav|x-m4a)(;.*)?$/.test(mime);
+}
+
+/** Name shown for a conversation: the group's name, or the other person's. */
+export function conversationTitle(conversation: ConversationView): string {
+  return conversation.group?.name ?? conversation.peer?.displayName ?? 'Conversation';
+}
+
+/** Photo for a conversation (group photo or the other person's), with the name for initials. */
+export function conversationAvatar(conversation: ConversationView): {
+  url: string | null;
+  name: string;
+} {
+  return {
+    url: conversation.group?.avatarUrl ?? conversation.peer?.avatarUrl ?? null,
+    name: conversationTitle(conversation),
+  };
+}
+
+/**
+ * Members mentioned in a message, found on the sending device (`@Name` or an
+ * OGC ID). Only their OGC IDs are sent beside the ciphertext, for notifications.
+ */
+export function mentionsIn(
+  text: string,
+  members: readonly { ogcId: string; displayName: string }[],
+): string[] {
+  const lowered = text.toLocaleLowerCase();
+  const found = members.filter(
+    (m) =>
+      (m.displayName.trim() !== '' && lowered.includes(`@${m.displayName.toLocaleLowerCase()}`)) ||
+      text.toUpperCase().includes(m.ogcId.toUpperCase()),
+  );
+  return [...new Set(found.map((m) => m.ogcId))].slice(0, 20);
+}
+
+/** One line describing a group timeline event ("Ada added Grace"). Never content. */
+export function describeEvent(
+  event: Pick<ConversationEventView, 'type' | 'actor' | 'subject' | 'detail'>,
+  nameOf: (ogcId: string | null) => string,
+  kind: 'GROUP' | 'CHANNEL' = 'GROUP',
+): string {
+  const actor = nameOf(event.actor);
+  const subject = nameOf(event.subject);
+  const noun = kind === 'CHANNEL' ? 'channel' : 'group';
+  const role = typeof event.detail?.role === 'string' ? event.detail.role : '';
+  switch (event.type) {
+    case 'CREATED':
+      return `${actor} created the ${noun}`;
+    case 'MEMBER_JOINED':
+      return `${subject} joined`;
+    case 'MEMBER_LEFT':
+      return `${subject} left`;
+    case 'MEMBER_REMOVED':
+      return `${actor} removed ${subject}`;
+    case 'ROLE_CHANGED':
+      return role === 'ADMIN'
+        ? `${actor} made ${subject} an admin`
+        : role === 'MODERATOR'
+          ? `${actor} made ${subject} a moderator`
+          : `${actor} changed ${subject}’s role to member`;
+    case 'OWNERSHIP_TRANSFERRED':
+      return `${actor} made ${subject} the owner`;
+    case 'DETAILS_UPDATED':
+      return `${actor} updated the ${noun} details`;
+    case 'MESSAGE_REMOVED':
+      return `${actor} removed a message`;
+    case 'ARCHIVED':
+      return `${actor} archived the ${noun}`;
+    case 'UNARCHIVED':
+      return `${actor} restored the ${noun}`;
+  }
 }

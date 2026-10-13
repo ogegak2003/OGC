@@ -62,6 +62,18 @@ enum AuditEventType {
   DEVICE_KEY_REVOKED
   CONVERSATION_CREATED
   MESSAGE_DELETED_FOR_EVERYONE
+  GROUP_CREATED
+  GROUP_MEMBER_REMOVED
+  GROUP_OWNERSHIP_TRANSFERRED
+  GROUP_DELETED
+  CHANNEL_CREATED
+  CHANNEL_OWNERSHIP_TRANSFERRED
+  CHANNEL_VISIBILITY_CHANGED
+  CHANNEL_DELETED
+  CHANNEL_MODERATION
+  INVITE_LINK_CREATED
+  INVITE_LINK_REVOKED
+  CONVERSATION_REPORTED
 }
 
 enum ProfileVisibility {
@@ -101,9 +113,112 @@ enum StaffRole {
   ADMIN
 }
 
-/// DIRECT = exactly two accounts. Group and channel types are added later (ADR-022).
+/// DIRECT = exactly two accounts; GROUP = private group; CHANNEL = private encrypted channel.
+/// All three are end-to-end encrypted with MLS (ADR-022, ADR-031).
 enum ConversationType {
   DIRECT
+  GROUP
+  CHANNEL
+}
+
+/// Roles in groups and channels (MODERATOR exists in channels only). ADR-031.
+enum CommunityRole {
+  OWNER
+  ADMIN
+  MODERATOR
+  MEMBER
+}
+
+enum PostPolicy {
+  ALL_MEMBERS
+  MODERATORS
+  ADMINS
+}
+
+enum InvitePolicy {
+  ALL_MEMBERS
+  ADMINS
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  DECLINED
+  REVOKED
+  EXPIRED
+}
+
+enum ConversationEventType {
+  CREATED
+  MEMBER_JOINED
+  MEMBER_LEFT
+  MEMBER_REMOVED
+  ROLE_CHANGED
+  OWNERSHIP_TRANSFERRED
+  DETAILS_UPDATED
+  MESSAGE_REMOVED
+  ARCHIVED
+  UNARCHIVED
+}
+
+enum NotificationLevel {
+  ALL
+  MENTIONS
+  NONE
+}
+
+/// Community channels are server-readable (ADR-032).
+enum ChannelVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum ChannelJoinPolicy {
+  OPEN
+  APPROVAL
+}
+
+enum ChannelMemberStatus {
+  ACTIVE
+  PENDING
+  BANNED
+}
+
+enum ModerationActionType {
+  REMOVE_POST
+  RESTORE_POST
+  SUSPEND
+  UNSUSPEND
+  BAN
+  UNBAN
+  REMOVE_MEMBER
+  ROLE_CHANGED
+  APPROVE_MEMBER
+  REJECT_MEMBER
+  RESOLVE_REPORT
+  DISMISS_REPORT
+  PIN_POST
+  UNPIN_POST
+  VISIBILITY_CHANGED
+  OWNERSHIP_TRANSFERRED
+  ARCHIVED
+  UNARCHIVED
+}
+
+enum NotificationType {
+  GROUP_INVITATION
+  GROUP_MEMBER_ADDED
+  GROUP_MEMBER_REMOVED
+  GROUP_ROLE_CHANGED
+  GROUP_DETAILS_CHANGED
+  MENTION
+  CHANNEL_ANNOUNCEMENT
+  CHANNEL_ROLE_CHANGED
+  CHANNEL_JOIN_REQUEST
+  CHANNEL_REQUEST_APPROVED
+  CHANNEL_MEMBER_REMOVED
+  MODERATION_RESULT
+  INVITATION_EXPIRED
 }
 
 /// Declared by the uploader; the server only sees ciphertext and enforces per-kind size limits.
@@ -155,6 +270,16 @@ model User {
   reactions               MessageReaction[]
   messageHides            MessageHide[]
   attachmentsUploaded     Attachment[]
+  invitationsSent         ConversationInvitation[]  @relation("InvitationsSent")
+  invitationsReceived     ConversationInvitation[]  @relation("InvitationsReceived")
+  inviteLinksCreated      InviteLink[]              @relation("InviteLinksCreated")
+  conversationReportsMade ConversationReport[]      @relation("ConversationReportsMade")
+  conversationReported    ConversationReport[]      @relation("ConversationReportsReceived")
+  channelsCreated         Channel[]                 @relation("ChannelsCreated")
+  channelMemberships      ChannelMember[]
+  channelPosts            ChannelPost[]             @relation("ChannelPostsAuthored")
+  channelReactions        ChannelPostReaction[]     @relation("ChannelReactions")
+  notifications           Notification[]
 
   @@map("users")
 }
@@ -399,19 +524,22 @@ model KeyPackage {
 /// versions are strictly increasing in commit order (ADR-025).
 model Conversation {
   /// Random (v4) opaque identifier; also the MLS group ID.
-  id             String           @id @db.Uuid
-  type           ConversationType
+  id               String           @id @db.Uuid
+  type             ConversationType
   /// DIRECT only: "<smaller user id>:<larger user id>" — one conversation per pair (unique).
-  directKey      String?          @unique @map("direct_key") @db.VarChar(73)
-  version        BigInt           @default(0)
+  directKey        String?          @unique @map("direct_key") @db.VarChar(73)
+  version          BigInt           @default(0)
   /// Current MLS epoch accepted by the delivery service (compare-and-set on commits).
-  mlsEpoch       BigInt           @default(0) @map("mls_epoch")
+  mlsEpoch         BigInt           @default(0) @map("mls_epoch")
   /// Latest MLS GroupInfo (public data: ratchet tree, external public key) for `mlsEpoch`.
-  groupInfo      Bytes?           @map("group_info")
-  lastActivityAt DateTime         @default(now()) @map("last_activity_at") @db.Timestamptz(3)
-  createdById    String?          @map("created_by_id") @db.Uuid
-  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt      DateTime         @default(now()) @map("updated_at") @db.Timestamptz(3)
+  groupInfo        Bytes?           @map("group_info")
+  /// Accounts whose devices are in the current MLS tree (from the latest accepted commit).
+  /// New messages are refused while it contains anyone who is no longer a participant (ADR-033).
+  mlsMemberUserIds String[]         @default([]) @map("mls_member_user_ids") @db.Uuid
+  lastActivityAt   DateTime         @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  createdById      String?          @map("created_by_id") @db.Uuid
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @default(now()) @map("updated_at") @db.Timestamptz(3)
 
   createdBy    User?                     @relation(fields: [createdById], references: [id], onDelete: SetNull)
   participants ConversationParticipant[]
@@ -420,6 +548,11 @@ model Conversation {
   welcomes     MlsWelcome[]
   attachments  Attachment[]
   hides        MessageHide[]
+  groupProfile GroupProfile?
+  invitations  ConversationInvitation[]
+  inviteLinks  InviteLink[]
+  events       ConversationEvent[]
+  reports      ConversationReport[]
 
   @@index([updatedAt, id])
   @@map("conversations")
@@ -427,12 +560,19 @@ model Conversation {
 
 /// Membership plus per-user read/delivery high-water marks (message `seq` values).
 model ConversationParticipant {
-  conversationId   String    @map("conversation_id") @db.Uuid
-  userId           String    @map("user_id") @db.Uuid
-  lastReadSeq      BigInt    @default(0) @map("last_read_seq")
-  lastDeliveredSeq BigInt    @default(0) @map("last_delivered_seq")
-  readAt           DateTime? @map("read_at") @db.Timestamptz(3)
-  joinedAt         DateTime  @default(now()) @map("joined_at") @db.Timestamptz(3)
+  conversationId     String            @map("conversation_id") @db.Uuid
+  userId             String            @map("user_id") @db.Uuid
+  lastReadSeq        BigInt            @default(0) @map("last_read_seq")
+  lastDeliveredSeq   BigInt            @default(0) @map("last_delivered_seq")
+  readAt             DateTime?         @map("read_at") @db.Timestamptz(3)
+  /// Groups and channels only; DIRECT participants are always MEMBER.
+  role               CommunityRole     @default(MEMBER)
+  notificationLevel  NotificationLevel @default(ALL) @map("notification_level")
+  mutedUntil         DateTime?         @map("muted_until") @db.Timestamptz(3)
+  /// Groups: history starts after this version — members never receive what was sent
+  /// before they joined (they could not decrypt it anyway). 0 for DIRECT conversations.
+  visibleFromVersion BigInt            @default(0) @map("visible_from_version")
+  joinedAt           DateTime          @default(now()) @map("joined_at") @db.Timestamptz(3)
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -603,4 +743,288 @@ model PushToken {
 
   @@unique([provider, token])
   @@map("push_tokens")
+}
+
+/// Settings of a GROUP or private encrypted CHANNEL conversation (ADR-031). Names, descriptions
+/// and photos are server-visible metadata; message content stays end-to-end encrypted.
+model GroupProfile {
+  conversationId String       @id @map("conversation_id") @db.Uuid
+  name           String       @db.VarChar(64)
+  description    String?      @db.VarChar(500)
+  /// Server-generated object-storage key of the processed photo.
+  avatarKey      String?      @unique @map("avatar_key") @db.VarChar(128)
+  /// Who may post (encrypted channels default to ADMINS; groups to ALL_MEMBERS).
+  postPolicy     PostPolicy   @default(ALL_MEMBERS) @map("post_policy")
+  /// Who may invite people.
+  invitePolicy   InvitePolicy @default(ADMINS) @map("invite_policy")
+  archivedAt     DateTime?    @map("archived_at") @db.Timestamptz(3)
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@map("group_profiles")
+}
+
+/// A personal invitation to join a group or encrypted channel; the invitee must accept.
+/// At most one PENDING invitation per conversation and invitee (partial unique index).
+model ConversationInvitation {
+  id             String           @id @default(uuid(7)) @db.Uuid
+  conversationId String           @map("conversation_id") @db.Uuid
+  inviterId      String?          @map("inviter_id") @db.Uuid
+  inviteeId      String           @map("invitee_id") @db.Uuid
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime         @map("expires_at") @db.Timestamptz(3)
+  respondedAt    DateTime?        @map("responded_at") @db.Timestamptz(3)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  inviter      User?        @relation("InvitationsSent", fields: [inviterId], references: [id], onDelete: SetNull)
+  invitee      User         @relation("InvitationsReceived", fields: [inviteeId], references: [id], onDelete: Cascade)
+
+  @@index([inviteeId, status, id])
+  @@index([conversationId, status])
+  @@map("conversation_invitations")
+}
+
+/// A shareable invitation link (ADR-034). Only the SHA-256 of the 256-bit token is stored.
+/// Targets exactly one group/encrypted channel or one community channel.
+model InviteLink {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  tokenHash      String    @unique @map("token_hash") @db.Char(64)
+  conversationId String?   @map("conversation_id") @db.Uuid
+  channelId      String?   @map("channel_id") @db.Uuid
+  createdById    String?   @map("created_by_id") @db.Uuid
+  expiresAt      DateTime? @map("expires_at") @db.Timestamptz(3)
+  maxUses        Int?      @map("max_uses")
+  useCount       Int       @default(0) @map("use_count")
+  revokedAt      DateTime? @map("revoked_at") @db.Timestamptz(3)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  channel      Channel?      @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  createdBy    User?         @relation("InviteLinksCreated", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([channelId, createdAt])
+  @@map("invite_links")
+}
+
+/// Append-only membership and settings history of a group/encrypted channel. Feeds the
+/// timeline ("Ada added Grace") through sync and doubles as an audit trail. Never content.
+model ConversationEvent {
+  id             String                @id @default(uuid(7)) @db.Uuid
+  conversationId String                @map("conversation_id") @db.Uuid
+  version        BigInt
+  type           ConversationEventType
+  actorId        String?               @map("actor_id") @db.Uuid
+  subjectId      String?               @map("subject_id") @db.Uuid
+  /// Non-sensitive details (e.g. the new role). Never message content.
+  detail         Json?
+  createdAt      DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, version])
+  @@map("conversation_events")
+}
+
+/// A report about a message in an end-to-end encrypted conversation. The reporter explicitly
+/// discloses the decrypted text to OGC's moderators; the server could not read it otherwise.
+model ConversationReport {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  reporterId     String?        @map("reporter_id") @db.Uuid
+  conversationId String?        @map("conversation_id") @db.Uuid
+  messageId      String?        @map("message_id") @db.Uuid
+  reportedUserId String?        @map("reported_user_id") @db.Uuid
+  category       ReportCategory
+  /// Plaintext the reporter chose to disclose (≤ 4000 chars). Never collected otherwise.
+  disclosedText  String?        @map("disclosed_text") @db.VarChar(4000)
+  description    String?        @db.VarChar(1000)
+  status         ReportStatus   @default(OPEN)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  reporter     User?         @relation("ConversationReportsMade", fields: [reporterId], references: [id], onDelete: SetNull)
+  reportedUser User?         @relation("ConversationReportsReceived", fields: [reportedUserId], references: [id], onDelete: SetNull)
+  conversation Conversation? @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  @@index([status, id])
+  @@index([reporterId, createdAt])
+  @@map("conversation_reports")
+}
+
+/// A community channel: server-readable (NOT end-to-end encrypted), for larger audiences (ADR-032).
+model Channel {
+  /// Random (v4) identifier.
+  id             String            @id @db.Uuid
+  /// Public handle for links and search (lower-case, unique).
+  handle         String            @unique @db.VarChar(32)
+  name           String            @db.VarChar(64)
+  description    String?           @db.VarChar(1000)
+  avatarKey      String?           @unique @map("avatar_key") @db.VarChar(128)
+  visibility     ChannelVisibility @default(PUBLIC)
+  joinPolicy     ChannelJoinPolicy @default(OPEN) @map("join_policy")
+  postPolicy     PostPolicy        @default(ADMINS) @map("post_policy")
+  /// Members may reply to posts (discussion).
+  repliesEnabled Boolean           @default(true) @map("replies_enabled")
+  version        BigInt            @default(0)
+  memberCount    Int               @default(0) @map("member_count")
+  lastPostAt     DateTime?         @map("last_post_at") @db.Timestamptz(3)
+  archivedAt     DateTime?         @map("archived_at") @db.Timestamptz(3)
+  createdById    String?           @map("created_by_id") @db.Uuid
+  createdAt      DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  createdBy   User?                     @relation("ChannelsCreated", fields: [createdById], references: [id], onDelete: SetNull)
+  members     ChannelMember[]
+  posts       ChannelPost[]
+  inviteLinks InviteLink[]
+  moderation  ChannelModerationAction[]
+  reports     ChannelPostReport[]
+
+  @@index([visibility, memberCount])
+  @@map("channels")
+}
+
+model ChannelMember {
+  channelId         String              @map("channel_id") @db.Uuid
+  userId            String              @map("user_id") @db.Uuid
+  role              CommunityRole       @default(MEMBER)
+  status            ChannelMemberStatus @default(ACTIVE)
+  /// Posting suspended until this time (moderation).
+  suspendedUntil    DateTime?           @map("suspended_until") @db.Timestamptz(3)
+  notificationLevel NotificationLevel   @default(ALL) @map("notification_level")
+  mutedUntil        DateTime?           @map("muted_until") @db.Timestamptz(3)
+  lastReadSeq       BigInt              @default(0) @map("last_read_seq")
+  joinedAt          DateTime            @default(now()) @map("joined_at") @db.Timestamptz(3)
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([channelId, userId])
+  @@index([userId, status])
+  @@index([channelId, status, role])
+  @@map("channel_members")
+}
+
+model ChannelPost {
+  id           String    @id @default(uuid(7)) @db.Uuid
+  channelId    String    @map("channel_id") @db.Uuid
+  seq          BigInt
+  version      BigInt
+  authorId     String?   @map("author_id") @db.Uuid
+  /// Idempotency key from the client.
+  clientPostId String    @map("client_post_id") @db.Uuid
+  body         String?   @db.VarChar(4000)
+  replyToId    String?   @map("reply_to_id") @db.Uuid
+  announcement Boolean   @default(false)
+  pinnedAt     DateTime? @map("pinned_at") @db.Timestamptz(3)
+  editedAt     DateTime? @map("edited_at") @db.Timestamptz(3)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(3)
+  /// Removed by a moderator (restorable); the body is kept for review until restored or purged.
+  removedAt    DateTime? @map("removed_at") @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  channel     Channel               @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author      User?                 @relation("ChannelPostsAuthored", fields: [authorId], references: [id], onDelete: SetNull)
+  replyTo     ChannelPost?          @relation("ChannelReplies", fields: [channelId, replyToId], references: [channelId, id], onDelete: NoAction, onUpdate: NoAction)
+  replies     ChannelPost[]         @relation("ChannelReplies")
+  reactions   ChannelPostReaction[]
+  attachments ChannelAttachment[]
+  reports     ChannelPostReport[]
+
+  @@unique([channelId, seq])
+  @@unique([channelId, id])
+  @@unique([authorId, clientPostId])
+  @@index([channelId, version])
+  @@index([channelId, pinnedAt])
+  @@map("channel_posts")
+}
+
+model ChannelPostReaction {
+  postId    String   @map("post_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  reaction  String   @db.VarChar(16)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  post ChannelPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  user User        @relation("ChannelReactions", fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([postId, userId, reaction])
+  @@map("channel_post_reactions")
+}
+
+/// A server-readable attachment on a community channel post (images are re-encoded).
+model ChannelAttachment {
+  id         String         @id @db.Uuid
+  channelId  String         @map("channel_id") @db.Uuid
+  uploaderId String?        @map("uploader_id") @db.Uuid
+  postId     String?        @map("post_id") @db.Uuid
+  kind       AttachmentKind
+  name       String         @db.VarChar(255)
+  mime       String         @db.VarChar(127)
+  size       Int
+  storageKey String         @unique @map("storage_key") @db.VarChar(128)
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  post ChannelPost? @relation(fields: [postId], references: [id], onDelete: SetNull)
+
+  @@index([postId])
+  @@index([postId, createdAt])
+  @@map("channel_attachments")
+}
+
+/// Append-only record of moderator actions with reasons (ADR-035).
+model ChannelModerationAction {
+  id           String               @id @default(uuid(7)) @db.Uuid
+  channelId    String               @map("channel_id") @db.Uuid
+  moderatorId  String?              @map("moderator_id") @db.Uuid
+  action       ModerationActionType
+  targetUserId String?              @map("target_user_id") @db.Uuid
+  targetPostId String?              @map("target_post_id") @db.Uuid
+  reason       String?              @db.VarChar(500)
+  until        DateTime?            @db.Timestamptz(3)
+  createdAt    DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, id])
+  @@map("channel_moderation_actions")
+}
+
+model ChannelPostReport {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  channelId   String         @map("channel_id") @db.Uuid
+  postId      String         @map("post_id") @db.Uuid
+  reporterId  String?        @map("reporter_id") @db.Uuid
+  category    ReportCategory
+  description String?        @db.VarChar(1000)
+  status      ReportStatus   @default(OPEN)
+  resolution  String?        @db.VarChar(500)
+  resolvedAt  DateTime?      @map("resolved_at") @db.Timestamptz(3)
+  createdAt   DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  channel Channel     @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  post    ChannelPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+
+  @@index([channelId, status, id])
+  @@map("channel_post_reports")
+}
+
+/// In-app notification (ADR-036). Payloads carry IDs and public names only — never message content.
+model Notification {
+  id        String           @id @default(uuid(7)) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  type      NotificationType
+  /// Idempotency key: the same event never notifies a user twice.
+  dedupeKey String           @map("dedupe_key") @db.VarChar(200)
+  data      Json
+  readAt    DateTime?        @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([userId, id])
+  @@map("notifications")
 }

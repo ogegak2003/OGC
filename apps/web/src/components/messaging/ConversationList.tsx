@@ -1,4 +1,4 @@
-import type { LocalMessage } from '@ogc/messaging';
+import { type LocalMessage, conversationAvatar, conversationTitle } from '@ogc/messaging';
 import type { ConversationView } from '@ogc/types';
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router';
@@ -17,8 +17,10 @@ function ConversationRow({
 }) {
   const { typing, presence } = useMessaging();
   const last = useLastMessage(conversation.id);
-  const online = presence[conversation.peer.ogcId] === 'ONLINE';
+  const online = conversation.peer ? presence[conversation.peer.ogcId] === 'ONLINE' : false;
   const unread = conversation.blockedByMe ? 0 : conversation.unreadCount;
+  const avatar = conversationAvatar(conversation);
+  const group = conversation.group;
   return (
     <li>
       <Link
@@ -27,16 +29,19 @@ function ConversationRow({
         aria-current={active ? 'page' : undefined}
       >
         <span className={styles.avatarWrap}>
-          <Avatar
-            url={conversation.peer.avatarUrl}
-            name={conversation.peer.displayName}
-            size={44}
-          />
+          <Avatar url={avatar.url} name={avatar.name} size={44} />
           {online ? <span className={styles.onlineDot} aria-label="Online" role="img" /> : null}
         </span>
         <span className={styles.rowBody}>
           <span className={styles.rowTop}>
-            <span className={styles.rowName}>{conversation.peer.displayName}</span>
+            <span className={styles.rowName}>
+              {conversationTitle(conversation)}
+              {group ? (
+                <span className={styles.kindTag}>
+                  {group.kind === 'CHANNEL' ? 'Channel' : 'Group'}
+                </span>
+              ) : null}
+            </span>
             <span className={styles.rowTime}>
               {listTime(last?.createdAt ?? conversation.lastActivityAt)}
             </span>
@@ -47,7 +52,9 @@ function ConversationRow({
                 ? 'typing…'
                 : conversation.blockedByMe
                   ? 'Blocked'
-                  : previewText(last)}
+                  : group?.archived
+                    ? 'Archived'
+                    : previewText(last)}
             </span>
             {unread > 0 ? (
               <span className={styles.unread} aria-label={`${String(unread)} unread`}>
@@ -65,9 +72,11 @@ function ConversationRow({
 export function ConversationList({
   activeId,
   onNewConversation,
+  onNewGroup,
 }: {
   activeId: string | undefined;
   onNewConversation: () => void;
+  onNewGroup: () => void;
 }) {
   const { conversations, engine, status } = useMessaging();
   const [query, setQuery] = useState('');
@@ -93,21 +102,31 @@ export function ConversationList({
   const shown = lowered
     ? conversations.filter(
         (c) =>
-          c.peer.displayName.toLocaleLowerCase().includes(lowered) ||
-          c.peer.ogcId.toLowerCase().includes(lowered),
+          conversationTitle(c).toLocaleLowerCase().includes(lowered) ||
+          (c.peer?.ogcId.toLowerCase().includes(lowered) ?? false),
       )
     : conversations;
-  const nameOf = (conversationId: string) =>
-    conversations.find((c) => c.id === conversationId)?.peer.displayName ?? 'Conversation';
+  const nameOf = (conversationId: string) => {
+    const found = conversations.find((c) => c.id === conversationId);
+    return found ? conversationTitle(found) : 'Conversation';
+  };
 
   return (
     <section className={styles.sidebar} aria-label="Conversations">
       <div className={styles.sidebarHeader}>
         <h2 className={styles.sidebarTitle}>Messages</h2>
-        <button type="button" className={styles.newButton} onClick={onNewConversation}>
-          New
-        </button>
+        <span className={styles.headerActions}>
+          <button type="button" className={styles.secondaryPill} onClick={onNewGroup}>
+            New group
+          </button>
+          <button type="button" className={styles.newButton} onClick={onNewConversation}>
+            New
+          </button>
+        </span>
       </div>
+      <Link to="/invitations" className={styles.invitationsLink}>
+        Group invitations
+      </Link>
       <div className={styles.searchWrap}>
         <input
           type="search"

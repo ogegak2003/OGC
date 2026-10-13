@@ -15,8 +15,30 @@ import { AuditService } from '../audit/audit.service.js';
 import { DeviceKeysService } from '../e2ee/device-keys.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import { RelationshipService } from '../relationships/relationship.service.js';
+import { canPost } from '../community/community-permissions.js';
 import { ConversationAccessService } from './conversation-access.service.js';
-import { CHANGE_FEED_SAFETY_LAG_MS, UNREAD_COUNT_CAP } from './messaging.constants.js';
+import {
+  CHANGE_FEED_SAFETY_LAG_MS,
+  UNREAD_COUNT_CAP,
+  devicesPerAccount,
+} from './messaging.constants.js';
+import type {
+  CommunityRole,
+  ConversationType,
+  InvitePolicy,
+  PostPolicy,
+} from '../../generated/prisma/client.js';
+
+/** Cache-busting version of a stored photo (changes with each upload). */
+export function avatarVersion(avatarKey: string): string {
+  return /([0-9a-f]{8})-/.exec(avatarKey)?.[1] ?? '0';
+}
+
+/** Members-only URL of a group photo. */
+export function groupAvatarUrl(conversationId: string, avatarKey: string | null): string | null {
+  if (!avatarKey) return null;
+  return `/api/v1/groups/${conversationId}/avatar?v=${avatarVersion(avatarKey)}`;
+}
 
 const CONVERSATION_SELECT = {
   id: true,
@@ -26,9 +48,20 @@ const CONVERSATION_SELECT = {
   lastActivityAt: true,
   createdAt: true,
   updatedAt: true,
+  groupProfile: {
+    select: {
+      name: true,
+      description: true,
+      avatarKey: true,
+      postPolicy: true,
+      invitePolicy: true,
+      archivedAt: true,
+    },
+  },
   participants: {
     select: {
       userId: true,
+      role: true,
       lastReadSeq: true,
       lastDeliveredSeq: true,
       user: {
@@ -43,13 +76,23 @@ const CONVERSATION_SELECT = {
 
 interface ConversationRow {
   id: string;
+  type: ConversationType;
   version: bigint;
   mlsEpoch: bigint;
   lastActivityAt: Date;
   createdAt: Date;
   updatedAt: Date;
+  groupProfile: {
+    name: string;
+    description: string | null;
+    avatarKey: string | null;
+    postPolicy: PostPolicy;
+    invitePolicy: InvitePolicy;
+    archivedAt: Date | null;
+  } | null;
   participants: {
     userId: string;
+    role: CommunityRole;
     lastReadSeq: bigint;
     lastDeliveredSeq: bigint;
     user: {
@@ -62,6 +105,9 @@ interface ConversationRow {
     };
   }[];
 }
+
+/** Membership-change events scanned for former members (directory size bound). */
+const FORMER_MEMBER_EVENTS_MAX = 64;
 
 function encodeKeyset(at: Date, id: string): string {
   return Buffer.from(`${at.toISOString()}|${id}`, 'utf8').toString('base64url');
@@ -78,8 +124,10 @@ function decodeKeyset(cursor: string | undefined): { at: Date; id: string } | un
 }
 
 /**
- * DIRECT conversations (ADR-022): creation, listing and change feeds. Content
- * is never visible here — list previews are decrypted on the device.
+ * Conversations (ADR-022, ADR-031): opening DIRECT conversations, listing and
+ * change feeds for DIRECT conversations, groups and encrypted channels.
+ * Content is never visible here — list previews are decrypted on the device.
+ * Groups are created and managed by the groups module.
  */
 @Injectable()
 export class ConversationsService {
@@ -240,19 +288,49 @@ export class ConversationsService {
     return { items: await this.toViews(viewerId, page), cursor, hasMore };
   }
 
-  /** The encryption directory for a conversation: the devices of both participants. */
+  /**
+   * The encryption directory for a conversation: the devices of its current
+   * participants that may be in the MLS tree (ADR-033).
+   */
   async directory(viewerId: string, conversationId: string): Promise<DirectoryDevice[]> {
     const access = await this.access.require(viewerId, conversationId);
-    return this.devices.directory([viewerId, access.peerId]);
+    const current = new Set(access.members.map((m) => m.userId));
+    const former =
+      access.type === 'DIRECT'
+        ? []
+        : await this.formerMembers(conversationId, access.mlsMemberUserIds, current);
+    return this.devices.directory([...current], devicesPerAccount(access.type), former);
+  }
+
+  /**
+   * Recent former members of a group: still in the MLS tree, or removed/left
+   * in the last events. Bounded, so the directory stays small.
+   */
+  private async formerMembers(
+    conversationId: string,
+    mlsMemberUserIds: string[],
+    current: Set<string>,
+  ): Promise<string[]> {
+    const events = await this.prisma.conversationEvent.findMany({
+      where: { conversationId, type: { in: ['MEMBER_LEFT', 'MEMBER_REMOVED'] } },
+      orderBy: { version: 'desc' },
+      take: FORMER_MEMBER_EVENTS_MAX,
+      select: { subjectId: true },
+    });
+    const ids = new Set([
+      ...mlsMemberUserIds,
+      ...events.flatMap((e) => (e.subjectId ? [e.subjectId] : [])),
+    ]);
+    return [...ids].filter((id) => !current.has(id));
   }
 
   /** Builds views for a page of conversations with a fixed number of queries. */
   private async toViews(viewerId: string, rows: ConversationRow[]): Promise<ConversationView[]> {
     if (rows.length === 0) return [];
     const ids = rows.map((r) => r.id);
-    const peerIds = rows.flatMap((r) =>
-      r.participants.filter((p) => p.userId !== viewerId).map((p) => p.userId),
-    );
+    const peerIds = rows
+      .filter((r) => r.type === 'DIRECT')
+      .flatMap((r) => r.participants.filter((p) => p.userId !== viewerId).map((p) => p.userId));
 
     const [unread, lastMessages, contacts, blocks] = await Promise.all([
       this.prisma.$queryRaw<{ conversation_id: string; unread: number }[]>`
@@ -260,7 +338,7 @@ export class ConversationsService {
           SELECT count(*)::int FROM (
             SELECT 1 FROM "messages" m
             WHERE m.conversation_id = p.conversation_id
-              AND m.seq > p.last_read_seq
+              AND m.seq > GREATEST(p.last_read_seq, p.visible_from_version)
               AND m.sender_id IS DISTINCT FROM ${viewerId}::uuid
               AND m.deleted_at IS NULL
               AND m.withheld = false
@@ -286,6 +364,8 @@ export class ConversationsService {
           SELECT m.id, m.seq, m.created_at, m.deleted_at, u.ogc_id
           FROM "messages" m LEFT JOIN "users" u ON u.id = m.sender_id
           WHERE m.conversation_id = c.id
+            AND m.seq > (SELECT p.visible_from_version FROM "conversation_participants" p
+                         WHERE p.conversation_id = c.id AND p.user_id = ${viewerId}::uuid)
             AND (m.withheld = false OR m.sender_id = ${viewerId}::uuid)
             AND NOT EXISTS (SELECT 1 FROM "message_hides" h WHERE h.user_id = ${viewerId}::uuid AND h.message_id = m.id)
           ORDER BY m.seq DESC
@@ -315,39 +395,74 @@ export class ConversationsService {
       blocks.filter((b) => b.blockedId === viewerId).map((b) => b.blockerId),
     );
 
-    return rows.flatMap((row) => {
+    return rows.flatMap((row): ConversationView[] => {
       const me = row.participants.find((p) => p.userId === viewerId);
+      if (!me) return [];
+      const last = lastBy.get(row.id);
+      const common = {
+        id: row.id,
+        version: Number(row.version),
+        lastActivityAt: row.lastActivityAt.toISOString(),
+        lastMessage: last
+          ? {
+              id: last.id,
+              seq: Number(last.seq),
+              senderOgcId: last.ogc_id as OgcId | null,
+              createdAt: last.created_at.toISOString(),
+              deleted: last.deleted_at !== null,
+            }
+          : null,
+        unreadCount: unreadBy.get(row.id) ?? 0,
+        myLastReadSeq: Number(me.lastReadSeq),
+        mls: { epoch: Number(row.mlsEpoch), ready: row.mlsEpoch > 0n },
+        createdAt: row.createdAt.toISOString(),
+      };
+      if (row.type !== 'DIRECT') {
+        const profile = row.groupProfile;
+        if (!profile) return [];
+        const others = row.participants.filter((p) => p.userId !== viewerId);
+        // "Read by everyone" marks: the lowest mark among the other members.
+        const minOf = (values: bigint[]): number =>
+          values.length === 0 ? 0 : Number(values.reduce((a, b) => (b < a ? b : a)));
+        return [
+          {
+            ...common,
+            type: row.type,
+            peer: null,
+            group: {
+              kind: row.type,
+              name: profile.name,
+              description: profile.description,
+              avatarUrl: groupAvatarUrl(row.id, profile.avatarKey),
+              myRole: me.role,
+              memberCount: row.participants.length,
+              postPolicy: profile.postPolicy,
+              invitePolicy: profile.invitePolicy,
+              archived: profile.archivedAt !== null,
+              canPost: profile.archivedAt === null && canPost(me.role, profile.postPolicy),
+            },
+            peerLastReadSeq: minOf(others.map((p) => p.lastReadSeq)),
+            peerLastDeliveredSeq: minOf(others.map((p) => p.lastDeliveredSeq)),
+            blockedByMe: false,
+          },
+        ];
+      }
       const peer = row.participants.find((p) => p.userId !== viewerId);
-      if (!me || !peer) return [];
+      if (!peer) return [];
       const blocked = blockedByMe.has(peer.userId) || blockedMe.has(peer.userId);
       const detailsVisible =
         !blocked &&
         (contactSet.has(peer.userId) || peer.user.profile?.profileVisibility === 'EVERYONE');
-      const last = lastBy.get(row.id);
       return [
         {
-          id: row.id,
+          ...common,
           type: 'DIRECT' as const,
           peer: this.relationships.summary(peer.user, detailsVisible),
-          version: Number(row.version),
-          lastActivityAt: row.lastActivityAt.toISOString(),
-          lastMessage: last
-            ? {
-                id: last.id,
-                seq: Number(last.seq),
-                senderOgcId: last.ogc_id as OgcId | null,
-                createdAt: last.created_at.toISOString(),
-                deleted: last.deleted_at !== null,
-              }
-            : null,
-          unreadCount: unreadBy.get(row.id) ?? 0,
-          myLastReadSeq: Number(me.lastReadSeq),
+          group: null,
           // Receipts are not shared across a block in either direction.
           peerLastReadSeq: blocked ? 0 : Number(peer.lastReadSeq),
           peerLastDeliveredSeq: blocked ? 0 : Number(peer.lastDeliveredSeq),
           blockedByMe: blockedByMe.has(peer.userId),
-          mls: { epoch: Number(row.mlsEpoch), ready: row.mlsEpoch > 0n },
-          createdAt: row.createdAt.toISOString(),
         },
       ];
     });

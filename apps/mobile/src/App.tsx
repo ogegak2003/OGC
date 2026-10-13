@@ -1,5 +1,5 @@
 import { color } from '@ogc/ui';
-import { parseOgcIdLink } from '@ogc/validation';
+import { parseInviteToken, parseOgcIdLink } from '@ogc/validation';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
@@ -15,6 +15,21 @@ import {
   NewConversationScreen,
   SafetyNumberScreen,
 } from './screens/messaging/OtherScreens';
+import {
+  ChannelManageScreen,
+  ChannelScreen,
+  ChannelThreadScreen,
+  ChannelsScreen,
+  CreateChannelScreen,
+  NotificationsScreen,
+} from './screens/community/ChannelScreens';
+import {
+  CreateGroupScreen,
+  GroupInfoScreen,
+  InvitationsScreen,
+  JoinScreen,
+  ReportMessageScreen,
+} from './screens/community/GroupScreens';
 import { RegisterScreen } from './screens/RegisterScreen';
 import { SignInScreen } from './screens/SignInScreen';
 import { CheckEmailScreen, PendingVerificationScreen } from './screens/VerificationScreens';
@@ -34,15 +49,23 @@ type GuestRoute =
   | { name: 'check-email'; email: string };
 
 /**
- * Listens for OGC identity links (`ogc://id/OGC…`). Only a valid public OGC ID
- * is ever extracted; the link opens the profile, never adds a contact.
+ * Listens for OGC identity links (`ogc://id/OGC…`) and invitation links
+ * (`…/join#token=ogc_inv_…`). Only a valid public OGC ID or a well-formed
+ * invitation token is ever extracted; links open a screen and never add a
+ * contact or join anything without the user's tap.
  */
-function useIdentityLink(): string | undefined {
-  const [ogcId, setOgcId] = useState<string>();
+function useIncomingLink(): Route | undefined {
+  const [route, setLinkRoute] = useState<Route>();
   useEffect(() => {
     const handle = (url: string | null) => {
-      const id = url ? parseOgcIdLink(url) : undefined;
-      if (id) setOgcId(id);
+      if (!url) return;
+      const id = parseOgcIdLink(url);
+      if (id) {
+        setLinkRoute({ name: 'public-profile', ogcId: id });
+        return;
+      }
+      const token = /\/join[#?]/.test(url) ? parseInviteToken(url) : undefined;
+      if (token) setLinkRoute({ name: 'join', token });
     };
     Linking.getInitialURL().then(handle, () => undefined);
     const subscription = Linking.addEventListener('url', ({ url }) => {
@@ -52,7 +75,7 @@ function useIdentityLink(): string | undefined {
       subscription.remove();
     };
   }, []);
-  return ogcId;
+  return route;
 }
 
 function renderSignedIn(route: Route) {
@@ -86,14 +109,38 @@ function renderSignedIn(route: Route) {
     case 'forward':
       return <ForwardScreen conversationId={route.conversationId} messageId={route.messageId} />;
     case 'safety-number':
-      return <SafetyNumberScreen conversationId={route.conversationId} />;
+      return <SafetyNumberScreen conversationId={route.conversationId} ogcId={route.ogcId} />;
+    case 'new-group':
+      return <CreateGroupScreen />;
+    case 'group-info':
+      return <GroupInfoScreen conversationId={route.conversationId} />;
+    case 'report-message':
+      return (
+        <ReportMessageScreen conversationId={route.conversationId} messageId={route.messageId} />
+      );
+    case 'invitations':
+      return <InvitationsScreen />;
+    case 'join':
+      return <JoinScreen token={route.token} />;
+    case 'channels':
+      return <ChannelsScreen />;
+    case 'new-channel':
+      return <CreateChannelScreen />;
+    case 'channel':
+      return <ChannelScreen key={route.channelId} channelId={route.channelId} />;
+    case 'channel-thread':
+      return <ChannelThreadScreen channelId={route.channelId} postId={route.postId} />;
+    case 'channel-manage':
+      return <ChannelManageScreen channelId={route.channelId} />;
+    case 'notifications':
+      return <NotificationsScreen />;
   }
 }
 
 function Router() {
   const { state } = useAuth();
   const [route, setRoute] = useState<GuestRoute>({ name: 'welcome' });
-  const linkedOgcId = useIdentityLink();
+  const linked = useIncomingLink();
 
   if (state.status === 'loading') {
     return (
@@ -105,12 +152,10 @@ function Router() {
   if (state.status === 'signed-in') {
     if (state.account.accountStatus === 'PENDING_VERIFICATION')
       return <PendingVerificationScreen />;
-    const initial: Route[] = linkedOgcId
-      ? [{ name: 'profile' }, { name: 'public-profile', ogcId: linkedOgcId }]
-      : [{ name: 'profile' }];
-    // A new link restarts the stack on that profile (the key forces a fresh navigator).
+    const initial: Route[] = linked ? [{ name: 'profile' }, linked] : [{ name: 'profile' }];
+    // A new link restarts the stack on its screen (the key forces a fresh navigator).
     return (
-      <StackNavigator key={linkedOgcId ?? 'home'} initial={initial}>
+      <StackNavigator key={linked ? JSON.stringify(linked) : 'home'} initial={initial}>
         {renderSignedIn}
       </StackNavigator>
     );

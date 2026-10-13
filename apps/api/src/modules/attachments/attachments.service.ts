@@ -120,9 +120,20 @@ export class AttachmentsService implements OnModuleInit, OnModuleDestroy {
           },
         ],
       },
-      select: { storageKey: true },
+      select: {
+        storageKey: true,
+        message: { select: { seq: true } },
+        conversation: {
+          select: {
+            participants: { where: { userId: auth.userId }, select: { visibleFromVersion: true } },
+          },
+        },
+      },
     });
     if (!attachment) throw attachmentNotFound();
+    // Group members cannot fetch attachments of messages sent before they joined.
+    const visibleFrom = attachment.conversation.participants[0]?.visibleFromVersion ?? 0n;
+    if (attachment.message && attachment.message.seq <= visibleFrom) throw attachmentNotFound();
     const data = await this.storage.get(attachment.storageKey);
     if (!data) throw attachmentNotFound();
     return data;

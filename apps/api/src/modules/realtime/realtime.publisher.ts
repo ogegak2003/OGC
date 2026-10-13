@@ -19,6 +19,8 @@ export type RealtimeNamespace = Namespace<
 export const userRoom = (userId: string): string => `user:${userId}`;
 export const deviceRoom = (deviceId: string): string => `device:${deviceId}`;
 export const sessionRoom = (sessionId: string): string => `session:${sessionId}`;
+/** Sockets of a community channel's active members (joined on connect and on membership changes). */
+export const channelRoom = (channelId: string): string => `channel:${channelId}`;
 
 type EventArgs<E extends keyof ServerToClientEvents> = Parameters<ServerToClientEvents[E]>;
 
@@ -62,6 +64,28 @@ export class RealtimePublisher {
     } catch (error) {
       this.logger.warn({ err: error, event }, 'Realtime emit failed');
     }
+  }
+
+  /** Emits to every connected active member of a community channel. */
+  toChannel<E extends keyof ServerToClientEvents>(
+    channelId: string,
+    event: E,
+    ...args: EventArgs<E>
+  ): void {
+    if (!this.namespace) return;
+    try {
+      this.namespace.to(channelRoom(channelId)).emit(event, ...args);
+    } catch (error) {
+      this.logger.warn({ err: error, event }, 'Realtime emit failed');
+    }
+  }
+
+  /** Adds or removes a user's sockets (on every instance) to/from a channel room. */
+  setChannelMembership(userId: string, channelId: string, member: boolean): void {
+    if (!this.namespace) return;
+    const sockets = this.namespace.in(userRoom(userId));
+    if (member) sockets.socketsJoin(channelRoom(channelId));
+    else sockets.socketsLeave(channelRoom(channelId));
   }
 
   /** Closes every socket of a session (logout, refresh-token reuse, disabled account). */

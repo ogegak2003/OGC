@@ -116,7 +116,10 @@ describe('messaging operations', () => {
     const conversation = await carolDevice.client.openDirect(dave.ogcId);
     await carolDevice.client.send(conversation.id, { text: 'Top secret launch date' });
     const notifications = await eventually(
-      () => push.sent.filter((n) => n.data.conversationId === conversation.id),
+      () =>
+        push.sent.filter(
+          (n) => n.data.type === 'message' && n.data.conversationId === conversation.id,
+        ),
       (list) => list.length > 0,
     );
     expect(notifications).toEqual([

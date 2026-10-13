@@ -1,11 +1,27 @@
-import { Body, Controller, Delete, HttpCode, HttpStatus, Put } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Put,
+  Query,
+} from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { PushProviderName } from '@ogc/types';
-import { pushTokenRequestSchema } from '@ogc/validation';
+import type { NotificationPage, PushProviderName } from '@ogc/types';
+import {
+  type PageQuery,
+  markNotificationsReadSchema,
+  pageQuerySchema,
+  pushTokenRequestSchema,
+} from '@ogc/validation';
 import { ZodValidationPipe } from '../../common/pipes/zod-validation.pipe.js';
 import { throttle } from '../../common/throttling/rate-limits.js';
 import type { AuthContext } from '../auth/auth-context.js';
 import { CurrentAuth } from '../auth/decorators.js';
+import { CommunityNotificationsService } from './community-notifications.service.js';
 import { NotificationsService } from './notifications.service.js';
 
 /** `/api/v1/notifications/push-token` — the push token of the *current* device only. */
@@ -28,5 +44,30 @@ export class NotificationsController {
   @HttpCode(HttpStatus.NO_CONTENT)
   unregister(@CurrentAuth() auth: AuthContext): Promise<void> {
     return this.notifications.unregister(auth);
+  }
+}
+
+/** `/api/v1/notifications` — the caller's in-app notifications (IDs and public names only). */
+@Controller('notifications')
+@Throttle({ default: throttle('notifications') })
+export class InboxController {
+  constructor(private readonly notifications: CommunityNotificationsService) {}
+
+  @Get()
+  list(
+    @CurrentAuth() auth: AuthContext,
+    @Query(new ZodValidationPipe(pageQuerySchema)) query: PageQuery,
+  ): Promise<NotificationPage> {
+    return this.notifications.list(auth.userId, query.cursor, query.limit);
+  }
+
+  @Post('read')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  markRead(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(markNotificationsReadSchema))
+    body: { ids: string[] } | { all: true },
+  ): Promise<void> {
+    return this.notifications.markRead(auth.userId, 'all' in body ? 'all' : body.ids);
   }
 }

@@ -18,10 +18,14 @@ import {
 } from '@ogc/e2ee';
 import type {
   AttachmentKind,
+  ClaimedKeyPackage,
+  ConversationEventView,
   ConversationView,
   DirectoryDevice,
   MessageView,
+  NotificationView,
   ReactionType,
+  ReceivedInvitationView,
   ServerToClientEvents,
   SyncItem,
 } from '@ogc/types';
@@ -50,6 +54,10 @@ const MAX_EPOCH_RETRIES = 3;
 const BUCKET = 100;
 /** The device directory is re-fetched at most this often (invalidated on device changes). */
 const DIRECTORY_CACHE_MS = 5_000;
+/** The server accepts at most this many devices per key-package claim. */
+const CLAIM_BATCH = 50;
+/** Timeline events (joins, role changes…) kept per conversation on this device. */
+const TIMELINE_MAX = 500;
 
 interface StoredIdentity {
   ogcId: string;
@@ -70,7 +78,18 @@ interface ConversationMeta {
 export type MessagingEvent =
   | { type: 'conversations' }
   | { type: 'messages'; conversationId: string }
+  /** The account is no longer in this conversation (removed, left, deleted); local data was erased. */
+  | { type: 'removed'; conversationId: string }
+  | { type: 'invitations'; invitation?: ReceivedInvitationView }
+  | { type: 'notification'; notification: NotificationView }
+  /** A community channel changed (channels are server-readable and not managed by this engine). */
+  | { type: 'channel'; channelId: string; event: keyof ServerToClientEvents; postId?: string }
   | { type: 'error'; conversationId?: string; error: unknown };
+
+/** A membership or settings change in a group's timeline, with its position. */
+export interface TimelineEvent extends ConversationEventView {
+  version: number;
+}
 
 export interface OutgoingAttachment {
   kind: AttachmentKind;
@@ -87,6 +106,11 @@ export interface Draft {
   text?: string;
   attachments?: AttachmentDescriptor[];
   replyToId?: string;
+  /**
+   * Group members mentioned in the text (OGC IDs). Sent beside the ciphertext
+   * so the server can notify them without reading the message.
+   */
+  mentions?: string[];
 }
 
 export class MessagingError extends Error {
@@ -99,6 +123,7 @@ const bucketKey = (c: string, seq: number): string =>
   `msgs:${c}:${String(Math.floor(seq / BUCKET)).padStart(12, '0')}`;
 const pendingKey = (c: string): string => `pending:${c}`;
 const kpKey = (ref: string): string => `kp:${ref}`;
+const timelineKey = (c: string): string => `timeline:${c}`;
 
 function toCryptoDirectory(devices: DirectoryDevice[]): CryptoDirectoryDevice[] {
   return devices.map((d) => ({
@@ -444,12 +469,10 @@ export class MessagingClient {
           // First device to message: create the group and add every other device we can.
           const created = await MlsGroup.create(identity, conversationId, directory);
           const others = listed.filter((d) => d.active && d.deviceKeyId !== identity.deviceKeyId);
-          const claimed = others.length
-            ? await this.transport.claimKeyPackages(
-                conversationId,
-                others.map((d) => d.deviceKeyId),
-              )
-            : [];
+          const claimed = await this.claimAll(
+            conversationId,
+            others.map((d) => d.deviceKeyId),
+          );
           const result = await created.commit({ add: claimed.map((c) => c.keyPackage) });
           await this.transport.submitCommit(conversationId, {
             epoch: 0,
@@ -493,6 +516,23 @@ export class MessagingClient {
     throw new MessagingError('Could not establish the secure session; try again');
   }
 
+  /** Claims key packages in batches the server accepts. Devices without packages are skipped. */
+  private async claimAll(
+    conversationId: string,
+    deviceKeyIds: string[],
+  ): Promise<ClaimedKeyPackage[]> {
+    const claimed: ClaimedKeyPackage[] = [];
+    for (let i = 0; i < deviceKeyIds.length; i += CLAIM_BATCH) {
+      claimed.push(
+        ...(await this.transport.claimKeyPackages(
+          conversationId,
+          deviceKeyIds.slice(i, i + CLAIM_BATCH),
+        )),
+      );
+    }
+    return claimed;
+  }
+
   /** Welcome processing for one conversation while its lock is already held. */
   private async processWelcomesUnlocked(conversationId: string): Promise<void> {
     for (const welcome of await this.transport.welcomes()) {
@@ -517,7 +557,8 @@ export class MessagingClient {
 
   /**
    * Makes the group's membership match the device directory: adds the
-   * participants' new devices and removes devices that are no longer active.
+   * participants' new devices and removes devices that are no longer active —
+   * including every device of someone who left or was removed from a group.
    */
   async reconcile(conversationId: string): Promise<void> {
     await this.lock.run(conversationId, () => this.reconcileUnlocked(conversationId, true));
@@ -546,9 +587,7 @@ export class MessagingClient {
       const members = new Set(group.members().map((m) => m.deviceKeyId));
       const missing = [...active].filter((id) => !members.has(id));
       const stale = [...members].filter((id) => !active.has(id));
-      const claimed = missing.length
-        ? await this.transport.claimKeyPackages(conversationId, missing)
-        : [];
+      const claimed = await this.claimAll(conversationId, missing);
       if (claimed.length === 0 && stale.length === 0) {
         return;
       }
@@ -599,15 +638,29 @@ export class MessagingClient {
   }
 
   private async syncUnlocked(conversationId: string): Promise<void> {
+    try {
+      await this.syncPages(conversationId);
+    } catch (error) {
+      // Not (or no longer) a participant: removed, left on another device, or deleted.
+      if (error instanceof TransportError && error.status === 404) {
+        await this.forgetConversation(conversationId);
+        return;
+      }
+      throw error;
+    }
+  }
+
+  private async syncPages(conversationId: string): Promise<void> {
     let group = await this.loadGroup(conversationId);
     group ??= await this.ensureGroup(conversationId);
     let meta = await this.meta(conversationId);
     let highestPeerSeq = meta.deliveredSeq;
     let changed = false;
+    let eventsSeen = false;
     for (;;) {
       const page = await this.transport.sync(conversationId, meta.cursor);
       for (const item of page.items) {
-        group = await this.applyItem(conversationId, group, meta, item);
+        group = await this.applyItem(conversationId, group, item);
         if (
           item.type === 'message' &&
           !item.message.deletedAt &&
@@ -615,9 +668,11 @@ export class MessagingClient {
         ) {
           highestPeerSeq = Math.max(highestPeerSeq, item.message.seq);
         }
+        if (item.type === 'event') eventsSeen = true;
         changed = true;
       }
-      meta = { ...meta, cursor: page.version };
+      // Re-read: applying items may have re-joined the group (new join epoch).
+      meta = { ...(await this.meta(conversationId)), cursor: page.version };
       await this.saveMeta(conversationId, meta);
       if (!page.hasMore) break;
     }
@@ -625,19 +680,48 @@ export class MessagingClient {
       await this.transport.markDelivered(conversationId, highestPeerSeq);
       await this.saveMeta(conversationId, { ...meta, deliveredSeq: highestPeerSeq });
     }
+    if (eventsSeen) await this.refreshConversation(conversationId);
     if (changed) this.emit({ type: 'messages', conversationId });
+  }
+
+  /** Erases everything this device holds about a conversation it can no longer access. */
+  async forgetConversation(conversationId: string): Promise<void> {
+    for (const key of await this.store.keys(`msgs:${conversationId}:`)) {
+      await this.store.delete(key);
+    }
+    await this.store.delete(groupKey(conversationId));
+    await this.store.delete(metaKey(conversationId));
+    await this.store.delete(pendingKey(conversationId));
+    await this.store.delete(timelineKey(conversationId));
+    this.directoryCache.delete(conversationId);
+    if (this.conversationCache.delete(conversationId)) await this.persistConversations();
+    this.emit({ type: 'removed', conversationId });
+    this.emit({ type: 'conversations' });
+  }
+
+  /** Membership and settings events of a group, oldest first. */
+  async timeline(conversationId: string): Promise<TimelineEvent[]> {
+    return (await this.store.getJson<TimelineEvent[]>(timelineKey(conversationId))) ?? [];
+  }
+
+  private async appendTimeline(conversationId: string, event: TimelineEvent): Promise<void> {
+    const existing = await this.timeline(conversationId);
+    if (existing.some((e) => e.id === event.id)) return;
+    await this.store.setJson(
+      timelineKey(conversationId),
+      [...existing, event].sort((a, b) => a.version - b.version).slice(-TIMELINE_MAX),
+    );
   }
 
   private async applyItem(
     conversationId: string,
     group: MlsGroup,
-    meta: ConversationMeta,
     item: SyncItem,
   ): Promise<MlsGroup> {
     switch (item.type) {
       case 'commit': {
         if (BigInt(item.epoch) < group.epoch) return group; // already applied (e.g. our own)
-        if (BigInt(item.epoch) > group.epoch) throw new MessagingError('Missing encryption update');
+        if (BigInt(item.epoch) > group.epoch) return this.rejoin(conversationId);
         let processed: Awaited<ReturnType<MlsGroup['processCommit']>>;
         try {
           const directory = toCryptoDirectory(await this.directory(conversationId));
@@ -646,7 +730,13 @@ export class MessagingClient {
           // The commit may add a device registered after our cached directory was fetched.
           this.directoryCache.delete(conversationId);
           const directory = toCryptoDirectory(await this.directory(conversationId));
-          processed = await group.withDirectory(directory).processCommit(item.commit);
+          try {
+            processed = await group.withDirectory(directory).processCommit(item.commit);
+          } catch {
+            // Still unverifiable (e.g. offline across many membership changes): start over
+            // from the current group state. Messages in between become unavailable here.
+            return this.rejoin(conversationId);
+          }
         }
         const { group: next, consumed } = processed;
         await this.saveGroup(conversationId, next);
@@ -660,17 +750,41 @@ export class MessagingClient {
       case 'hidden':
         await this.removeMessage(conversationId, item.messageId);
         return group;
+      case 'event': {
+        await this.appendTimeline(conversationId, { ...item.event, version: item.version });
+        const membership = ['MEMBER_JOINED', 'MEMBER_LEFT', 'MEMBER_REMOVED'];
+        if (membership.includes(item.event.type)) this.directoryCache.delete(conversationId);
+        if (item.event.type === 'MESSAGE_REMOVED') {
+          const messageId = item.event.detail?.messageId;
+          if (typeof messageId === 'string') {
+            const removed = await this.findById(conversationId, messageId);
+            if (removed) {
+              await this.putMessage({ ...removed, state: 'deleted', payload: null, reactions: [] });
+            }
+          }
+        }
+        return group;
+      }
       case 'message':
-        return this.applyMessage(conversationId, group, meta, item.message);
+        return this.applyMessage(conversationId, group, item.message);
     }
+  }
+
+  /**
+   * Drops this device's group state and joins again from the current GroupInfo
+   * (external commit; the server only allows current members' eligible devices).
+   */
+  private async rejoin(conversationId: string): Promise<MlsGroup> {
+    await this.store.delete(groupKey(conversationId));
+    return this.ensureGroup(conversationId);
   }
 
   private async applyMessage(
     conversationId: string,
     group: MlsGroup,
-    meta: ConversationMeta,
     view: MessageView,
   ): Promise<MlsGroup> {
+    const meta = await this.meta(conversationId);
     const stored = await this.findStored(conversationId, view.seq, view.clientMessageId);
     const base = fromServer(view, this.ogcId);
     if (view.deletedAt || !view.ciphertext) {
@@ -767,10 +881,16 @@ export class MessagingClient {
     };
     await this.setPending(conversationId, [...(await this.pending(conversationId)), message]);
     this.emit({ type: 'messages', conversationId });
-    return this.lock.run(conversationId, () => this.deliver(message, draft.forwardedFromId));
+    return this.lock.run(conversationId, () =>
+      this.deliver(message, draft.forwardedFromId, draft.mentions),
+    );
   }
 
-  private async deliver(message: LocalMessage, forwardedFromId?: string): Promise<LocalMessage> {
+  private async deliver(
+    message: LocalMessage,
+    forwardedFromId?: string,
+    mentions?: string[],
+  ): Promise<LocalMessage> {
     const { conversationId } = message;
     if (!message.payload) throw new MessagingError('Nothing to send');
     try {
@@ -792,6 +912,7 @@ export class MessagingClient {
             ...(message.replyToId ? { replyToId: message.replyToId } : {}),
             ...(forwardedFromId ? { forwardedFromId } : {}),
             ...(message.attachmentIds.length ? { attachmentIds: message.attachmentIds } : {}),
+            ...(mentions?.length ? { mentions } : {}),
           });
           const sent: LocalMessage = {
             ...fromServer(view, this.ogcId),
@@ -810,6 +931,11 @@ export class MessagingClient {
         } catch (error) {
           if (errorCode(error) === 'STALE_EPOCH' && attempt < MAX_EPOCH_RETRIES) {
             await this.syncUnlocked(conversationId);
+            continue;
+          }
+          if (errorCode(error) === 'MLS_MEMBERSHIP_STALE' && attempt < MAX_EPOCH_RETRIES) {
+            // Someone left or was removed: remove their devices before encrypting anything new.
+            await this.reconcileUnlocked(conversationId, true);
             continue;
           }
           throw error;
@@ -885,13 +1011,20 @@ export class MessagingClient {
             await this.syncUnlocked(conversationId);
             continue;
           }
+          if (errorCode(error) === 'MLS_MEMBERSHIP_STALE' && attempt < MAX_EPOCH_RETRIES) {
+            await this.reconcileUnlocked(conversationId, true);
+            continue;
+          }
           throw error;
         }
       }
     });
   }
 
-  /** Deletes for everyone (sender only): the server and every device erase the content. */
+  /**
+   * Deletes for everyone: the server and every device erase the content.
+   * Senders within the time window; in groups also moderators (others' messages).
+   */
   async deleteForEveryone(conversationId: string, messageId: string): Promise<void> {
     await this.transport.deleteMessage(messageId, 'everyone');
     await this.lock.run(conversationId, async () => {
@@ -1071,6 +1204,84 @@ export class MessagingClient {
         run(this.reconcile(conversationId), conversationId);
         return;
       }
+      case 'group.created': {
+        const { conversation } = payload as Parameters<ServerToClientEvents['group.created']>[0];
+        this.conversationCache.set(conversation.id, conversation);
+        run(this.persistConversations());
+        this.emit({ type: 'conversations' });
+        return;
+      }
+      case 'group.updated':
+      case 'group.role_changed':
+      case 'group.member_joined':
+      case 'group.member_left': {
+        const { conversationId } = payload as { conversationId: string };
+        this.directoryCache.delete(conversationId);
+        run(this.scheduleSync(conversationId), conversationId);
+        return;
+      }
+      case 'group.member_removed': {
+        const { conversationId, ogcId } = payload as Parameters<
+          ServerToClientEvents['group.member_removed']
+        >[0];
+        this.directoryCache.delete(conversationId);
+        if (ogcId === this.ogcId) {
+          run(
+            this.lock.run(conversationId, () => this.forgetConversation(conversationId)),
+            conversationId,
+          );
+        } else {
+          run(this.scheduleSync(conversationId), conversationId);
+        }
+        return;
+      }
+      case 'group.deleted': {
+        const { conversationId } = payload as { conversationId: string };
+        run(
+          this.lock.run(conversationId, () => this.forgetConversation(conversationId)),
+          conversationId,
+        );
+        return;
+      }
+      case 'group.invitation_created': {
+        const { invitation } = payload as Parameters<
+          ServerToClientEvents['group.invitation_created']
+        >[0];
+        this.emit({ type: 'invitations', invitation });
+        return;
+      }
+      case 'group.invitation_revoked':
+        this.emit({ type: 'invitations' });
+        return;
+      case 'community.notification': {
+        const { notification } = payload as Parameters<
+          ServerToClientEvents['community.notification']
+        >[0];
+        this.emit({ type: 'notification', notification });
+        return;
+      }
+      case 'channel.created':
+      case 'channel.updated':
+      case 'channel.member_joined':
+      case 'channel.member_left':
+      case 'channel.post_created':
+      case 'channel.post_updated':
+      case 'channel.post_deleted':
+      case 'channel.post_pinned':
+      case 'channel.announcement_created':
+      case 'channel.access_revoked': {
+        const data = payload as { channelId?: string; channel?: { id: string }; postId?: string };
+        const channelId = data.channelId ?? data.channel?.id;
+        if (channelId) {
+          this.emit({
+            type: 'channel',
+            channelId,
+            event,
+            ...(data.postId ? { postId: data.postId } : {}),
+          });
+        }
+        return;
+      }
       default:
         return;
     }
@@ -1099,8 +1310,11 @@ export class MessagingClient {
     return results;
   }
 
-  /** The safety number for a conversation, from the device directory both people can compare. */
-  async safetyNumber(conversationId: string): Promise<string[]> {
+  /**
+   * The safety number between this account and another participant (in a
+   * DIRECT conversation, the peer), from the device directory both can compare.
+   */
+  async safetyNumber(conversationId: string, peerOgcId?: string): Promise<string[]> {
     const directory = await this.directory(conversationId);
     const byAccount = new Map<string, Uint8Array[]>();
     for (const device of directory) {
@@ -1109,7 +1323,10 @@ export class MessagingClient {
         fromBase64(device.signaturePublicKey),
       ]);
     }
-    const parties = [...byAccount.entries()].map(([ogcId, deviceKeys]) => ({ ogcId, deviceKeys }));
+    const parties = [...byAccount.entries()]
+      .filter(([ogcId]) => peerOgcId === undefined || ogcId === peerOgcId || ogcId === this.ogcId)
+      .map(([ogcId, deviceKeys]) => ({ ogcId, deviceKeys }));
+    if (parties.length > 2) throw new MessagingError('Choose a member to compare with');
     const [a, b] = parties;
     if (!a || !b) throw new MessagingError('Both people need an encryption-ready device');
     return safetyNumber(a, b);

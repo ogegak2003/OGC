@@ -22,6 +22,7 @@ import { AuthGuard } from './modules/auth/auth.guard.js';
 import { AttachmentsModule } from './modules/attachments/attachments.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { BlocksModule } from './modules/blocks/blocks.module.js';
+import { CommunityModule } from './modules/community/community.module.js';
 import { ContactsModule } from './modules/contacts/contacts.module.js';
 import { ConversationsModule } from './modules/conversations/conversations.module.js';
 import { E2eeModule } from './modules/e2ee/e2ee.module.js';
@@ -89,6 +90,7 @@ import { StorageModule } from './modules/storage/storage.module.js';
     ConversationsModule,
     AttachmentsModule,
     NotificationsModule,
+    CommunityModule,
     RealtimeGatewayModule,
   ],
   providers: [

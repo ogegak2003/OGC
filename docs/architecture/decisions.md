@@ -512,3 +512,139 @@ stage.
 
 **Consequences.** Search covers only messages on that device (not history from before it
 joined); it is a linear scan for now — an encrypted local index is a later optimisation.
+
+---
+
+## ADR-031: Groups and encrypted channels are conversations with roles
+
+**Status:** Accepted (Phase 4)
+
+**Decision.** Private groups and private encrypted channels are `conversations` of type
+`GROUP` / `CHANNEL` on the same messaging and MLS engine as DIRECT conversations — no second
+engine. Participants get a `role` (`OWNER` | `ADMIN` | `MODERATOR` | `MEMBER`); exactly one
+owner is enforced by a partial unique index. Details, photo and policies live in
+`group_profiles`. People join only by accepting a personal invitation (sent to contacts) or
+through an invitation link; nobody is added silently. Members are capped at **32** (ADR-033).
+Membership changes take the conversation row lock and append a `conversation_events` row at
+the next version, so the timeline syncs in order with messages. A member's history starts when
+they join (`visible_from_version`). The permission matrix is one pure module
+(`community-permissions.ts` in `@ogc/validation`) used by the API to enforce and by the apps
+to hide controls ([community-permissions.md](community-permissions.md)).
+
+**Consequences.** All Phase 3 guarantees (idempotent sends, receipts, sync, attachments)
+apply unchanged. Group metadata (name, description, photo, membership, roles) is visible to
+OGC; content is not.
+
+---
+
+## ADR-032: Community channels are server-readable and never switch encryption mode
+
+**Status:** Accepted (Phase 4)
+
+**Decision.** Large, discoverable channels are a separate module (`channels`,
+`channel_posts`…) whose content OGC can read — needed for discovery, search, moderation and
+audiences beyond MLS's practical size. They are labelled "not end-to-end encrypted" in every
+response (`endToEndEncrypted: false`) and screen. A channel never switches between encrypted
+and server-readable; people who need encryption create an encrypted channel (ADR-031).
+Visibility (public ⇄ private) changes only by the owner with `confirm: true`, after the
+consequences are shown; the change is audited and logged in the moderation history.
+
+**Consequences.** Two clearly separated privacy models instead of one ambiguous one. Public
+channels are readable by any signed-in account (not by anonymous web visitors).
+
+---
+
+## ADR-033: MLS membership updates for groups
+
+**Status:** Accepted (Phase 4)
+
+**Context.** Removing a member must cut off their cryptographic access; the server must not be
+able to inject devices; MLS commit cost grows with the tree.
+
+**Decision.**
+
+- Measured with `ts-mls` on Node: 16 leaves ≈ 0.5 s per add commit and 6 KB GroupInfo;
+  128 leaves ≈ 10 s and 48 KB; 256 leaves ≈ 25 s and 96 KB. Groups are therefore capped at
+  32 members and **4 devices per member** (the newest active ones) — at most **128 leaves**;
+  the delivery service also rejects any tree above 128 leaves.
+- A group's device directory lists the eligible devices of _current_ members, plus recent
+  former members' keys as inactive, so devices that were offline can still verify the commits
+  that added and then removed them.
+- On every accepted commit the DS records whose devices are in the tree
+  (`mls_member_user_ids`). While it contains anyone who is no longer a participant, new
+  messages and edits are refused with `409 MLS_MEMBERSHIP_STALE`; the client commits the
+  removal and retries. The check is repeated under the conversation row lock, so it cannot
+  race a removal. A removed member's devices therefore never receive keys for anything sent
+  after the removal — tested with real cryptography, including against a stolen copy of the
+  old group state.
+- Any member device may commit adds (eligible devices of participants, with claimed key
+  packages) and removals of devices that are no longer eligible. Commits are compare-and-set
+  per epoch; stale and replayed commits are rejected.
+- A device that cannot verify a historical commit drops its state and re-joins by external
+  commit (allowed only for eligible devices); messages in between show as unavailable there.
+
+**Consequences.** Sub-second commits for typical groups. A member's 5th and later devices
+cannot take part in a group (documented limitation). New members cannot read history from
+before they joined.
+
+---
+
+## ADR-034: Invitation tokens
+
+**Status:** Accepted (Phase 4)
+
+**Decision.** Invitation links carry `ogc_inv_` + 256 random bits (base64url). Only the
+SHA-256 is stored (full-entropy input, so a fast hash is appropriate); the token is shown once,
+at creation. Links expire (1 hour – 30 days, default 7 days), may be limited in uses (consumed
+atomically with the join) and can be revoked. Every failure — unknown, malformed, revoked,
+expired, used up — gives the same `404 INVITATION_INVALID`. Links never bypass a target's
+rules (capacity, archive state, bans, approval). Tokens travel in request bodies only; the web
+link is `<origin>/join#token=…`, so the token stays in the URL fragment (never sent to a
+server or logged). QR codes encode that link and nothing else. Personal invitations expire
+after 14 days; an hourly sweep marks them expired and tells the inviter once.
+
+**Consequences.** A database leak does not leak usable links. Anyone holding a valid link can
+ask to join until it expires or is revoked; owners are told so when they create it.
+
+---
+
+## ADR-035: Moderation model
+
+**Status:** Accepted (Phase 4)
+
+**Decision.** In community channels, moderators remove/restore posts with reasons, pin,
+review reports, approve join requests and suspend/remove/ban _members_; admins and owners do
+the same over lower roles and manage settings and roles. Every action is appended to
+`channel_moderation_actions` with its reason and to the audit log. Removed posts stay
+reviewable by moderators and show a placeholder to others; an author's own deletion erases
+the content and media. Bans block reading, rejoining and invitation links, and take effect at
+once on open sockets. In encrypted groups, owners and admins (and moderators in encrypted
+channels) may remove lower-ranked members' messages for everyone — recorded as a
+`MESSAGE_REMOVED` timeline event without content. Reports from encrypted conversations contain
+only text the reporter explicitly chose to disclose, go to OGC staff
+(`/admin/conversation-reports`), and are audited without that text. Channel post reports go to
+the channel's own moderators, and the reporter is told the outcome.
+
+**Consequences.** No component can decrypt E2E content for moderation.
+
+---
+
+## ADR-036: Community synchronization and notifications
+
+**Status:** Accepted (Phase 4)
+
+**Decision.** Groups reuse conversation sync, with a new `event` item for membership and
+settings changes. Community channels have their own change counter (`channels.version`):
+every post, edit, reaction, pin and removal takes the next version, and
+`GET /channels/:id/sync?after=` returns posts changed after a cursor. Realtime channel events
+carry IDs only and go to the socket room `channel:<id>` of active members (joined on connect,
+updated on membership changes); clients fetch personalised views through REST. In-app
+notifications are stored once per recipient (`notifications`, unique `dedupe_key`), delivered
+in realtime and pushed with a **fixed generic text** per type (the push payload type admits
+nothing else) to offline devices, honouring each member's level (`ALL` / `MENTIONS` / `NONE`)
+and mute. Mentions in encrypted groups are declared by the sender's device (OGC IDs beside
+the ciphertext); the server never parses message text.
+
+**Consequences.** Retries and multiple devices never duplicate a notification. Announcement
+fan-out is bounded (10 000 members per announcement); larger audiences rely on realtime and
+unread counts.

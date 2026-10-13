@@ -13,9 +13,13 @@ export abstract class ObjectStorage {
   abstract delete(key: string): Promise<void>;
 }
 
-/** `avatars/<uuid>.webp` or `attachments/<uuid>.bin` (ciphertext) — nothing else is a valid key. */
+/**
+ * `avatars/<uuid>.webp`, `attachments/<uuid>.bin` (ciphertext) or
+ * `channel-media/<uuid>.(webp|bin)` (community channel media, server-readable) —
+ * nothing else is a valid key.
+ */
 export const STORAGE_KEY_PATTERN =
-  /^(?:avatars\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp|attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.bin)$/;
+  /^(?:avatars\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp|attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.bin|channel-media\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(?:webp|bin))$/;
 
 export function assertValidKey(key: string): void {
   if (!STORAGE_KEY_PATTERN.test(key)) {

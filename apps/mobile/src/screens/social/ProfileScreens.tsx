@@ -16,6 +16,10 @@ import { Screen } from '../Screen';
 import { social } from './styles';
 
 const MENU = [
+  { label: 'Notifications', route: { name: 'notifications' } },
+  { label: 'Community channels', route: { name: 'channels' } },
+  { label: 'Group invitations', route: { name: 'invitations' } },
+  { label: 'Join with a link', route: { name: 'join' } },
   { label: 'Discover people', route: { name: 'discover' } },
   { label: 'Contacts', route: { name: 'contacts' } },
   { label: 'Privacy', route: { name: 'privacy' } },

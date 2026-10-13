@@ -8,6 +8,8 @@ import { Button } from './ui';
 
 const NAV = [
   { to: '/messages', label: 'Messages' },
+  { to: '/channels', label: 'Channels' },
+  { to: '/notifications', label: 'Alerts' },
   { to: '/home', label: 'My OGC' },
   { to: '/discover', label: 'Discover' },
   { to: '/contacts', label: 'Contacts' },
@@ -28,7 +30,7 @@ export function AppShell({
   layout?: 'page' | 'full';
 }) {
   const { logout } = useAuth();
-  const { unreadTotal } = useMessaging();
+  const { unreadTotal, notificationsUnread } = useMessaging();
   return (
     <div className={styles.shell}>
       <header className={styles.header}>
@@ -47,6 +49,14 @@ export function AppShell({
               {item.to === '/messages' && unreadTotal > 0 ? (
                 <span className={styles.navBadge} aria-label={`${String(unreadTotal)} unread`}>
                   {unreadTotal > 99 ? '99+' : unreadTotal}
+                </span>
+              ) : null}
+              {item.to === '/notifications' && notificationsUnread > 0 ? (
+                <span
+                  className={styles.navBadge}
+                  aria-label={`${String(notificationsUnread)} new notifications`}
+                >
+                  {notificationsUnread > 99 ? '99+' : notificationsUnread}
                 </span>
               ) : null}
             </NavLink>

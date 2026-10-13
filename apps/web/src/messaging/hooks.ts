@@ -1,4 +1,4 @@
-import { type LocalMessage, previewText } from '@ogc/messaging';
+import { type LocalMessage, type TimelineEvent, previewText } from '@ogc/messaging';
 import { useEffect, useState } from 'react';
 import { useMessaging } from './messaging-context';
 
@@ -20,6 +20,26 @@ export function useConversationMessages(conversationId: string | undefined, limi
   }, [engine, conversationId, revision, limit]);
 
   return messages;
+}
+
+/** A group's membership and settings events stored on this device (oldest first). */
+export function useTimeline(conversationId: string): TimelineEvent[] {
+  const { engine, messageRevision } = useMessaging();
+  const revision = messageRevision[conversationId] ?? 0;
+  const [events, setEvents] = useState<TimelineEvent[]>([]);
+
+  useEffect(() => {
+    if (!engine) return;
+    let active = true;
+    void engine.timeline(conversationId).then((list) => {
+      if (active) setEvents(list);
+    });
+    return () => {
+      active = false;
+    };
+  }, [engine, conversationId, revision]);
+
+  return events;
 }
 
 export function useLastMessage(conversationId: string): LocalMessage | undefined {

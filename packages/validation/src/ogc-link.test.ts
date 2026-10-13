@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseOgcId } from './ogc-id.js';
-import { buildOgcIdLink, parseOgcIdLink } from './ogc-link.js';
+import { buildInviteUrl, buildOgcIdLink, parseInviteToken, parseOgcIdLink } from './ogc-link.js';
 
 const id = parseOgcId('OGC482731905');
 
@@ -28,5 +28,23 @@ describe('OGC identity links', () => {
     'ogc://profile/OGC482731905',
   ])('rejects %s', (link) => {
     expect(parseOgcIdLink(link)).toBeUndefined();
+  });
+});
+
+describe('invitation links', () => {
+  const token = `ogc_inv_${'Ab9_-'.repeat(8)}abc`;
+
+  it('puts the token in the fragment only', () => {
+    const url = buildInviteUrl('https://ogc.example/', token);
+    expect(url).toBe(`https://ogc.example/join#token=${token}`);
+    expect(url.split('#')[0]).not.toContain(token);
+  });
+
+  it('parses links and bare tokens, and nothing else', () => {
+    expect(parseInviteToken(buildInviteUrl('https://ogc.example', token))).toBe(token);
+    expect(parseInviteToken(`  ${token} `)).toBe(token);
+    expect(parseInviteToken('https://ogc.example/join#token=ogc_inv_short')).toBeUndefined();
+    expect(parseInviteToken(`${token}x`)).toBeUndefined();
+    expect(parseInviteToken('OGC482731905')).toBeUndefined();
   });
 });

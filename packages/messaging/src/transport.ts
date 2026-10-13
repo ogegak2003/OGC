@@ -52,6 +52,7 @@ export interface MessagingTransport {
       replyToId?: string;
       forwardedFromId?: string;
       attachmentIds?: string[];
+      mentions?: string[];
     },
   ): Promise<MessageView>;
   editMessage(messageId: string, edit: { epoch: number; ciphertext: string }): Promise<MessageView>;

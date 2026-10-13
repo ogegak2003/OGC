@@ -34,7 +34,14 @@ export type ApiErrorCode =
   | 'STALE_EPOCH'
   | 'E2EE_DEVICE_REQUIRED'
   | 'INVALID_MLS_MESSAGE'
-  | 'PAYLOAD_TOO_LARGE';
+  | 'PAYLOAD_TOO_LARGE'
+  | 'MLS_MEMBERSHIP_STALE'
+  | 'ARCHIVED'
+  | 'MEMBER_LIMIT_REACHED'
+  | 'HANDLE_TAKEN'
+  | 'INVITATION_INVALID'
+  | 'SUSPENDED'
+  | 'CONFIRMATION_REQUIRED';
 
 /**
  * Error body returned by the API. Never contains stack traces or internal

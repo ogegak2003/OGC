@@ -21,6 +21,8 @@ export const KEY_PACKAGE_STOCK_MAX = 200;
 export const DIRECTORY_DEVICES_PER_ACCOUNT_MAX = 25;
 /** Recently inactive devices listed per account, so historical commits still verify. */
 export const DIRECTORY_INACTIVE_PER_ACCOUNT_MAX = 50;
+/** Keys listed per former group member (see `directory`). */
+export const DIRECTORY_FORMER_PER_ACCOUNT_MAX = 8;
 /** Conversations notified in realtime when a device joins or leaves (others reconcile on open). */
 const DEVICE_CHANGE_FANOUT_MAX = 200;
 
@@ -207,7 +209,10 @@ export class DeviceKeysService implements OnModuleInit {
   }
 
   /** Active devices (most recent first per account, capped) of the given accounts. */
-  async activeDevices(userIds: string[]): Promise<ActiveDevice[]> {
+  async activeDevices(
+    userIds: string[],
+    perAccount: number = DIRECTORY_DEVICES_PER_ACCOUNT_MAX,
+  ): Promise<ActiveDevice[]> {
     const now = new Date();
     const keys = await this.prisma.deviceKey.findMany({
       where: {
@@ -229,7 +234,7 @@ export class DeviceKeysService implements OnModuleInit {
     const result: ActiveDevice[] = [];
     for (const key of keys) {
       const count = perUser.get(key.userId) ?? 0;
-      if (count >= DIRECTORY_DEVICES_PER_ACCOUNT_MAX) continue;
+      if (count >= perAccount) continue;
       perUser.set(key.userId, count + 1);
       result.push({
         deviceKeyId: key.id,
@@ -248,8 +253,12 @@ export class DeviceKeysService implements OnModuleInit {
    * plus the most recent inactive ones (flagged) so commits made while they
    * were active can still be verified.
    */
-  async directory(userIds: string[]): Promise<DirectoryDevice[]> {
-    const active = await this.activeDevices(userIds);
+  async directory(
+    userIds: string[],
+    perAccount: number = DIRECTORY_DEVICES_PER_ACCOUNT_MAX,
+    formerUserIds: string[] = [],
+  ): Promise<DirectoryDevice[]> {
+    const active = await this.activeDevices(userIds, perAccount);
     const activeIds = new Set(active.map((d) => d.deviceKeyId));
     const inactive = await this.prisma.$queryRaw<
       { id: string; signature_public_key: Uint8Array; created_at: Date; ogc_id: string }[]
@@ -265,7 +274,32 @@ export class DeviceKeysService implements OnModuleInit {
         ORDER BY dk.created_at DESC
         LIMIT ${DIRECTORY_INACTIVE_PER_ACCOUNT_MAX}
       ) k`;
+    // People who recently left a group: their newest keys, listed as inactive, so devices
+    // that were offline can still verify the commits that added and then removed them.
+    const former =
+      formerUserIds.length === 0
+        ? []
+        : await this.prisma.$queryRaw<
+            { id: string; signature_public_key: Uint8Array; created_at: Date; ogc_id: string }[]
+          >`
+            SELECT k.id, k.signature_public_key, k.created_at, u.ogc_id
+            FROM unnest(${formerUserIds}::uuid[]) AS a(user_id)
+            JOIN users u ON u.id = a.user_id
+            CROSS JOIN LATERAL (
+              SELECT dk.id, dk.signature_public_key, dk.created_at
+              FROM device_keys dk
+              WHERE dk.user_id = a.user_id
+              ORDER BY dk.created_at DESC
+              LIMIT ${DIRECTORY_FORMER_PER_ACCOUNT_MAX}
+            ) k`;
     return [
+      ...former.map((row) => ({
+        ogcId: row.ogc_id as OgcId,
+        deviceKeyId: row.id,
+        signaturePublicKey: bytesToBase64(row.signature_public_key),
+        active: false,
+        createdAt: row.created_at.toISOString(),
+      })),
       ...active.map((device) => ({
         ogcId: device.ogcId,
         deviceKeyId: device.deviceKeyId,

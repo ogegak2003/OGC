@@ -159,6 +159,31 @@ Details and rationale: [messaging.md](messaging.md), [sync.md](sync.md),
 New audit events: `DEVICE_KEY_REGISTERED`, `DEVICE_KEY_REVOKED`, `CONVERSATION_CREATED`,
 `MESSAGE_DELETED_FOR_EVERYONE` (IDs only — never content).
 
+### Groups, channels and community (Phase 4)
+
+Details: [groups.md](groups.md), [channels.md](channels.md),
+[community-permissions.md](community-permissions.md).
+
+| Table                                                                                                                                               | Key columns and rules                                                                                                                                               |
+| --------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `conversations` (extended)                                                                                                                          | `type` adds `GROUP`, `CHANNEL`; `mls_member_user_ids` (accounts in the current MLS tree)                                                                            |
+| `conversation_participants` (extended)                                                                                                              | `role`, `notification_level`, `muted_until`, `visible_from_version`. Partial unique index: one `OWNER` per conversation                                             |
+| `group_profiles`                                                                                                                                    | name (CHECK not blank), description, `avatar_key` (CHECK format), `post_policy`, `invite_policy`, `archived_at`                                                     |
+| `conversation_invitations`                                                                                                                          | inviter, invitee, status, `expires_at`. Partial unique: one pending invitation per person and group; CHECK not self; CHECK status ⇔ `responded_at`                  |
+| `invite_links`                                                                                                                                      | `token_hash` (CHECK 64 hex, unique), exactly one of `conversation_id`/`channel_id` (CHECK), `expires_at`, `max_uses`, `use_count` (CHECK ≤ max), `revoked_at`       |
+| `conversation_events`                                                                                                                               | Append-only timeline, unique `(conversation_id, version)`, actor/subject, non-sensitive `detail`                                                                    |
+| `conversation_reports`                                                                                                                              | reporter, conversation, message, reported user, category, `disclosed_text` (only what the reporter chose to share)                                                  |
+| `channels`                                                                                                                                          | `handle` (unique, CHECK format), name, description, visibility, join/post policies, replies, `version`, `member_count` (CHECK ≥ 0). Trigram index for public search |
+| `channel_members`                                                                                                                                   | role, status (`ACTIVE`/`PENDING`/`BANNED`), suspension, notification level, read mark. One owner; CHECK elevated roles are active                                   |
+| `channel_posts`                                                                                                                                     | `seq`, `version`, author, `client_post_id` (unique per author), body, `reply_to_id` (same channel, not self), announcement, pin, edit/delete/removal                |
+| `channel_post_reactions`, `channel_attachments` (CHECK `channel-media/<uuid>.webp` or `.bin`), `channel_moderation_actions`, `channel_post_reports` | as named                                                                                                                                                            |
+| `notifications`                                                                                                                                     | per recipient, `type`, unique `(user_id, dedupe_key)`, `data` (IDs and public names only), `read_at`                                                                |
+
+New audit events: `GROUP_CREATED`, `GROUP_MEMBER_REMOVED`, `GROUP_OWNERSHIP_TRANSFERRED`,
+`GROUP_DELETED`, `CHANNEL_CREATED`, `CHANNEL_OWNERSHIP_TRANSFERRED`, `CHANNEL_VISIBILITY_CHANGED`,
+`CHANNEL_DELETED`, `CHANNEL_MODERATION`, `INVITE_LINK_CREATED`, `INVITE_LINK_REVOKED`,
+`CONVERSATION_REPORTED`.
+
 ## Migrations
 
 | Migration                       | Purpose                                                                                                                                        |
@@ -167,6 +192,8 @@ New audit events: `DEVICE_KEY_REGISTERED`, `DEVICE_KEY_REVOKED`, `CONVERSATION_C
 | `…_integrity_rules`             | CHECK constraints, OGC ID immutability, append-only audit                                                                                      |
 | `…_profiles_contacts_discovery` | Profiles, contacts, requests, blocks, reports, staff roles                                                                                     |
 | `…_private_messaging`           | Device keys, key packages, conversations, messages, reactions, hides, MLS commits/welcomes, attachments, push tokens, and their CHECKs/trigger |
+| `…_groups_channels_community`   | Phase 4 enums and tables, new columns on conversations/participants, one-owner indexes, CHECKs, `pg_trgm` search index (additive only)         |
+| `…_participant_history_start`   | `conversation_participants.visible_from_version` (additive)                                                                                    |
 
 Integration tests apply all migrations to a fresh database (`prisma migrate deploy`) and
 assert there is **no drift** between the migrated database and `schema.prisma`.
@@ -178,6 +205,6 @@ assert there is **no drift** between the migrated database and `schema.prisma`.
 - **Least-privilege roles:** separate migration and runtime database roles; the runtime
   role gets no `TRUNCATE`/DDL rights and no `UPDATE`/`DELETE` on `audit_events`.
 - **E2E encryption:** implemented with MLS in Phase 3 (`device_keys`, `key_packages`,
-  `mls_commits`, `mls_welcomes`); group conversations will add conversation types and
-  participant roles.
+  `mls_commits`, `mls_welcomes`); groups and encrypted channels (Phase 4) added conversation
+  types and participant roles.
 - **Local message retention:** per-conversation pruning of device-local history (Planned).

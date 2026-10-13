@@ -28,13 +28,17 @@ import type { Env } from '../../config/env.schema.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { cookieNames } from '../auth/cookies.js';
 import { SessionService } from '../auth/session.service.js';
-import { ConversationAccessService } from '../conversations/conversation-access.service.js';
+import {
+  ConversationAccessService,
+  blockedEitherWay,
+} from '../conversations/conversation-access.service.js';
 import { allowedRealtimeOrigins } from './io-adapter.js';
 import { PRESENCE_HEARTBEAT_MS, PresenceStore } from './presence.store.js';
 import {
   type RealtimeNamespace,
   RealtimePublisher,
   type SocketData,
+  channelRoom,
   deviceRoom,
   sessionRoom,
   userRoom,
@@ -58,6 +62,8 @@ const CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEventName>([
 const PRESENCE_SUBSCRIPTIONS_MAX = 200;
 /** Typing indicators expire on the server if the client never sends `typing.stop`. */
 export const TYPING_TIMEOUT_MS = 8_000;
+/** Channel rooms joined per socket on connect (most users are in far fewer). */
+const CHANNEL_ROOMS_MAX = 1000;
 /** How long a socket's "may talk in this conversation" check is cached. */
 const ACCESS_CACHE_MS = 15_000;
 
@@ -106,7 +112,7 @@ export class RealtimeGateway
   private readonly local = new Map<string, OgcSocket>();
   private readonly expiryTimers = new Map<string, NodeJS.Timeout>();
   private readonly typingTimers = new Map<string, NodeJS.Timeout>();
-  private readonly accessCache = new Map<string, { peerId: string; expires: number }>();
+  private readonly accessCache = new Map<string, { recipients: string[]; expires: number }>();
   private readonly presenceSubscriptions = new Map<string, Set<string>>();
   private heartbeat: NodeJS.Timeout | undefined;
   private unsubscribe: (() => void) | undefined;
@@ -131,6 +137,14 @@ export class RealtimeGateway
         this.namespace?.in(userRoom(event.blockerId)).socketsLeave(presenceRoom(event.blockedId));
         this.namespace?.in(userRoom(event.blockedId)).socketsLeave(presenceRoom(event.blockerId));
         this.accessCache.clear();
+      }
+      if (event.type === 'membership.changed') {
+        this.accessCache.clear();
+        if (event.channelId) {
+          this.syncChannelRooms(event.channelId, event.userIds).catch((error: unknown) => {
+            this.logger.warn({ err: error }, 'Channel room update failed');
+          });
+        }
       }
     });
     this.heartbeat = setInterval(() => {
@@ -237,6 +251,13 @@ export class RealtimeGateway
       }
     });
     await socket.join([userRoom(userId), deviceRoom(deviceId), sessionRoom(sessionId)]);
+    // Community channel events go to channel rooms (active members only).
+    const channels = await this.prisma.channelMember.findMany({
+      where: { userId, status: 'ACTIVE' },
+      select: { channelId: true },
+      take: CHANNEL_ROOMS_MAX,
+    });
+    if (channels.length > 0) await socket.join(channels.map((c) => channelRoom(c.channelId)));
     const cameOnline = await this.presence
       .connect({ userId, deviceId, socketId: socket.id })
       .catch((error: unknown) => this.presenceFailed(error, false));
@@ -256,9 +277,9 @@ export class RealtimeGateway
       clearTimeout(typing);
       this.typingTimers.delete(key);
       const conversationId = key.slice(socket.id.length + 1);
-      const peer = this.accessCache.get(`${socket.id}:${conversationId}`);
-      if (peer)
-        this.publisher.toUsers([peer.peerId], 'message.typing', {
+      const cached = this.accessCache.get(`${socket.id}:${conversationId}`);
+      if (cached)
+        this.publisher.toUsers(cached.recipients, 'message.typing', {
           conversationId,
           ogcId: ogcId as OgcId,
           typing: false,
@@ -270,6 +291,21 @@ export class RealtimeGateway
       .disconnect({ userId, deviceId, socketId: socket.id })
       .catch((error: unknown) => this.presenceFailed(error, false));
     if (wentOffline) this.emitPresence(userId, 'OFFLINE');
+  }
+
+  /** Moves users' sockets into or out of a channel room to match their membership. */
+  private async syncChannelRooms(channelId: string, userIds: string[]): Promise<void> {
+    const active = await this.prisma.channelMember.findMany({
+      where: { channelId, userId: { in: userIds }, status: 'ACTIVE' },
+      select: { userId: true },
+    });
+    const members = new Set(active.map((a) => a.userId));
+    for (const userId of userIds) {
+      this.publisher.setChannelMembership(userId, channelId, members.has(userId));
+      if (!members.has(userId)) {
+        this.publisher.toUsers([userId], 'channel.access_revoked', { channelId });
+      }
+    }
   }
 
   /** Presence is best-effort: a Redis outage must never break connections. */
@@ -300,18 +336,24 @@ export class RealtimeGateway
       });
   }
 
-  /** Conversation access for typing: participant and no block in either direction. Cached briefly. */
-  private async peerFor(socket: OgcSocket, conversationId: string): Promise<string | undefined> {
+  /**
+   * Who sees the caller typing: the other participants with no block in either
+   * direction (none in an archived group). Cached briefly.
+   */
+  private async typingRecipients(socket: OgcSocket, conversationId: string): Promise<string[]> {
     const key = `${socket.id}:${conversationId}`;
     const cached = this.accessCache.get(key);
-    if (cached && cached.expires > Date.now()) return cached.peerId;
+    if (cached && cached.expires > Date.now()) return cached.recipients;
     try {
-      const access = await this.access.require(this.identity(socket).userId, conversationId);
-      if (access.blockedByPeer || access.blockedByViewer) return undefined;
-      this.accessCache.set(key, { peerId: access.peerId, expires: Date.now() + ACCESS_CACHE_MS });
-      return access.peerId;
+      const userId = this.identity(socket).userId;
+      const access = await this.access.require(userId, conversationId);
+      const recipients = access.group?.archived
+        ? []
+        : access.otherIds.filter((id) => !blockedEitherWay(access, userId, id));
+      this.accessCache.set(key, { recipients, expires: Date.now() + ACCESS_CACHE_MS });
+      return recipients;
     } catch {
-      return undefined;
+      return [];
     }
   }
 
@@ -337,8 +379,8 @@ export class RealtimeGateway
     const { userId, ogcId } = this.identity(socket);
     if (typing && !(await this.consume('typing', `user:${userId}`))) return;
     const { conversationId } = parsed.data;
-    const peerId = await this.peerFor(socket, conversationId);
-    if (!peerId) return;
+    const recipients = await this.typingRecipients(socket, conversationId);
+    if (recipients.length === 0) return;
     const key = `${socket.id}:${conversationId}`;
     const existing = this.typingTimers.get(key);
     if (existing) clearTimeout(existing);
@@ -348,7 +390,7 @@ export class RealtimeGateway
         key,
         setTimeout(() => {
           this.typingTimers.delete(key);
-          this.publisher.toUsers([peerId], 'message.typing', {
+          this.publisher.toUsers(recipients, 'message.typing', {
             conversationId,
             ogcId: ogcId as OgcId,
             typing: false,
@@ -358,7 +400,7 @@ export class RealtimeGateway
     } else if (!existing) {
       return;
     }
-    this.publisher.toUsers([peerId], 'message.typing', {
+    this.publisher.toUsers(recipients, 'message.typing', {
       conversationId,
       ogcId: ogcId as OgcId,
       typing,
@@ -366,8 +408,9 @@ export class RealtimeGateway
   }
 
   /**
-   * Starts watching the presence of accounts the caller shares a conversation
-   * with (and no block either way). Other IDs are silently ignored, so this
+   * Starts watching the presence of accounts the caller shares a DIRECT
+   * conversation with (and no block either way). Group membership alone does
+   * not share presence. Other IDs are silently ignored, so this
    * cannot be used to learn whether arbitrary accounts are online.
    */
   @SubscribeMessage('presence.subscribe')
@@ -385,7 +428,9 @@ export class RealtimeGateway
       where: {
         ogcId: { in: parsed.data.ogcIds },
         status: 'ACTIVE',
-        participations: { some: { conversation: { participants: { some: { userId } } } } },
+        participations: {
+          some: { conversation: { type: 'DIRECT', participants: { some: { userId } } } },
+        },
         blocksMade: { none: { blockedId: userId } },
         blocksReceived: { none: { blockerId: userId } },
       },

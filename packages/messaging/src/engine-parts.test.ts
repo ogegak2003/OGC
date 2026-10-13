@@ -1,4 +1,5 @@
 import { rawKeySealer, utf8 } from '@ogc/e2ee';
+import { conversationAvatar, conversationTitle, describeEvent, mentionsIn } from './display.js';
 import { describe, expect, it } from 'vitest';
 import { KeyedLock } from './lock.js';
 import {
@@ -127,5 +128,92 @@ describe('transport errors', () => {
     expect(isRetryable(new TransportError('boom', 503))).toBe(true);
     expect(isRetryable(new TransportError('bad', 400, 'VALIDATION_FAILED'))).toBe(false);
     expect(isRetryable(new Error('other'))).toBe(false);
+  });
+});
+
+describe('group display helpers', () => {
+  const base = {
+    id: 'c1',
+    version: 1,
+    lastActivityAt: '2026-10-13T00:00:00.000Z',
+    lastMessage: null,
+    unreadCount: 0,
+    myLastReadSeq: 0,
+    peerLastReadSeq: 0,
+    peerLastDeliveredSeq: 0,
+    blockedByMe: false,
+    mls: { epoch: 1, ready: true },
+    createdAt: '2026-10-13T00:00:00.000Z',
+  };
+
+  it('titles groups by name and direct conversations by the other person', () => {
+    const group = {
+      ...base,
+      type: 'GROUP' as const,
+      peer: null,
+      group: {
+        kind: 'GROUP' as const,
+        name: 'Rowing club',
+        description: null,
+        avatarUrl: '/g.webp',
+        myRole: 'MEMBER' as const,
+        memberCount: 3,
+        postPolicy: 'ALL_MEMBERS' as const,
+        invitePolicy: 'ADMINS' as const,
+        archived: false,
+        canPost: true,
+      },
+    };
+    expect(conversationTitle(group)).toBe('Rowing club');
+    expect(conversationAvatar(group)).toEqual({ url: '/g.webp', name: 'Rowing club' });
+    const direct = {
+      ...base,
+      type: 'DIRECT' as const,
+      group: null,
+      peer: { ogcId: 'OGC482731905' as never, displayName: 'Ada', avatarUrl: null },
+    };
+    expect(conversationTitle(direct)).toBe('Ada');
+  });
+
+  it('finds mentions by @name or OGC ID only among members', () => {
+    const members = [
+      { ogcId: 'OGC482731905', displayName: 'Ada Lovelace' },
+      { ogcId: 'OGC111222333', displayName: 'Grace' },
+    ];
+    expect(mentionsIn('Thanks @ada lovelace!', members)).toEqual(['OGC482731905']);
+    expect(mentionsIn('ping ogc111222333', members)).toEqual(['OGC111222333']);
+    expect(mentionsIn('Grace without the at-sign', members)).toEqual([]);
+  });
+});
+
+describe('timeline events', () => {
+  const names: Record<string, string> = { A: 'Ada', G: 'Grace' };
+  const nameOf = (id: string | null) => (id ? (names[id] ?? id) : 'Someone');
+
+  it('describes membership and role changes without content', () => {
+    expect(
+      describeEvent(
+        { type: 'MEMBER_REMOVED', actor: 'A' as never, subject: 'G' as never, detail: null },
+        nameOf,
+      ),
+    ).toBe('Ada removed Grace');
+    expect(
+      describeEvent(
+        {
+          type: 'ROLE_CHANGED',
+          actor: 'A' as never,
+          subject: 'G' as never,
+          detail: { role: 'ADMIN' },
+        },
+        nameOf,
+      ),
+    ).toBe('Ada made Grace an admin');
+    expect(
+      describeEvent(
+        { type: 'CREATED', actor: 'A' as never, subject: null, detail: null },
+        nameOf,
+        'CHANNEL',
+      ),
+    ).toBe('Ada created the channel');
   });
 });

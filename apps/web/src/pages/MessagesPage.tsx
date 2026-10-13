@@ -4,6 +4,7 @@ import { AppShell } from '../components/AppShell';
 import { ConversationList } from '../components/messaging/ConversationList';
 import { ConversationPanel } from '../components/messaging/ConversationPanel';
 import { NewConversationDialog } from '../components/messaging/Dialogs';
+import { CreateGroupDialog } from '../components/groups/CreateGroupDialog';
 import styles from '../components/messaging/messaging.module.css';
 import { Alert } from '../components/ui';
 import { useMessaging } from '../messaging/messaging-context';
@@ -17,6 +18,7 @@ export function MessagesPage() {
   const navigate = useNavigate();
   const { conversations, engine, status, error } = useMessaging();
   const [creating, setCreating] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
   const conversation = conversationId
     ? conversations.find((c) => c.id === conversationId)
     : undefined;
@@ -34,6 +36,9 @@ export function MessagesPage() {
           activeId={conversationId}
           onNewConversation={() => {
             setCreating(true);
+          }}
+          onNewGroup={() => {
+            setCreatingGroup(true);
           }}
         />
         {conversation ? (
@@ -64,6 +69,17 @@ export function MessagesPage() {
           onOpened={(opened) => {
             setCreating(false);
             void navigate(`/messages/${opened.id}`);
+          }}
+        />
+      ) : null}
+      {creatingGroup ? (
+        <CreateGroupDialog
+          onClose={() => {
+            setCreatingGroup(false);
+          }}
+          onCreated={(created) => {
+            setCreatingGroup(false);
+            void navigate(`/messages/${created.id}`);
           }}
         />
       ) : null}

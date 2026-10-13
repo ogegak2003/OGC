@@ -7,15 +7,19 @@ import {
   inspectWelcome,
 } from '@ogc/e2ee';
 import type { ClaimedKeyPackage, CommitAccepted, MlsGroupView } from '@ogc/types';
-import type { CommitRequest } from '@ogc/validation';
+import { type CommitRequest, MLS_MAX_LEAVES } from '@ogc/validation';
 import { ApiException } from '../../common/errors.js';
 import { MetricsService } from '../../common/metrics/metrics.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { AuthContext } from '../auth/auth-context.js';
 import { type ActiveDevice, DeviceKeysService, invalidMls } from '../e2ee/device-keys.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
-import { ConversationAccessService } from './conversation-access.service.js';
+import {
+  ConversationAccessService,
+  type ParticipantAccess,
+} from './conversation-access.service.js';
 import { nextVersion, staleEpoch } from './conversation-version.js';
+import { devicesPerAccount } from './messaging.constants.js';
 import { bytesFromBase64, bytesToBase64 } from '../../common/bytes.js';
 
 const forbidden = (message: string): ApiException =>
@@ -27,7 +31,11 @@ const forbidden = (message: string): ApiException =>
  * enforces OGC's membership policy using only public MLS data:
  *
  * - every member of the resulting group must be an active device of one of
- *   the conversation's participants, with its registered signature key;
+ *   the conversation's *current* participants, with its registered signature
+ *   key (in groups: one of each member's newest four devices, ≤ 128 leaves);
+ * - a device of someone who left or was removed may be removed by any member,
+ *   and the accepted tree is recorded so new messages are refused until such
+ *   devices are gone (ADR-033);
  * - the committer must be the submitting device;
  * - a device can only be removed if it is no longer active or belongs to the committer;
  * - added devices must use a key package that was published by them and claimed.
@@ -70,7 +78,7 @@ export class MlsService {
   ): Promise<ClaimedKeyPackage[]> {
     await this.devices.requireActiveKey(auth);
     const access = await this.access.require(auth.userId, conversationId);
-    const active = await this.devices.activeDevices([auth.userId, access.peerId]);
+    const active = await this.eligibleDevices(access);
     const allowed = new Set(active.map((d) => d.deviceKeyId));
     const requested = [...new Set(deviceKeyIds)];
     if (requested.some((id) => !allowed.has(id))) {
@@ -105,12 +113,10 @@ export class MlsService {
       throw invalidMls('Wrong group');
     if (commit.epoch !== epoch || next.epoch !== epoch + 1n) throw invalidMls('Epoch mismatch');
 
-    const directory = new Map(
-      (await this.devices.activeDevices([auth.userId, access.peerId])).map((d) => [
-        d.deviceKeyId,
-        d,
-      ]),
-    );
+    const directory = new Map((await this.eligibleDevices(access)).map((d) => [d.deviceKeyId, d]));
+    if (next.members.length > MLS_MAX_LEAVES) {
+      throw forbidden('This group has reached its encryption device limit');
+    }
     this.checkMembers(next, directory);
     if (!next.members.some((m) => m.deviceKeyId === myDeviceKeyId)) {
       throw forbidden('The committing device must be a member of the group');
@@ -128,9 +134,21 @@ export class MlsService {
     this.checkRemovals(commit, previous, directory, auth.userId);
     const added = await this.checkAdds(commit, previous, input.welcome);
 
+    const memberUserIds = [
+      ...new Set(next.members.map((m) => directory.get(m.deviceKeyId)?.userId ?? '')),
+    ];
     const accepted = await this.prisma.$transaction(async (tx) => {
       const { version, mlsEpoch } = await nextVersion(tx, conversationId);
       if (mlsEpoch !== epoch) throw staleEpoch();
+      // Membership may have changed since the checks above; the row lock makes this final.
+      const participants = await tx.conversationParticipant.findMany({
+        where: { conversationId },
+        select: { userId: true },
+      });
+      const current = new Set(participants.map((p) => p.userId));
+      if (!current.has(auth.userId) || memberUserIds.some((id) => !current.has(id))) {
+        throw staleEpoch();
+      }
       await tx.mlsCommit.create({
         data: {
           conversationId,
@@ -142,7 +160,11 @@ export class MlsService {
       });
       await tx.conversation.update({
         where: { id: conversationId },
-        data: { mlsEpoch: epoch + 1n, groupInfo: bytesFromBase64(input.groupInfo) },
+        data: {
+          mlsEpoch: epoch + 1n,
+          groupInfo: bytesFromBase64(input.groupInfo),
+          mlsMemberUserIds: memberUserIds,
+        },
       });
       if (input.welcome && added.length > 0) {
         await tx.mlsWelcome.createMany({
@@ -158,16 +180,28 @@ export class MlsService {
       return { epoch: Number(epoch + 1n), version: Number(version) };
     });
 
-    this.realtime.toUsers([auth.userId, access.peerId], 'mls.commit', {
-      conversationId,
-      ...accepted,
-    });
+    this.realtime.toUsers(
+      access.members.map((m) => m.userId),
+      'mls.commit',
+      {
+        conversationId,
+        ...accepted,
+      },
+    );
     const addedDeviceIds = added.flatMap((id) => {
       const device = directory.get(id);
       return device ? [device.deviceId] : [];
     });
     this.realtime.toDevices(addedDeviceIds, 'mls.welcome', { conversationId });
     return accepted;
+  }
+
+  /** Devices that may be in this conversation's MLS tree. */
+  private eligibleDevices(access: ParticipantAccess): Promise<ActiveDevice[]> {
+    return this.devices.activeDevices(
+      access.members.map((m) => m.userId),
+      devicesPerAccount(access.type),
+    );
   }
 
   /** Every leaf of the new tree must be an active participant device with its registered key. */

@@ -1,3 +1,11 @@
+import type {
+  ChannelView,
+  CommunityRole,
+  ConversationEventView,
+  GroupInfoView,
+  NotificationView,
+  ReceivedInvitationView,
+} from './community.js';
 import type { OgcId } from './identity.js';
 import type { ProfileSummary } from './social.js';
 
@@ -8,7 +16,8 @@ import type { ProfileSummary } from './social.js';
  * per-conversation counters (safe integers).
  */
 
-export type ConversationType = 'DIRECT';
+/** DIRECT = two people; GROUP = private group; CHANNEL = private encrypted channel. */
+export type ConversationType = 'DIRECT' | 'GROUP' | 'CHANNEL';
 
 /**
  * Delivery state of the viewer's own message. `PENDING` exists only on the
@@ -44,17 +53,20 @@ export interface MessageSummary {
 export interface ConversationView {
   id: string;
   type: ConversationType;
-  /** The other participant. */
-  peer: ProfileSummary;
+  /** DIRECT: the other participant; null for groups and channels. */
+  peer: ProfileSummary | null;
+  /** Groups and encrypted channels: name, photo, the viewer's role and policies. */
+  group: GroupInfoView | null;
   /** Latest change counter; a client that has synced to this version is up to date. */
   version: number;
   lastActivityAt: string;
   lastMessage: MessageSummary | null;
   unreadCount: number;
   myLastReadSeq: number;
+  /** DIRECT: the peer's read mark. Groups: the lowest read mark of the other members ("read by everyone"). */
   peerLastReadSeq: number;
   peerLastDeliveredSeq: number;
-  /** The viewer blocked the peer. Being blocked by the peer is never revealed. */
+  /** DIRECT: the viewer blocked the peer. Being blocked by the peer is never revealed. */
   blockedByMe: boolean;
   mls: { epoch: number; ready: boolean };
   createdAt: string;
@@ -97,7 +109,9 @@ export interface MessageView {
 export type SyncItem =
   | { type: 'message'; version: number; message: MessageView }
   | { type: 'commit'; version: number; epoch: number; commit: string }
-  | { type: 'hidden'; version: number; messageId: string };
+  | { type: 'hidden'; version: number; messageId: string }
+  /** Membership and settings changes in groups and channels (never content). */
+  | { type: 'event'; version: number; event: ConversationEventView };
 
 export interface SyncPage {
   items: SyncItem[];
@@ -212,6 +226,57 @@ export interface ServerToClientEvents {
   'mls.welcome': (payload: { conversationId: string }) => void;
   /** A participant's set of encryption devices changed: reconcile group membership. */
   'devices.changed': (payload: { conversationId: string }) => void;
+
+  // Groups and private encrypted channels (sync recovers anything missed).
+  'group.created': (payload: { conversation: ConversationView }) => void;
+  'group.updated': (payload: { conversationId: string; version: number }) => void;
+  'group.member_joined': (payload: {
+    conversationId: string;
+    version: number;
+    ogcId: OgcId;
+  }) => void;
+  'group.member_left': (payload: { conversationId: string; version: number; ogcId: OgcId }) => void;
+  /** Also sent to the removed person's devices, which then erase the conversation. */
+  'group.member_removed': (payload: {
+    conversationId: string;
+    version: number;
+    ogcId: OgcId;
+  }) => void;
+  'group.role_changed': (payload: {
+    conversationId: string;
+    version: number;
+    ogcId: OgcId;
+    role: CommunityRole;
+  }) => void;
+  /** Sent to the invitee. */
+  'group.invitation_created': (payload: { invitation: ReceivedInvitationView }) => void;
+  'group.invitation_revoked': (payload: { invitationId: string; conversationId: string }) => void;
+  /** The group was deleted by its owner: erase it locally. */
+  'group.deleted': (payload: { conversationId: string }) => void;
+
+  // Community channels. Post events carry IDs only; clients fetch personalised views via sync.
+  'channel.created': (payload: { channel: ChannelView }) => void;
+  'channel.updated': (payload: { channelId: string; version: number }) => void;
+  'channel.member_joined': (payload: { channelId: string; ogcId: OgcId }) => void;
+  'channel.member_left': (payload: { channelId: string; ogcId: OgcId }) => void;
+  'channel.post_created': (payload: { channelId: string; postId: string; version: number }) => void;
+  'channel.post_updated': (payload: { channelId: string; postId: string; version: number }) => void;
+  'channel.post_deleted': (payload: { channelId: string; postId: string; version: number }) => void;
+  'channel.post_pinned': (payload: {
+    channelId: string;
+    postId: string;
+    version: number;
+    pinned: boolean;
+  }) => void;
+  'channel.announcement_created': (payload: {
+    channelId: string;
+    postId: string;
+    version: number;
+  }) => void;
+  /** The viewer is no longer a member (left, removed, banned, or the channel was deleted). */
+  'channel.access_revoked': (payload: { channelId: string }) => void;
+
+  'community.notification': (payload: { notification: NotificationView }) => void;
 }
 
 export type RealtimeAck<T> = (

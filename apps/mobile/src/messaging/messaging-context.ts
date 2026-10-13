@@ -37,6 +37,8 @@ export type MessagingEngine = Pick<
   | 'discardFailed'
   | 'handleRealtime'
   | 'wipe'
+  | 'timeline'
+  | 'forgetConversation'
 >;
 
 export type RealtimeLink = Pick<
@@ -68,6 +70,13 @@ export interface MessagingContextValue {
   typing: Record<string, boolean>;
   presence: Record<string, PresenceState>;
   unreadTotal: number;
+  /** Unread in-app notifications (invitations, mentions, announcements…). */
+  notificationsUnread: number;
+  setNotificationsUnread: (count: number) => void;
+  /** Bumped when invitations change. */
+  invitationsRevision: number;
+  /** Bumped per community channel on realtime events, to refetch. */
+  channelRevision: Record<string, number>;
   setTyping: (conversationId: string, typing: boolean) => void;
   watchPresence: (ogcIds: OgcId[]) => void;
 }

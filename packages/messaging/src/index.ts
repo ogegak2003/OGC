@@ -4,6 +4,7 @@ export {
   MessagingError,
   type MessagingEvent,
   type OutgoingAttachment,
+  type TimelineEvent,
 } from './client.js';
 export { KeyedLock } from './lock.js';
 export {
@@ -24,7 +25,11 @@ export { type MessagingTransport, TransportError, errorCode, isRetryable } from 
 export { type MessageDisplayStatus, messageStatus } from './status.js';
 export {
   attachmentKind,
+  conversationAvatar,
+  conversationTitle,
+  describeEvent,
   duration,
+  mentionsIn,
   fileSize,
   playableAudio,
   previewText,

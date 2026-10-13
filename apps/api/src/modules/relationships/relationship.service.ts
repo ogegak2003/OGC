@@ -197,4 +197,55 @@ export class RelationshipService {
       avatarUrl: visible ? avatarUrlFor(account.ogcId as OgcId, profile?.avatarKey ?? null) : null,
     };
   }
+
+  /**
+   * Summaries of several accounts as one viewer may see them (photos only for
+   * contacts or public profiles, never across a block), with two queries.
+   */
+  async summariesFor(
+    viewerId: string,
+    accounts: {
+      id: string;
+      ogcId: string;
+      profile: {
+        displayName: string;
+        avatarKey: string | null;
+        profileVisibility: ProfileVisibility;
+      } | null;
+    }[],
+  ): Promise<Map<string, ProfileSummary>> {
+    const ids = accounts.map((a) => a.id).filter((id) => id !== viewerId);
+    const [contacts, blocks] = await Promise.all([
+      ids.length === 0
+        ? []
+        : this.prisma.contact.findMany({
+            where: { ownerId: viewerId, contactId: { in: ids } },
+            select: { contactId: true },
+          }),
+      ids.length === 0
+        ? []
+        : this.prisma.block.findMany({
+            where: {
+              OR: [
+                { blockerId: viewerId, blockedId: { in: ids } },
+                { blockerId: { in: ids }, blockedId: viewerId },
+              ],
+            },
+            select: { blockerId: true, blockedId: true },
+          }),
+    ]);
+    const contactSet = new Set(contacts.map((c) => c.contactId));
+    const blocked = new Set(blocks.flatMap((b) => [b.blockerId, b.blockedId]));
+    return new Map(
+      accounts.map((a) => [
+        a.id,
+        this.summary(
+          a,
+          a.id === viewerId ||
+            (!blocked.has(a.id) &&
+              (contactSet.has(a.id) || a.profile?.profileVisibility === 'EVERYONE')),
+        ),
+      ]),
+    );
+  }
 }

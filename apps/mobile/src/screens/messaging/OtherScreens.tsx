@@ -1,3 +1,4 @@
+import { conversationAvatar, conversationTitle } from '@ogc/messaging';
 import { useCallback, useEffect, useState } from 'react';
 import { ActivityIndicator, Pressable, Text, View } from 'react-native';
 import { useAuth } from '../../auth/AuthProvider';
@@ -80,7 +81,9 @@ export function ForwardScreen({
   const { engine, conversations } = useMessaging();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const targets = conversations.filter((c) => c.id !== conversationId && !c.blockedByMe);
+  const targets = conversations.filter(
+    (c) => c.id !== conversationId && !c.blockedByMe && (c.group?.canPost ?? true),
+  );
   return (
     <Screen
       title="Forward to…"
@@ -94,7 +97,7 @@ export function ForwardScreen({
           key={target.id}
           style={social.listItem}
           accessibilityRole="button"
-          accessibilityLabel={`Forward to ${target.peer.displayName}`}
+          accessibilityLabel={`Forward to ${conversationTitle(target)}`}
           disabled={busy}
           onPress={() => {
             if (!engine) return;
@@ -110,8 +113,8 @@ export function ForwardScreen({
             );
           }}
         >
-          <Avatar url={target.peer.avatarUrl} name={target.peer.displayName} size={40} />
-          <Text style={social.name}>{target.peer.displayName}</Text>
+          <Avatar url={conversationAvatar(target).url} name={conversationTitle(target)} size={40} />
+          <Text style={social.name}>{conversationTitle(target)}</Text>
         </Pressable>
       ))}
     </Screen>
@@ -119,17 +122,27 @@ export function ForwardScreen({
 }
 
 /** The safety number both people compare to rule out key substitution by the server. */
-export function SafetyNumberScreen({ conversationId }: { conversationId: string }) {
+export function SafetyNumberScreen({
+  conversationId,
+  ogcId,
+  name,
+}: {
+  conversationId: string;
+  /** Groups: the member to compare with. */
+  ogcId?: string | undefined;
+  name?: string | undefined;
+}) {
   const nav = useNavigation();
   const { engine, conversations } = useMessaging();
   const peer = conversations.find((c) => c.id === conversationId)?.peer;
+  const other = name ?? peer?.displayName ?? 'them';
   const [groups, setGroups] = useState<string[]>();
   const [error, setError] = useState<string>();
 
   useEffect(() => {
     if (!engine) return;
     let active = true;
-    engine.safetyNumber(conversationId).then(
+    engine.safetyNumber(conversationId, ogcId).then(
       (value) => {
         if (active) setGroups(value);
       },
@@ -140,14 +153,14 @@ export function SafetyNumberScreen({ conversationId }: { conversationId: string 
     return () => {
       active = false;
     };
-  }, [engine, conversationId]);
+  }, [engine, conversationId, ogcId]);
 
   return (
     <Screen title="Verify encryption" onBack={nav.back}>
       <Text style={social.body}>
-        Compare this number with {peer?.displayName ?? 'them'} in person or on a call. If it matches
-        on both devices, your messages are encrypted only for your and their devices. It changes
-        when either of you adds or removes a device.
+        Compare this number with {other} in person or on a call. If it matches on both devices, your
+        messages are encrypted only for your and their devices. It changes when either of you adds
+        or removes a device.
       </Text>
       {error ? <Notice>{error}</Notice> : null}
       {groups ? (

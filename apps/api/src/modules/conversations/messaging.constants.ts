@@ -12,3 +12,14 @@ export const UNREAD_COUNT_CAP = 1000;
  * by the next sync (duplicates are harmless; clients compare versions).
  */
 export const CHANGE_FEED_SAFETY_LAG_MS = 10_000;
+/**
+ * Encryption devices per account in a group or encrypted channel: the newest
+ * active devices are eligible. With at most 32 members this bounds the MLS tree
+ * to 128 leaves (ADR-033).
+ */
+export const GROUP_DEVICES_PER_ACCOUNT = 4;
+
+/** Per-account device cap in a conversation's encryption directory. */
+export function devicesPerAccount(type: 'DIRECT' | 'GROUP' | 'CHANNEL'): number | undefined {
+  return type === 'DIRECT' ? undefined : GROUP_DEVICES_PER_ACCOUNT;
+}

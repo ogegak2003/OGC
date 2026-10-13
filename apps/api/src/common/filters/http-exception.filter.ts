@@ -94,6 +94,8 @@ export class HttpExceptionFilter implements ExceptionFilter {
       ...(code ? { code } : {}),
       ...(requestId ? { requestId } : {}),
     };
-    response.status(statusCode).json(body);
+    // Errors are always JSON, even from routes that declared a file type or download headers.
+    response.removeHeader('Content-Disposition');
+    response.status(statusCode).type('application/json').json(body);
   }
 }

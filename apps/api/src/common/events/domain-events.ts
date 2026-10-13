@@ -16,6 +16,8 @@ export type DomainEvent =
   | { type: 'user.unblocked'; blockerId: string; blockedId: string }
   | { type: 'profile.updated'; userId: string; fields: string[] }
   | { type: 'session.revoked'; sessionId: string; userId: string }
+  /** Members joined or left a group/encrypted channel, or a community channel. */
+  | { type: 'membership.changed'; conversationId?: string; channelId?: string; userIds: string[] }
   | {
       type: 'message.created';
       conversationId: string;
@@ -23,6 +25,8 @@ export type DomainEvent =
       senderId: string;
       /** Users who should be notified (excludes recipients who blocked the sender). */
       recipientIds: string[];
+      /** Recipients the sender declared as mentioned (groups only; never parsed from content). */
+      mentionedIds: string[];
     };
 
 export type DomainEventHandler = (event: DomainEvent) => void;

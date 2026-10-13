@@ -36,6 +36,8 @@ export interface MessageActions {
   react: (message: LocalMessage, reaction: ReactionType, add: boolean) => void;
   retry: (message: LocalMessage) => void;
   discard: (message: LocalMessage) => void;
+  /** Report a message, choosing whether to disclose its decrypted text to OGC. */
+  report?: (message: LocalMessage) => void;
 }
 
 function Placeholder({ message }: { message: LocalMessage }) {
@@ -63,12 +65,18 @@ export function MessageBubble({
   myOgcId,
   replyTarget,
   actions,
+  senderName,
+  canModerate = false,
 }: {
   message: LocalMessage;
   conversation: ConversationView | undefined;
   myOgcId: string;
   replyTarget: LocalMessage | undefined | null;
   actions: MessageActions;
+  /** Groups: who sent it (shown above other people's messages). */
+  senderName?: string | undefined;
+  /** Groups: moderators may remove other people's messages for everyone. */
+  canModerate?: boolean;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const status = messageStatus(message, conversation);
@@ -93,8 +101,9 @@ export function MessageBubble({
     <article
       id={message.id ? `m-${message.id}` : undefined}
       className={[styles.message, message.mine ? styles.mine : styles.theirs].join(' ')}
-      aria-label={`${message.mine ? 'You' : 'Them'}, ${messageTime(message.createdAt)}`}
+      aria-label={`${message.mine ? 'You' : (senderName ?? 'Them')}, ${messageTime(message.createdAt)}`}
     >
+      {senderName && !message.mine ? <p className={styles.senderName}>{senderName}</p> : null}
       <div className={styles.bubble}>
         {message.forwarded ? <p className={styles.forwarded}>Forwarded</p> : null}
         {message.replyToId ? (
@@ -271,7 +280,7 @@ export function MessageBubble({
               >
                 Delete for me
               </button>
-              {message.mine ? (
+              {message.mine || canModerate ? (
                 <button
                   type="button"
                   role="menuitem"
@@ -280,7 +289,19 @@ export function MessageBubble({
                     actions.deleteForEveryone(message);
                   })}
                 >
-                  Delete for everyone
+                  {message.mine ? 'Delete for everyone' : 'Remove for everyone'}
+                </button>
+              ) : null}
+              {!message.mine && actions.report ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className={styles.menuItem}
+                  onClick={act(() => {
+                    actions.report?.(message);
+                  })}
+                >
+                  Report
                 </button>
               ) : null}
             </div>

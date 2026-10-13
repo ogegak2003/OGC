@@ -21,6 +21,8 @@ export const SYNC_PAGE_DEFAULT = 100;
 export const SYNC_PAGE_MAX = 200;
 export const HISTORY_PAGE_DEFAULT = 50;
 export const HISTORY_PAGE_MAX = 100;
+/** OGC IDs a group message may mention (declared by the sender; the server never reads text). */
+export const MENTIONS_MAX = 20;
 export const VOICE_MAX_DURATION_MS = 15 * 60 * 1000;
 
 const MIB = 1024 * 1024;
@@ -60,6 +62,8 @@ export const sendMessageRequestSchema = z.strictObject({
   /** The source message (must be readable by the sender); its content is re-encrypted client-side. */
   forwardedFromId: uuidSchema.optional(),
   attachmentIds: z.array(uuidSchema).max(MESSAGE_ATTACHMENTS_MAX).optional(),
+  /** Group members mentioned in the (encrypted) text, for notifications only. */
+  mentions: z.array(ogcIdSchema).max(MENTIONS_MAX).optional(),
 });
 
 export const editMessageRequestSchema = z.strictObject({

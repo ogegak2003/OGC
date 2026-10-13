@@ -1,4 +1,9 @@
-import { type LocalMessage, previewText } from '@ogc/messaging';
+import {
+  type LocalMessage,
+  conversationAvatar,
+  conversationTitle,
+  previewText,
+} from '@ogc/messaging';
 import type { ConversationView } from '@ogc/types';
 import { color } from '@ogc/ui';
 import { useEffect, useState } from 'react';
@@ -15,24 +20,28 @@ function ConversationRow({ conversation }: { conversation: ConversationView }) {
   const { typing, presence } = useMessaging();
   const last = useLastMessage(conversation.id);
   const unread = conversation.blockedByMe ? 0 : conversation.unreadCount;
-  const online = presence[conversation.peer.ogcId] === 'ONLINE';
+  const online = conversation.peer ? presence[conversation.peer.ogcId] === 'ONLINE' : false;
+  const title = conversationTitle(conversation);
+  const avatar = conversationAvatar(conversation);
+  const group = conversation.group;
   return (
     <Pressable
       accessibilityRole="button"
-      accessibilityLabel={`${conversation.peer.displayName}${unread ? `, ${String(unread)} unread` : ''}`}
+      accessibilityLabel={`${title}${group ? (group.kind === 'CHANNEL' ? ', channel' : ', group') : ''}${unread ? `, ${String(unread)} unread` : ''}`}
       style={({ pressed }) => [m.row, pressed && { backgroundColor: color.surface }]}
       onPress={() => {
         nav.push({ name: 'conversation', conversationId: conversation.id });
       }}
     >
       <View style={m.avatarWrap}>
-        <Avatar url={conversation.peer.avatarUrl} name={conversation.peer.displayName} size={48} />
+        <Avatar url={avatar.url} name={avatar.name} size={48} />
         {online ? <View style={m.onlineDot} accessibilityLabel="Online" /> : null}
       </View>
       <View style={m.rowBody}>
         <View style={m.rowTop}>
           <Text style={m.rowName} numberOfLines={1}>
-            {conversation.peer.displayName}
+            {title}
+            {group ? (group.kind === 'CHANNEL' ? '  · Channel' : '  · Group') : ''}
           </Text>
           <Text style={m.rowTime}>{listTime(last?.createdAt ?? conversation.lastActivityAt)}</Text>
         </View>
@@ -42,7 +51,9 @@ function ConversationRow({ conversation }: { conversation: ConversationView }) {
               ? 'typing…'
               : conversation.blockedByMe
                 ? 'Blocked'
-                : previewText(last)}
+                : group?.archived
+                  ? 'Archived'
+                  : previewText(last)}
           </Text>
           {unread > 0 ? <Text style={m.unread}>{unread > 999 ? '999+' : unread}</Text> : null}
         </View>
@@ -76,7 +87,7 @@ export function MessagesScreen() {
 
   const lowered = trimmed.toLocaleLowerCase();
   const shown = lowered
-    ? conversations.filter((c) => c.peer.displayName.toLocaleLowerCase().includes(lowered))
+    ? conversations.filter((c) => conversationTitle(c).toLocaleLowerCase().includes(lowered))
     : conversations;
 
   return (
@@ -92,6 +103,15 @@ export function MessagesScreen() {
         </Text>
         <Text style={m.title} accessibilityRole="header">
           Messages
+        </Text>
+        <Text
+          style={m.outlinePill}
+          accessibilityRole="button"
+          onPress={() => {
+            nav.push({ name: 'new-group' });
+          }}
+        >
+          Group
         </Text>
         <Text
           style={m.pill}

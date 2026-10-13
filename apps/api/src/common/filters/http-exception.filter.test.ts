@@ -6,15 +6,31 @@ import { HttpExceptionFilter } from './http-exception.filter.js';
 
 function run(exception: unknown) {
   const json = vi.fn((_body: Record<string, unknown>) => undefined);
-  const status = vi.fn((_code: number) => ({ json }));
+  const type = vi.fn((_type: string) => ({ json }));
+  const status = vi.fn((_code: number) => ({ type }));
+  const removeHeader = vi.fn((_name: string) => undefined);
   const host = {
-    switchToHttp: () => ({ getRequest: () => ({ id: 'req-1' }), getResponse: () => ({ status }) }),
+    switchToHttp: () => ({
+      getRequest: () => ({ id: 'req-1' }),
+      getResponse: () => ({ status, removeHeader }),
+    }),
   } as unknown as ArgumentsHost;
   new HttpExceptionFilter().catch(exception, host);
-  return { status: status.mock.calls[0]?.[0], body: json.mock.calls[0]?.[0] };
+  return {
+    status: status.mock.calls[0]?.[0],
+    body: json.mock.calls[0]?.[0],
+    type: type.mock.calls[0]?.[0],
+    removedHeaders: removeHeader.mock.calls.map((c) => c[0]),
+  };
 }
 
 describe('HttpExceptionFilter', () => {
+  it('always answers errors as JSON, dropping download headers set by the route', () => {
+    const { type, removedHeaders } = run(new ApiException(HttpStatus.NOT_FOUND, 'NOT_FOUND', 'x'));
+    expect(type).toBe('application/json');
+    expect(removedHeaders).toEqual(['Content-Disposition']);
+  });
+
   it('keeps curated messages and codes for deliberate 5xx ApiExceptions', () => {
     const { status, body } = run(
       new ApiException(

@@ -1,23 +1,37 @@
 import { HttpStatus, Injectable } from '@nestjs/common';
 import { editAad, equalBytes, inspectApplicationMessage, messageAad } from '@ogc/e2ee';
-import type { MessagePage, MessageView, ReactionType, SyncItem, SyncPage } from '@ogc/types';
+import type {
+  ConversationEventView,
+  MessagePage,
+  MessageView,
+  OgcId,
+  ReactionType,
+  SyncItem,
+  SyncPage,
+} from '@ogc/types';
 import { DomainEventBus } from '../../common/events/domain-events.js';
 import { ApiException } from '../../common/errors.js';
 import { MetricsService } from '../../common/metrics/metrics.js';
 import type { RequestMeta } from '../../common/request-meta.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { isUniqueViolation } from '../../database/prisma-errors.js';
+import type { CommunityRole, Prisma } from '../../generated/prisma/client.js';
 import { AuditService } from '../audit/audit.service.js';
 import type { AuthContext } from '../auth/auth-context.js';
+import { canModerate, outranks } from '../community/community-permissions.js';
 import { DeviceKeysService, invalidMls } from '../e2ee/device-keys.service.js';
 import { ObjectStorage } from '../storage/object-storage.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
 import {
   ConversationAccessService,
   type ParticipantAccess,
+  blockedBy,
+  blockedEitherWay,
+  conversationNotFound,
   messageNotFound,
+  mlsMembershipStale,
 } from './conversation-access.service.js';
-import { nextVersion, staleEpoch } from './conversation-version.js';
+import { nextVersion, recordConversationEvent, staleEpoch } from './conversation-version.js';
 import { MESSAGE_SELECT, type MessageRow, toMessageView, visibleTo } from './message-views.js';
 import {
   MESSAGE_DELETE_FOR_EVERYONE_WINDOW_MS,
@@ -32,6 +46,7 @@ export interface SendMessageInput {
   replyToId?: string | undefined;
   forwardedFromId?: string | undefined;
   attachmentIds?: string[] | undefined;
+  mentions?: OgcId[] | undefined;
 }
 
 /**
@@ -65,10 +80,38 @@ const forbidden = (message: string): ApiException =>
   new ApiException(HttpStatus.FORBIDDEN, 'FORBIDDEN', message);
 
 /**
+ * Re-checks membership under the conversation row lock taken by `nextVersion`:
+ * the sender must still be a participant and the MLS tree must not contain
+ * anyone who has left or been removed (ADR-033). Membership changes take the
+ * same lock, so this cannot race with a removal.
+ */
+async function assertMembershipUnderLock(
+  tx: Prisma.TransactionClient,
+  conversationId: string,
+  senderId: string,
+  mlsMemberUserIds: string[],
+): Promise<void> {
+  const participants = await tx.conversationParticipant.findMany({
+    where: { conversationId },
+    select: { userId: true },
+  });
+  const current = new Set(participants.map((p) => p.userId));
+  if (!current.has(senderId)) throw conversationNotFound();
+  if (mlsMemberUserIds.some((id) => !current.has(id))) throw mlsMembershipStale();
+}
+
+/**
  * The message lifecycle (ADR-022/025): CREATED on the device → SENT when this
  * service has persisted it (the API response) → DELIVERED / READ through
  * per-participant high-water marks. Realtime events are emitted only after the
  * database transaction commits; sync recovers anything a socket missed.
+ *
+ * The same lifecycle serves DIRECT conversations, groups and private encrypted
+ * channels (ADR-031). Differences: in DIRECT conversations a peer's block
+ * withholds messages (so the block is not revealed); in groups messages from a
+ * blocked member stay visible to everyone (clients collapse them) while their
+ * reactions are hidden from the blocker, and moderators may delete others'
+ * messages for everyone.
  */
 @Injectable()
 export class MessagesService {
@@ -101,22 +144,27 @@ export class MessagesService {
       if (replay.conversationId !== conversationId) {
         throw new ApiException(HttpStatus.CONFLICT, 'CONFLICT', 'Message ID already used');
       }
-      return toMessageView(replay);
+      return toMessageView(replay, blockedBy(access, auth.userId));
     }
 
     this.access.assertCanSend(access);
+    this.access.assertMlsMembershipCurrent(access);
     checkCiphertext(
       input.ciphertext,
       conversationId,
       input.epoch,
       messageAad(conversationId, input.clientMessageId),
     );
+    const withheld = access.type === 'DIRECT' && access.blockedByPeer;
 
     let row: MessageRow;
     try {
       row = await this.prisma.$transaction(async (tx) => {
-        const { version, mlsEpoch } = await nextVersion(tx, conversationId, { activity: true });
+        const { version, mlsEpoch, mlsMemberUserIds } = await nextVersion(tx, conversationId, {
+          activity: true,
+        });
         if (mlsEpoch !== BigInt(input.epoch)) throw staleEpoch();
+        await assertMembershipUnderLock(tx, conversationId, auth.userId, mlsMemberUserIds);
 
         if (input.replyToId) {
           const target = await tx.message.findFirst({
@@ -163,7 +211,7 @@ export class MessagesService {
             ciphertext: bytesFromBase64(input.ciphertext),
             replyToId: input.replyToId ?? null,
             forwarded: input.forwardedFromId !== undefined,
-            withheld: access.blockedByPeer,
+            withheld,
           },
           select: { id: true },
         });
@@ -197,7 +245,8 @@ export class MessagesService {
     } catch (error) {
       if (isUniqueViolation(error, 'client_message_id')) {
         const existing = await this.findBySubmission(auth.userId, input.clientMessageId);
-        if (existing?.conversationId === conversationId) return toMessageView(existing);
+        if (existing?.conversationId === conversationId)
+          return toMessageView(existing, blockedBy(access, auth.userId));
       }
       if (error instanceof ApiException) {
         this.metrics.failures.inc({ operation: 'send', reason: String(error.getStatus()) });
@@ -206,7 +255,24 @@ export class MessagesService {
     }
 
     this.metrics.messagesSent.inc();
-    const recipients = row.withheld ? [] : [access.peerId];
+    // Push goes to active members who have not blocked the sender (never revealed to the sender).
+    const recipients = row.withheld
+      ? []
+      : access.members
+          .filter(
+            (m) =>
+              m.userId !== auth.userId &&
+              m.status === 'ACTIVE' &&
+              !access.blocks.some((b) => b.blockerId === m.userId && b.blockedId === auth.userId),
+          )
+          .map((m) => m.userId);
+    const mentionSet = new Set(input.mentions ?? []);
+    const mentionedIds =
+      access.type === 'DIRECT'
+        ? []
+        : recipients.filter((id) =>
+            mentionSet.has(access.members.find((m) => m.userId === id)?.ogcId ?? ('' as OgcId)),
+          );
     this.publishMessage('message.created', row, auth.userId, access);
     this.events.publish({
       type: 'message.created',
@@ -214,8 +280,9 @@ export class MessagesService {
       messageId: row.id,
       senderId: auth.userId,
       recipientIds: recipients,
+      mentionedIds,
     });
-    return toMessageView(row, access.blockedByViewer ? new Set([access.peerId]) : new Set());
+    return toMessageView(row, blockedBy(access, auth.userId));
   }
 
   private findBySubmission(senderId: string, clientMessageId: string): Promise<MessageRow | null> {
@@ -242,7 +309,9 @@ export class MessagesService {
       select: MESSAGE_SELECT,
     });
     if (!row) throw messageNotFound();
-    return { row, access: await this.access.require(userId, row.conversationId) };
+    const access = await this.access.require(userId, row.conversationId);
+    if (row.seq <= access.visibleFrom) throw messageNotFound();
+    return { row, access };
   }
 
   /** Replaces the ciphertext with a new revision. Sender only, within the edit window. */
@@ -260,6 +329,7 @@ export class MessagesService {
     if (access.blockedByPeer || Date.now() - row.createdAt.getTime() > MESSAGE_EDIT_WINDOW_MS) {
       throw forbidden('This message can no longer be edited');
     }
+    this.access.assertMlsMembershipCurrent(access);
     const revision = row.revision + 1;
     checkCiphertext(
       input.ciphertext,
@@ -269,8 +339,9 @@ export class MessagesService {
     );
 
     const updated = await this.prisma.$transaction(async (tx) => {
-      const { version, mlsEpoch } = await nextVersion(tx, row.conversationId);
+      const { version, mlsEpoch, mlsMemberUserIds } = await nextVersion(tx, row.conversationId);
       if (mlsEpoch !== BigInt(input.epoch)) throw staleEpoch();
+      await assertMembershipUnderLock(tx, row.conversationId, auth.userId, mlsMemberUserIds);
       const now = new Date();
       // Compare-and-set on the revision: two concurrent edits cannot both win.
       const { count } = await tx.message.updateMany({
@@ -295,7 +366,7 @@ export class MessagesService {
       return tx.message.findUniqueOrThrow({ where: { id: messageId }, select: MESSAGE_SELECT });
     });
     this.publishMessage('message.updated', updated, auth.userId, access);
-    return toMessageView(updated);
+    return toMessageView(updated, blockedBy(access, auth.userId));
   }
 
   /**
@@ -303,13 +374,19 @@ export class MessagesService {
    * blobs from the server and tells every device to erase its local copy.
    * It cannot reach copies already exported, screenshotted or backed up.
    * Metadata (that a message existed and was deleted) is kept.
+   *
+   * Senders can do this within the time window. In groups and encrypted
+   * channels, owners, admins and moderators can also remove messages of
+   * lower-ranked members (or former members) at any time; that removal is
+   * recorded in the timeline and the audit log, without content.
    */
   async deleteForEveryone(auth: AuthContext, messageId: string, meta: RequestMeta): Promise<void> {
     const { row, access } = await this.loadForViewer(auth.userId, messageId);
-    if (row.senderId !== auth.userId)
-      throw forbidden('You can only delete your own messages for everyone');
+    const own = row.senderId === auth.userId;
+    if (!own) this.assertCanModerateMessage(access, row.senderId);
     if (row.deletedAt) return;
-    if (Date.now() - row.createdAt.getTime() > MESSAGE_DELETE_FOR_EVERYONE_WINDOW_MS) {
+    if (access.type !== 'DIRECT') this.access.assertWritable(access);
+    if (own && Date.now() - row.createdAt.getTime() > MESSAGE_DELETE_FOR_EVERYONE_WINDOW_MS) {
       throw forbidden(
         'This message is too old to delete for everyone; delete it for yourself instead',
       );
@@ -327,13 +404,21 @@ export class MessagesService {
       if (count === 1) {
         await tx.messageReaction.deleteMany({ where: { messageId } });
         await tx.attachment.deleteMany({ where: { messageId } });
+        if (!own) {
+          await recordConversationEvent(tx, row.conversationId, {
+            type: 'MESSAGE_REMOVED',
+            actorId: auth.userId,
+            subjectId: row.senderId,
+            detail: { messageId },
+          });
+        }
         await this.audit.record(
           {
             type: 'MESSAGE_DELETED_FOR_EVERYONE',
             userId: auth.userId,
             sessionId: auth.sessionId,
             meta,
-            details: { conversationId: row.conversationId, messageId },
+            details: { conversationId: row.conversationId, messageId, moderation: !own },
           },
           tx,
         );
@@ -348,6 +433,18 @@ export class MessagesService {
     });
     await Promise.all(storageKeys.map((key) => this.storage.delete(key)));
     this.publishMessage('message.deleted', updated, auth.userId, access);
+  }
+
+  /** Moderators act on lower-ranked members, or on messages of people who already left. */
+  private assertCanModerateMessage(access: ParticipantAccess, senderId: string | null): void {
+    if (access.type === 'DIRECT' || !canModerate(access.role)) {
+      throw forbidden('You can only delete your own messages for everyone');
+    }
+    const sender = access.members.find((m) => m.userId === senderId);
+    const senderRole: CommunityRole = sender?.role ?? 'MEMBER';
+    if (sender && !outranks(access.role, senderRole)) {
+      throw forbidden('You cannot remove messages of members with the same or a higher role');
+    }
   }
 
   /** "Delete for me": hides the message on all of the caller's devices only. Idempotent. */
@@ -390,7 +487,10 @@ export class MessagesService {
     const { row, access } = await this.loadForViewer(auth.userId, messageId);
     if (row.deletedAt)
       throw new ApiException(HttpStatus.CONFLICT, 'CONFLICT', 'This message was deleted');
-    if (add) this.access.assertCanSend(access);
+    if (add) {
+      if (access.type === 'DIRECT') this.access.assertCanSend(access);
+      else this.access.assertWritable(access);
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const key = { messageId_userId_reaction: { messageId, userId: auth.userId, reaction } };
@@ -406,26 +506,24 @@ export class MessagesService {
       return tx.message.findUniqueOrThrow({ where: { id: messageId }, select: MESSAGE_SELECT });
     });
     if (!updated) return;
-    const payload = (hidden: ReadonlySet<string>) => {
+    // The reactor's devices always learn it; others only without a block either way, and
+    // never for a message withheld from them.
+    const audience = access.members
+      .map((m) => m.userId)
+      .filter(
+        (id) =>
+          id === auth.userId ||
+          (!blockedEitherWay(access, auth.userId, id) &&
+            !(updated.withheld && updated.senderId !== id)),
+      );
+    for (const { userIds, hidden } of viewerGroups(access, audience)) {
       const view = toMessageView(updated, hidden);
-      return {
+      this.realtime.toUsers(userIds, 'message.reaction', {
         conversationId: view.conversationId,
         messageId: view.id,
         version: view.version,
         reactions: view.reactions,
-      };
-    };
-    this.realtime.toUsers(
-      [auth.userId],
-      'message.reaction',
-      payload(access.blockedByViewer ? new Set([access.peerId]) : new Set()),
-    );
-    if (
-      !access.blockedByPeer &&
-      !access.blockedByViewer &&
-      !(updated.withheld && updated.senderId !== access.peerId)
-    ) {
-      this.realtime.toUsers([access.peerId], 'message.reaction', payload(new Set()));
+      });
     }
   }
 
@@ -478,7 +576,7 @@ export class MessagesService {
         where: {
           conversationId,
           seq: { lte: seq, gt: previous.lastDeliveredSeq },
-          senderId: access.peerId,
+          senderId: { in: access.otherIds },
         },
         orderBy: { seq: 'desc' },
         select: { createdAt: true },
@@ -488,9 +586,11 @@ export class MessagesService {
     }
     const payload = { conversationId, ogcId: auth.ogcId, seq: Number(seq) };
     const event = kind === 'read' ? 'message.read' : 'message.delivered';
-    // The caller's other devices always learn it (unread counts); the peer only without a block.
-    const audience =
-      access.blockedByViewer || access.blockedByPeer ? [auth.userId] : [auth.userId, access.peerId];
+    // The caller's other devices always learn it (unread counts); others only without a block.
+    const audience = [
+      auth.userId,
+      ...access.otherIds.filter((id) => !blockedEitherWay(access, auth.userId, id)),
+    ];
     this.realtime.toUsers(audience, event, payload);
     if (kind === 'read' && previous.lastDeliveredSeq < seq) {
       this.realtime.toUsers(audience, 'message.delivered', payload);
@@ -503,9 +603,10 @@ export class MessagesService {
 
   /**
    * Everything that changed after `after`, in version order: new and changed
-   * messages, MLS commits (needed to keep decrypting) and the caller's own
-   * "delete for me" hides. Reading the conversation version first gives a
-   * consistent snapshot: every version up to it has committed.
+   * messages, MLS commits (needed to keep decrypting), membership/settings
+   * events and the caller's own "delete for me" hides. Reading the
+   * conversation version first gives a consistent snapshot: every version up
+   * to it has committed.
    */
   async sync(
     auth: AuthContext,
@@ -515,13 +616,19 @@ export class MessagesService {
   ): Promise<SyncPage> {
     const access = await this.access.require(auth.userId, conversationId);
     const upTo = access.version;
-    const from = BigInt(after);
+    // Members of a group never receive what happened before they joined.
+    const from = BigInt(after) > access.visibleFrom ? BigInt(after) : access.visibleFrom;
     if (from >= upTo) return { items: [], version: Number(upTo), hasMore: false };
 
     const range = { gt: from, lte: upTo };
-    const [messages, commits, hides] = await Promise.all([
+    const [messages, commits, hides, events] = await Promise.all([
       this.prisma.message.findMany({
-        where: { conversationId, version: range, ...visibleTo(auth.userId) },
+        where: {
+          conversationId,
+          version: range,
+          seq: { gt: access.visibleFrom },
+          ...visibleTo(auth.userId),
+        },
         orderBy: { version: 'asc' },
         take: limit + 1,
         select: MESSAGE_SELECT,
@@ -538,8 +645,16 @@ export class MessagesService {
         take: limit + 1,
         select: { version: true, messageId: true },
       }),
+      access.type === 'DIRECT'
+        ? Promise.resolve([])
+        : this.prisma.conversationEvent.findMany({
+            where: { conversationId, version: range },
+            orderBy: { version: 'asc' },
+            take: limit + 1,
+          }),
     ]);
-    const hidden = access.blockedByViewer ? new Set([access.peerId]) : new Set<string>();
+    const hidden = blockedBy(access, auth.userId);
+    const eventViews = await this.eventViews(events);
     const items: SyncItem[] = [
       ...messages.map((m): SyncItem => ({
         type: 'message',
@@ -557,12 +672,50 @@ export class MessagesService {
         version: Number(h.version),
         messageId: h.messageId,
       })),
+      ...eventViews.map((e): SyncItem => ({ type: 'event', version: e.version, event: e.view })),
     ].sort((a, b) => a.version - b.version);
 
     const hasMore = items.length > limit;
     const page = items.slice(0, limit);
     const last = page.at(-1);
     return { items: page, version: hasMore && last ? last.version : Number(upTo), hasMore };
+  }
+
+  /** Renders timeline events; actor and subject are shown by OGC ID only. */
+  private async eventViews(
+    rows: {
+      id: string;
+      version: bigint;
+      type: ConversationEventView['type'];
+      actorId: string | null;
+      subjectId: string | null;
+      detail: Prisma.JsonValue;
+      createdAt: Date;
+    }[],
+  ): Promise<{ version: number; view: ConversationEventView }[]> {
+    if (rows.length === 0) return [];
+    const userIds = [
+      ...new Set(rows.flatMap((r) => [r.actorId, r.subjectId]).filter((id) => id !== null)),
+    ];
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, ogcId: true },
+    });
+    const ogcIds = new Map(users.map((u) => [u.id, u.ogcId as OgcId]));
+    return rows.map((r) => ({
+      version: Number(r.version),
+      view: {
+        id: r.id,
+        type: r.type,
+        actor: r.actorId ? (ogcIds.get(r.actorId) ?? null) : null,
+        subject: r.subjectId ? (ogcIds.get(r.subjectId) ?? null) : null,
+        detail:
+          r.detail !== null && typeof r.detail === 'object' && !Array.isArray(r.detail)
+            ? (r.detail as Record<string, unknown>)
+            : null,
+        createdAt: r.createdAt.toISOString(),
+      },
+    }));
   }
 
   /** Message history by position, newest page first (`before`) or forwards (`after`). */
@@ -573,12 +726,18 @@ export class MessagesService {
   ): Promise<MessagePage> {
     const access = await this.access.require(auth.userId, conversationId);
     const forward = query.after !== undefined;
+    const lower =
+      query.after !== undefined && BigInt(query.after) > access.visibleFrom
+        ? BigInt(query.after)
+        : access.visibleFrom;
     const rows = await this.prisma.message.findMany({
       where: {
         conversationId,
         ...visibleTo(auth.userId),
-        ...(query.before !== undefined ? { seq: { lt: BigInt(query.before) } } : {}),
-        ...(query.after !== undefined ? { seq: { gt: BigInt(query.after) } } : {}),
+        seq: {
+          gt: lower,
+          ...(query.before !== undefined ? { lt: BigInt(query.before) } : {}),
+        },
       },
       orderBy: { seq: forward ? 'asc' : 'desc' },
       take: query.limit + 1,
@@ -587,24 +746,41 @@ export class MessagesService {
     const hasMore = rows.length > query.limit;
     const page = rows.slice(0, query.limit);
     if (!forward) page.reverse();
-    const hidden = access.blockedByViewer ? new Set([access.peerId]) : new Set<string>();
+    const hidden = blockedBy(access, auth.userId);
     return { items: page.map((r) => toMessageView(r, hidden)), hasMore };
   }
 
-  /** Emits a message change to the sender's devices and, unless withheld, to the peer. */
+  /**
+   * Emits a message change to every participant allowed to see it (a withheld
+   * message only to its sender), hiding reactions by people each viewer blocked.
+   */
   private publishMessage(
     event: 'message.created' | 'message.updated' | 'message.deleted',
     row: MessageRow,
     actorId: string,
     access: ParticipantAccess,
   ): void {
-    this.realtime.toUsers([actorId], event, {
-      message: toMessageView(row, access.blockedByViewer ? new Set([access.peerId]) : new Set()),
-    });
-    if (!row.withheld) {
-      this.realtime.toUsers([access.peerId], event, {
-        message: toMessageView(row, access.blockedByPeer ? new Set([actorId]) : new Set()),
-      });
+    const audience = access.members
+      .map((m) => m.userId)
+      .filter((id) => !row.withheld || id === row.senderId || id === actorId);
+    for (const { userIds, hidden } of viewerGroups(access, audience)) {
+      this.realtime.toUsers(userIds, event, { message: toMessageView(row, hidden) });
     }
   }
+}
+
+/** Groups viewers by the set of people they blocked, so each distinct view is rendered once. */
+function viewerGroups(
+  access: ParticipantAccess,
+  userIds: string[],
+): { userIds: string[]; hidden: Set<string> }[] {
+  const groups = new Map<string, { userIds: string[]; hidden: Set<string> }>();
+  for (const userId of new Set(userIds)) {
+    const hidden = blockedBy(access, userId);
+    const key = [...hidden].sort().join(',');
+    const group = groups.get(key) ?? { userIds: [], hidden };
+    group.userIds.push(userId);
+    groups.set(key, group);
+  }
+  return [...groups.values()];
 }

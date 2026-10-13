@@ -3,6 +3,7 @@ import type { ConversationView, OgcId, PresenceState, ServerToClientEvents } fro
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAuth } from '../auth/auth-context';
 import { renewSession } from '../lib/api';
+import { notificationsApi } from '../lib/community-api';
 import { browserDependencies } from './browser-dependencies';
 import {
   type MessagingContextValue,
@@ -45,6 +46,9 @@ export function MessagingProvider({
   const [messageRevision, setMessageRevision] = useState<Record<string, number>>({});
   const [typing, setTypingState] = useState<Record<string, boolean>>({});
   const [presence, setPresence] = useState<Record<string, PresenceState>>({});
+  const [notificationsUnread, setNotificationsUnread] = useState(0);
+  const [invitationsRevision, setInvitationsRevision] = useState(0);
+  const [channelRevision, setChannelRevision] = useState<Record<string, number>>({});
   const realtime = useRef<RealtimeLink | undefined>(undefined);
   const lastAccount = useRef<string | undefined>(undefined);
 
@@ -113,6 +117,14 @@ export function MessagingProvider({
               [event.conversationId]: (current[event.conversationId] ?? 0) + 1,
             }));
           }
+          if (event.type === 'notification') setNotificationsUnread((n) => n + 1);
+          if (event.type === 'invitations') setInvitationsRevision((n) => n + 1);
+          if (event.type === 'channel') {
+            setChannelRevision((current) => ({
+              ...current,
+              [event.channelId]: (current[event.channelId] ?? 0) + 1,
+            }));
+          }
         });
         await engine.start();
         if (isCancelled()) return;
@@ -137,6 +149,8 @@ export function MessagingProvider({
         realtime.current = link;
         link.connect();
         await engine.refreshConversations();
+        const inbox = await notificationsApi.list().catch(() => undefined);
+        if (inbox && !isCancelled()) setNotificationsUnread(inbox.unread);
       } catch (cause) {
         if (isCancelled()) return;
         setSession({
@@ -199,6 +213,10 @@ export function MessagingProvider({
       typing,
       presence,
       unreadTotal: visible.reduce((sum, c) => sum + (c.blockedByMe ? 0 : c.unreadCount), 0),
+      notificationsUnread,
+      setNotificationsUnread,
+      invitationsRevision,
+      channelRevision,
       setTyping,
       watchPresence,
     };
@@ -211,6 +229,9 @@ export function MessagingProvider({
     messageRevision,
     typing,
     presence,
+    notificationsUnread,
+    invitationsRevision,
+    channelRevision,
     setTyping,
     watchPresence,
   ]);

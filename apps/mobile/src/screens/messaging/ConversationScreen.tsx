@@ -1,7 +1,12 @@
 import {
   type LocalMessage,
   type MessageDisplayStatus,
+  type TimelineEvent,
   attachmentKind,
+  conversationAvatar,
+  conversationTitle,
+  describeEvent,
+  mentionsIn,
   messageStatus,
   previewText,
   safeFileName,
@@ -9,11 +14,16 @@ import {
 } from '@ogc/messaging';
 import {
   type ConversationView,
+  type GroupMemberView,
   REACTION_EMOJI,
   REACTION_TYPES,
   type ReactionType,
 } from '@ogc/types';
-import { ATTACHMENT_MAX_BYTES, MESSAGE_TEXT_MAX_LENGTH } from '@ogc/validation';
+import {
+  ATTACHMENT_MAX_BYTES,
+  MESSAGE_TEXT_MAX_LENGTH,
+  formatOgcIdForDisplay,
+} from '@ogc/validation';
 import { color } from '@ogc/ui';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
@@ -33,7 +43,8 @@ import {
 import { useAuth } from '../../auth/AuthProvider';
 import { Avatar } from '../../components/identity';
 import { dayLabel, messageTime, sameDay } from '../../lib/time';
-import { useConversationMessages } from '../../messaging/hooks';
+import { communityApi } from '../../api/community';
+import { useConversationMessages, useTimeline } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { AttachmentView } from './Attachments';
@@ -67,6 +78,9 @@ const EMOJI = [
   '🤝',
 ];
 
+/** A row of the conversation: a message or a group timeline event. */
+type Entry = { kind: 'message'; message: LocalMessage } | { kind: 'event'; event: TimelineEvent };
+
 interface PendingAttachment {
   id: string;
   name: string;
@@ -78,6 +92,7 @@ interface PendingAttachment {
 function errorText(error: unknown): string {
   const { code, status } = error as { code?: string; status?: number };
   if (code === 'BLOCKED') return 'Unblock this person to send messages.';
+  if (code === 'ARCHIVED') return 'This group is archived and read-only.';
   if (status === 429) return 'You’re sending messages too quickly. They’ll be sent shortly.';
   if (status === 0) return 'You’re offline. Your message will be sent when you reconnect.';
   if (status === 413) return 'That file is too large.';
@@ -101,6 +116,7 @@ function MessageRow({
   replyTarget,
   onActions,
   onReact,
+  senderName,
 }: {
   message: LocalMessage;
   conversation: ConversationView;
@@ -108,6 +124,8 @@ function MessageRow({
   replyTarget: LocalMessage | null | undefined;
   onActions: (message: LocalMessage) => void;
   onReact: (message: LocalMessage, reaction: ReactionType, add: boolean) => void;
+  /** Groups: who sent it. */
+  senderName?: string | undefined;
 }) {
   const status = messageStatus(message, conversation);
   const readable = message.state === 'ok' && message.payload !== null;
@@ -118,6 +136,7 @@ function MessageRow({
   }
   return (
     <View style={message.mine ? m.messageMine : m.messageTheirs}>
+      {senderName && !message.mine ? <Text style={m.label}>{senderName}</Text> : null}
       <Pressable
         onLongPress={() => {
           onActions(message);
@@ -198,9 +217,30 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
-  const list = useRef<FlatList<LocalMessage>>(null);
+  const list = useRef<FlatList<Entry>>(null);
   const typingSince = useRef(0);
-  const peerOgcId = conversation?.peer.ogcId;
+  const peerOgcId = conversation?.peer?.ogcId;
+  const group = conversation?.group ?? null;
+  const events = useTimeline(conversationId);
+  const [members, setMembers] = useState<GroupMemberView[]>([]);
+
+  // Groups: the member directory names senders and timeline events.
+  const version = conversation?.version;
+  useEffect(() => {
+    if (!group) return;
+    let active = true;
+    communityApi(client)
+      .groups.members(conversationId)
+      .then(
+        (list) => {
+          if (active) setMembers(list);
+        },
+        () => undefined,
+      );
+    return () => {
+      active = false;
+    };
+  }, [client, conversationId, group, version]);
 
   useEffect(() => {
     if (peerOgcId) watchPresence([peerOgcId]);
@@ -221,6 +261,22 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     () => new Map((messages ?? []).filter((msg) => msg.id).map((msg) => [msg.id, msg])),
     [messages],
   );
+  const names = useMemo(
+    () =>
+      new Map(
+        members.map((member) => [member.profile.ogcId as string, member.profile.displayName]),
+      ),
+    [members],
+  );
+  const items = useMemo(() => {
+    const list: Entry[] = [
+      ...(messages ?? []).map((message) => ({ kind: 'message' as const, message })),
+      ...events.map((event) => ({ kind: 'event' as const, event })),
+    ];
+    const at = (item: Entry) =>
+      item.kind === 'message' ? item.message.createdAt : item.event.createdAt;
+    return list.sort((a, b) => at(a).localeCompare(at(b)));
+  }, [messages, events]);
 
   if (!conversation) {
     return (
@@ -338,10 +394,23 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
         }
         const reply = replyTo?.id;
         setReplyTo(null);
+        // Mentions are found on this device; only the mentioned OGC IDs go to the server.
+        const mentions = group
+          ? mentionsIn(
+              trimmed,
+              members
+                .filter((member) => member.profile.ogcId !== engine.ogcId)
+                .map((member) => ({
+                  ogcId: member.profile.ogcId,
+                  displayName: member.profile.displayName,
+                })),
+            )
+          : [];
         await engine.send(conversationId, {
           ...(trimmed ? { text: trimmed } : {}),
           ...(uploaded.length ? { attachments: uploaded } : {}),
           ...(reply ? { replyToId: reply } : {}),
+          ...(mentions.length ? { mentions } : {}),
         });
       }
       setText('');
@@ -356,12 +425,26 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     }
   };
 
+  const nameOf = (ogcId: string | null): string => {
+    if (!ogcId) return 'Someone';
+    if (ogcId === engine?.ogcId) return 'You';
+    const name = names.get(ogcId);
+    if (name !== undefined && name !== '') return name;
+    return formatOgcIdForDisplay(ogcId as never);
+  };
+  const peer = conversation.peer;
+  const title = conversationTitle(conversation);
+  const avatar = conversationAvatar(conversation);
   const status = typing[conversationId]
     ? 'typing…'
-    : presence[conversation.peer.ogcId] === 'ONLINE'
-      ? 'Online'
-      : 'End-to-end encrypted';
+    : group
+      ? `${String(group.memberCount)} members · End-to-end encrypted`
+      : peer && presence[peer.ogcId] === 'ONLINE'
+        ? 'Online'
+        : 'End-to-end encrypted';
   const blocked = conversation.blockedByMe;
+  const readOnly = group !== null && !group.canPost;
+  const moderator = group !== null && group.myRole !== 'MEMBER' && !group.archived;
   const target = actionsFor;
   const canSubmit =
     !blocked && (text.trim().length > 0 || attachments.length > 0 || voice !== null);
@@ -380,19 +463,16 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
         <Pressable
           style={m.peer}
           accessibilityRole="button"
-          accessibilityLabel={`${conversation.peer.displayName}, ${status}`}
+          accessibilityLabel={`${title}, ${status}`}
           onPress={() => {
-            nav.push({ name: 'public-profile', ogcId: conversation.peer.ogcId });
+            if (peer) nav.push({ name: 'public-profile', ogcId: peer.ogcId });
+            else nav.push({ name: 'group-info', conversationId });
           }}
         >
-          <Avatar
-            url={conversation.peer.avatarUrl}
-            name={conversation.peer.displayName}
-            size={36}
-          />
+          <Avatar url={avatar.url} name={avatar.name} size={36} />
           <View style={{ flex: 1 }}>
             <Text style={m.peerName} numberOfLines={1}>
-              {conversation.peer.displayName}
+              {title}
             </Text>
             <Text style={typing[conversationId] ? m.rowTyping : m.peerStatus}>{status}</Text>
           </View>
@@ -401,10 +481,11 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
           style={m.outlinePill}
           accessibilityRole="button"
           onPress={() => {
-            nav.push({ name: 'safety-number', conversationId });
+            if (group) nav.push({ name: 'group-info', conversationId });
+            else nav.push({ name: 'safety-number', conversationId });
           }}
         >
-          Verify
+          {group ? 'Info' : 'Verify'}
         </Text>
       </View>
       {connection === 'offline' ? (
@@ -412,50 +493,78 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
           Offline — reconnecting. Messages are queued on this device.
         </Text>
       ) : null}
-      {blocked ? (
+      {blocked && peer ? (
         <Text style={m.banner}>
-          You blocked {conversation.peer.displayName}.{' '}
+          You blocked {peer.displayName}.{' '}
           <Text
             style={{ color: color.accent }}
             accessibilityRole="button"
             onPress={() => {
-              run(
-                client.unblock(conversation.peer.ogcId).then(() => engine?.refreshConversations()),
-              );
+              run(client.unblock(peer.ogcId).then(() => engine?.refreshConversations()));
             }}
           >
             Unblock
           </Text>
         </Text>
       ) : null}
+      {group?.archived ? (
+        <Text style={m.banner}>
+          This {group.kind === 'CHANNEL' ? 'channel' : 'group'} is archived and read-only.
+        </Text>
+      ) : null}
 
       <FlatList
         ref={list}
-        data={messages ?? []}
-        keyExtractor={(item) => item.clientMessageId}
+        data={items}
+        keyExtractor={(item) =>
+          item.kind === 'message' ? item.message.clientMessageId : `e-${item.event.id}`
+        }
         contentContainerStyle={m.list}
         accessibilityLabel="Messages"
         onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
         ListEmptyComponent={
           messages ? (
             <View style={m.empty}>
-              <Text style={m.emptyTitle}>Say hello to {conversation.peer.displayName}</Text>
+              <Text style={m.emptyTitle}>
+                {group ? `Welcome to ${title}` : `Say hello to ${title}`}
+              </Text>
               <Text style={[m.note, { textAlign: 'center' }]}>
-                Messages are end-to-end encrypted. Only your and their devices can read them — not
-                OGC.
+                {group
+                  ? 'Messages are end-to-end encrypted for the members’ devices — not readable by OGC.'
+                  : 'Messages are end-to-end encrypted. Only your and their devices can read them — not OGC.'}
               </Text>
             </View>
           ) : null
         }
-        renderItem={({ item, index }) => {
-          const previous = messages?.[index - 1];
+        renderItem={({ item: entry, index }) => {
+          const previousEntry = items[index - 1];
+          const at = entry.kind === 'message' ? entry.message.createdAt : entry.event.createdAt;
+          const previousAt = previousEntry
+            ? previousEntry.kind === 'message'
+              ? previousEntry.message.createdAt
+              : previousEntry.event.createdAt
+            : undefined;
+          const day =
+            !previousAt || !sameDay(previousAt, at) ? (
+              <Text style={m.day}>{dayLabel(at)}</Text>
+            ) : null;
+          if (entry.kind === 'event') {
+            return (
+              <>
+                {day}
+                <Text style={m.day}>
+                  {describeEvent(entry.event, nameOf, group?.kind ?? 'GROUP')}
+                </Text>
+              </>
+            );
+          }
+          const item = entry.message;
           return (
             <>
-              {!previous || !sameDay(previous.createdAt, item.createdAt) ? (
-                <Text style={m.day}>{dayLabel(item.createdAt)}</Text>
-              ) : null}
+              {day}
               <MessageRow
                 message={item}
+                senderName={group ? nameOf(item.senderOgcId) : undefined}
                 conversation={conversation}
                 myOgcId={engine?.ogcId ?? ''}
                 replyTarget={item.replyToId ? (byId.get(item.replyToId) ?? null) : undefined}
@@ -476,7 +585,16 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
         </Text>
       ) : null}
 
-      <View style={m.composer}>
+      {readOnly ? (
+        <Text style={m.e2ee}>
+          {group.archived
+            ? 'Nobody can post in an archived group.'
+            : group.postPolicy === 'MODERATORS'
+              ? 'Only moderators and admins can post here.'
+              : 'Only admins can post here.'}
+        </Text>
+      ) : null}
+      <View style={[m.composer, readOnly ? { display: 'none' } : null]}>
         {(editing ?? replyTo) ? (
           <View style={m.context}>
             <Text style={m.contextLabel}>{editing ? 'Editing' : 'Replying to'}</Text>
@@ -709,6 +827,36 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
         run(engine.deleteForMe(conversationId, id));
       },
     });
+    if (!message.mine) {
+      actions.push({
+        label: 'Report',
+        run: () => {
+          nav.push({ name: 'report-message', conversationId, messageId: id });
+        },
+      });
+    }
+    if (!message.mine && moderator) {
+      actions.push({
+        label: 'Remove for everyone',
+        danger: true,
+        run: () => {
+          Alert.alert(
+            'Remove for everyone?',
+            'The message is erased from OGC and members’ devices. The removal is recorded in the group history, without its content.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Remove',
+                style: 'destructive',
+                onPress: () => {
+                  run(engine.deleteForEveryone(conversationId, id));
+                },
+              },
+            ],
+          );
+        },
+      });
+    }
     if (message.mine) {
       actions.push({
         label: 'Delete for everyone',

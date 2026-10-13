@@ -16,7 +16,18 @@ export type Route =
   | { name: 'conversation'; conversationId: string }
   | { name: 'new-conversation' }
   | { name: 'forward'; conversationId: string; messageId: string }
-  | { name: 'safety-number'; conversationId: string };
+  | { name: 'safety-number'; conversationId: string; ogcId?: string }
+  | { name: 'new-group' }
+  | { name: 'group-info'; conversationId: string }
+  | { name: 'report-message'; conversationId: string; messageId: string }
+  | { name: 'invitations' }
+  | { name: 'join'; token?: string }
+  | { name: 'channels' }
+  | { name: 'new-channel' }
+  | { name: 'channel'; channelId: string }
+  | { name: 'channel-thread'; channelId: string; postId: string }
+  | { name: 'channel-manage'; channelId: string }
+  | { name: 'notifications' };
 
 interface Navigation {
   route: Route;

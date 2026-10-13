@@ -12,5 +12,6 @@ import { MlsService } from './mls.service.js';
   imports: [AuditModule, E2eeModule, RelationshipsModule, ConversationAccessModule],
   controllers: [ConversationsController, MessagesController],
   providers: [ConversationsService, MessagesService, MlsService],
+  exports: [ConversationsService],
 })
 export class ConversationsModule {}

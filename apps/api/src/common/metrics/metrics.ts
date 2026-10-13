@@ -37,6 +37,20 @@ export class MetricsService {
     registers: [this.registry],
   });
 
+  readonly channelPosts = new Counter({
+    name: 'ogc_channel_posts_total',
+    help: 'Community channel posts accepted (server-readable)',
+    labelNames: ['kind'] as const,
+    registers: [this.registry],
+  });
+
+  readonly communityEvents = new Counter({
+    name: 'ogc_community_events_total',
+    help: 'Group and channel membership, invitation and moderation events',
+    labelNames: ['event'] as const,
+    registers: [this.registry],
+  });
+
   readonly deliveryLatency = new Histogram({
     name: 'ogc_message_delivery_latency_seconds',
     help: 'Time from message acceptance to the first delivery receipt',

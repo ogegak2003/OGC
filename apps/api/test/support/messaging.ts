@@ -144,6 +144,8 @@ export interface TestDevice {
   token: string;
   transport: HttpTransport;
   storage: MemoryKeyValueStore;
+  /** The device's sealed store (lets tests copy local state, e.g. a stolen device). */
+  store: SealedStore;
   client: MessagingClient;
 }
 
@@ -158,9 +160,10 @@ export async function newDevice(
   const transport = new HttpTransport(baseUrl, accessToken);
   const storage = new MemoryKeyValueStore();
   const sealer = rawKeySealer(crypto.getRandomValues(new Uint8Array(32)));
-  const client = new MessagingClient(transport, new SealedStore(storage, sealer), user.ogcId);
+  const store = new SealedStore(storage, sealer);
+  const client = new MessagingClient(transport, store, user.ogcId);
   if (start) await client.start();
-  return { token: accessToken, transport, storage, client };
+  return { token: accessToken, transport, storage, store, client };
 }
 
 export type TestSocket = Socket<ServerToClientEvents, ClientToServerEvents>;

@@ -73,6 +73,16 @@ export const envSchema = z
     RATE_LIMIT_TYPING: perWindow(60),
     RATE_LIMIT_PRESENCE: perWindow(60),
     RATE_LIMIT_SOCKET_CONNECT: perWindow(30),
+    // Groups, channels and community (Phase 4, ADR-031..036).
+    RATE_LIMIT_COMMUNITY_CREATE_PER_HOUR: perWindow(20),
+    RATE_LIMIT_COMMUNITY_MANAGE: perWindow(60),
+    RATE_LIMIT_INVITE_PER_HOUR: perWindow(100),
+    RATE_LIMIT_INVITE_LINK_JOIN_PER_HOUR: perWindow(30),
+    RATE_LIMIT_CHANNEL_POST: perWindow(30),
+    RATE_LIMIT_MODERATION: perWindow(60),
+    RATE_LIMIT_DISCOVERY: perWindow(30),
+    RATE_LIMIT_COMMUNITY_REPORT_PER_HOUR: perWindow(20),
+    RATE_LIMIT_NOTIFICATIONS: perWindow(120),
     /** Defaults to true outside development and test. Required in production. */
     COOKIE_SECURE: z
       .enum(['true', 'false'])

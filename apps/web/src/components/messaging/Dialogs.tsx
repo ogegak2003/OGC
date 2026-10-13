@@ -1,6 +1,8 @@
-import type { ContactView, ConversationView } from '@ogc/types';
+import { type LocalMessage, conversationAvatar, conversationTitle } from '@ogc/messaging';
+import type { ContactView, ConversationView, ReportCategory } from '@ogc/types';
 import { useEffect, useState } from 'react';
 import { api } from '../../lib/api';
+import { groupsApi } from '../../lib/community-api';
 import { useMessaging } from '../../messaging/messaging-context';
 import { Avatar } from '../Avatar';
 import { Alert, Spinner } from '../ui';
@@ -105,7 +107,9 @@ export function ForwardDialog({
   const { conversations } = useMessaging();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string>();
-  const targets = conversations.filter((c) => c.id !== currentId && !c.blockedByMe);
+  const targets = conversations.filter(
+    (c) => c.id !== currentId && !c.blockedByMe && (c.group?.canPost ?? true),
+  );
   return (
     <Modal title="Forward to…" onClose={onClose}>
       <p className={styles.sidebarNote}>
@@ -131,8 +135,12 @@ export function ForwardDialog({
                 });
               }}
             >
-              <Avatar url={target.peer.avatarUrl} name={target.peer.displayName} size={36} />
-              <span className={styles.pickName}>{target.peer.displayName}</span>
+              <Avatar
+                url={conversationAvatar(target).url}
+                name={conversationTitle(target)}
+                size={36}
+              />
+              <span className={styles.pickName}>{conversationTitle(target)}</span>
             </button>
           </li>
         ))}
@@ -141,13 +149,18 @@ export function ForwardDialog({
   );
 }
 
-/** Shows the safety number both people can compare to rule out key substitution. */
+/**
+ * Shows the safety number two people can compare to rule out key
+ * substitution. In groups it is computed with one chosen member.
+ */
 export function SafetyNumberDialog({
   conversation,
   onClose,
+  member,
 }: {
   conversation: ConversationView;
   onClose: () => void;
+  member?: { ogcId: string; displayName: string };
 }) {
   const { engine } = useMessaging();
   const [groups, setGroups] = useState<string[]>();
@@ -156,7 +169,7 @@ export function SafetyNumberDialog({
   useEffect(() => {
     if (!engine) return;
     let active = true;
-    engine.safetyNumber(conversation.id).then(
+    engine.safetyNumber(conversation.id, member?.ogcId).then(
       (value) => {
         if (active) setGroups(value);
       },
@@ -167,14 +180,15 @@ export function SafetyNumberDialog({
     return () => {
       active = false;
     };
-  }, [engine, conversation.id]);
+  }, [engine, conversation.id, member?.ogcId]);
 
+  const other = member?.displayName ?? conversation.peer?.displayName ?? 'them';
   return (
     <Modal title="Verify encryption" onClose={onClose}>
       <p className={styles.sidebarNote}>
-        Compare this number with {conversation.peer.displayName} in person or on a call. If it
-        matches on both devices, your messages are encrypted only for your and their devices. It
-        changes when either of you adds or removes a device.
+        Compare this number with {other} in person or on a call. If it matches on both devices, your
+        messages are encrypted only for your and their devices. It changes when either of you adds
+        or removes a device.
       </p>
       {error ? <Alert>{error}</Alert> : null}
       {groups ? (
@@ -186,6 +200,132 @@ export function SafetyNumberDialog({
       ) : !error ? (
         <Spinner label="Computing safety number" />
       ) : null}
+    </Modal>
+  );
+}
+
+const REPORT_CATEGORIES: { value: ReportCategory; label: string }[] = [
+  { value: 'SPAM', label: 'Spam' },
+  { value: 'HARASSMENT', label: 'Harassment' },
+  { value: 'IMPERSONATION', label: 'Impersonation' },
+  { value: 'INAPPROPRIATE_CONTENT', label: 'Inappropriate content' },
+  { value: 'SCAM_OR_FRAUD', label: 'Scam or fraud' },
+  { value: 'OTHER', label: 'Something else' },
+];
+
+/**
+ * Reports a message from an end-to-end encrypted conversation. OGC cannot
+ * read it, so the reporter decides whether to share the decrypted text —
+ * shown here exactly as it would be sent.
+ */
+export function ReportMessageDialog({
+  conversationId,
+  message,
+  senderName,
+  onClose,
+}: {
+  conversationId: string;
+  message: LocalMessage;
+  senderName: string;
+  onClose: () => void;
+}) {
+  const [category, setCategory] = useState<ReportCategory>('HARASSMENT');
+  const [disclose, setDisclose] = useState(false);
+  const [description, setDescription] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [done, setDone] = useState(false);
+  const [error, setError] = useState<string>();
+  const text = message.payload?.text ?? '';
+
+  return (
+    <Modal title="Report message" onClose={onClose}>
+      {done ? (
+        <>
+          <Alert tone="success">Thanks — your report was sent to OGC’s safety team.</Alert>
+          <button type="button" className={styles.primaryLink} onClick={onClose}>
+            Close
+          </button>
+        </>
+      ) : (
+        <form
+          className={styles.formStack}
+          onSubmit={(event) => {
+            event.preventDefault();
+            setBusy(true);
+            setError(undefined);
+            groupsApi
+              .report(conversationId, {
+                category,
+                ...(message.id ? { messageId: message.id } : {}),
+                ...(message.senderOgcId ? { reportedOgcId: message.senderOgcId } : {}),
+                ...(disclose && text ? { disclosedText: text } : {}),
+                ...(description.trim() ? { description: description.trim() } : {}),
+              })
+              .then(
+                () => {
+                  setDone(true);
+                },
+                () => {
+                  setBusy(false);
+                  setError('The report could not be sent. Please try again.');
+                },
+              );
+          }}
+        >
+          <p className={styles.sidebarNote}>
+            You’re reporting a message from {senderName}. Messages are end-to-end encrypted, so OGC
+            can only see its text if you choose to include it.
+          </p>
+          <label className={styles.formStack}>
+            <span>Reason</span>
+            <select
+              className={styles.select}
+              value={category}
+              onChange={(event) => {
+                setCategory(event.target.value as ReportCategory);
+              }}
+            >
+              {REPORT_CATEGORIES.map((c) => (
+                <option key={c.value} value={c.value}>
+                  {c.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          {text ? (
+            <>
+              <label className={styles.checkRow}>
+                <input
+                  type="checkbox"
+                  checked={disclose}
+                  onChange={(event) => {
+                    setDisclose(event.target.checked);
+                  }}
+                />
+                <span>
+                  Include the message text below (OGC’s safety team will be able to read it)
+                </span>
+              </label>
+              {disclose ? <p className={styles.disclosure}>{text}</p> : null}
+            </>
+          ) : null}
+          <label className={styles.formStack}>
+            <span>Details (optional)</span>
+            <textarea
+              className={styles.textarea}
+              maxLength={1000}
+              value={description}
+              onChange={(event) => {
+                setDescription(event.target.value);
+              }}
+            />
+          </label>
+          {error ? <Alert>{error}</Alert> : null}
+          <button type="submit" className={styles.newButton} disabled={busy}>
+            Send report
+          </button>
+        </form>
+      )}
     </Modal>
   );
 }

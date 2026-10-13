@@ -65,9 +65,20 @@ Source of truth: `apps/api/src/config/env.schema.ts`.
 | `RATE_LIMIT_TYPING`                       | `60`                               | Typing events per minute (realtime)                                                                                                    |
 | `RATE_LIMIT_PRESENCE`                     | `60`                               | Presence subscriptions per minute (realtime)                                                                                           |
 | `RATE_LIMIT_SOCKET_CONNECT`               | `30`                               | Realtime connections per minute, per client IP and per account                                                                         |
+| `RATE_LIMIT_COMMUNITY_CREATE_PER_HOUR`    | `20`                               | Groups and community channels created per hour                                                                                         |
+| `RATE_LIMIT_COMMUNITY_MANAGE`             | `60`                               | Group/channel management calls per minute (details, roles, members, settings)                                                          |
+| `RATE_LIMIT_INVITE_PER_HOUR`              | `100`                              | Personal invitations and invitation links created per hour                                                                             |
+| `RATE_LIMIT_INVITE_LINK_JOIN_PER_HOUR`    | `30`                               | Invitation-link previews and joins per hour                                                                                            |
+| `RATE_LIMIT_CHANNEL_POST`                 | `30`                               | Community channel posts, replies and edits per minute                                                                                  |
+| `RATE_LIMIT_MODERATION`                   | `60`                               | Moderation actions per minute                                                                                                          |
+| `RATE_LIMIT_DISCOVERY`                    | `30`                               | Public channel searches per minute                                                                                                     |
+| `RATE_LIMIT_COMMUNITY_REPORT_PER_HOUR`    | `20`                               | Reports of group messages and channel posts per hour                                                                                   |
+| `RATE_LIMIT_NOTIFICATIONS`                | `120`                              | In-app notification list/read calls per minute                                                                                         |
 
 Web: `VITE_API_BASE_URL` (optional, default same-origin `/api`). Mobile:
-`EXPO_PUBLIC_API_BASE_URL` (public; the realtime connection uses the same origin).
+`EXPO_PUBLIC_API_BASE_URL` (public; the realtime connection uses the same origin) and
+`EXPO_PUBLIC_WEB_APP_URL` (public; the web origin used in invitation links shared from the app,
+default `http://localhost:5173`).
 
 ## Adding a variable
 
