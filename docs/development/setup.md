@@ -16,7 +16,7 @@ pnpm install
 
 # 1. Database
 cp infrastructure/docker/.env.example infrastructure/docker/.env
-pnpm db:up                      # PostgreSQL 18 on 127.0.0.1:5432
+pnpm db:up                      # PostgreSQL 18 (127.0.0.1:5432) and Redis 8 (127.0.0.1:6380)
 
 # 2. API configuration
 cp apps/api/.env.example apps/api/.env
@@ -34,7 +34,13 @@ pnpm dev
 Run one app: `pnpm --filter @ogc/api dev` (or `@ogc/web`, `@ogc/mobile`).
 
 > **Port already in use?** Change `POSTGRES_PORT` (and the port in `apps/api/.env`
-> `DATABASE_URL`), `API_PORT`, or `WEB_PORT` in `infrastructure/docker/.env`.
+> `DATABASE_URL`), `REDIS_PORT` (and `REDIS_URL`/`TEST_REDIS_URL`), `API_PORT`, or `WEB_PORT`
+> in `infrastructure/docker/.env`.
+
+Set `REDIS_PASSWORD` in `infrastructure/docker/.env` (any local value) and use it in
+`REDIS_URL` / `TEST_REDIS_URL` in `apps/api/.env`. The API runs without Redis locally
+(single instance, in-memory state); integration tests need `TEST_REDIS_URL` for the
+two-instance scale-out test, just as they need PostgreSQL.
 
 ## Accounts in development
 
@@ -44,6 +50,14 @@ the web app, open the newest `*-verify-email-*.txt` file there, and follow the l
 
 With `STORAGE_DRIVER=local`, profile photos are stored under `apps/api/.dev-storage/`
 (gitignored).
+
+### Messaging locally
+
+Create two accounts (two browsers, or a browser and the mobile app), make them contacts
+(Discover → OGC ID → Add contact, then accept), and open **Messages → New**. Each signed-in
+browser or app installation is its own encrypted device; its keys and decrypted history stay
+on that device (IndexedDB on web, sealed files on mobile) and are erased at sign-out.
+Voice recording needs a microphone and, in browsers, a secure context (`localhost` counts).
 
 To try staff-only endpoints locally, grant a role directly in the database, e.g.
 `INSERT INTO staff_roles (user_id, role) SELECT id, 'MODERATOR' FROM users WHERE ogc_id = 'OGC…';`
@@ -55,8 +69,10 @@ There is intentionally no API for granting roles.
 docker compose -f infrastructure/docker/docker-compose.yml --profile app up --build
 ```
 
-Starts PostgreSQL, a one-shot `migrate` job (`prisma migrate deploy`), the API image, and the
-web image (nginx) at <http://localhost:8080>, with the API reachable same-origin at `/api`.
+Starts PostgreSQL, Redis, a one-shot `migrate` job (`prisma migrate deploy`), the API image,
+and the web image (nginx) at <http://localhost:8080>, with the API reachable same-origin at
+`/api` (including WebSocket upgrades at `/api/realtime`). Object storage is disabled there, so
+attachment uploads return `503` until a storage provider is configured.
 No email provider is configured there, so new accounts cannot be verified in that stack.
 
 ## Database (Prisma)

@@ -57,6 +57,8 @@ export interface TestApp {
 export interface TestAppOptions {
   randomSource?: RandomIntSource;
   extraControllers?: Type[];
+  /** Replaces providers (e.g. a capturing push provider). */
+  overrides?: { provide: unknown; useValue: unknown }[];
 }
 
 export async function createTestApp(options: TestAppOptions = {}): Promise<TestApp> {
@@ -79,6 +81,9 @@ export async function createTestApp(options: TestAppOptions = {}): Promise<TestA
     .useValue(logStream);
   if (options.randomSource) {
     builder = builder.overrideProvider(RANDOM_INT_SOURCE).useValue(options.randomSource);
+  }
+  for (const override of options.overrides ?? []) {
+    builder = builder.overrideProvider(override.provide).useValue(override.useValue);
   }
   const moduleRef = await builder.compile();
 

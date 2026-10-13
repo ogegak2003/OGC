@@ -23,6 +23,9 @@ export class AuthGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
+    // Realtime connections are authenticated once, in the gateway's connection middleware
+    // (same sessions, plus an Origin check); its handlers then authorize every event.
+    if (context.getType() !== 'http') return true;
     const targets = [context.getHandler(), context.getClass()];
     if (this.reflector.getAllAndOverride<boolean | undefined>(IS_PUBLIC, targets)) return true;
 

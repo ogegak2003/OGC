@@ -47,8 +47,10 @@ themselves from discovery or refuse all requests.
 
 ## Known limitations
 
-- Rate limits are per API instance (in-memory); a shared store is needed before scaling out.
-- Blocking currently covers profiles, discovery and contacts only — messaging and calls will
+- Rate limits are per API instance unless `REDIS_URL` is set (required in production since
+  Phase 3).
+- Blocking covers profiles, discovery, contacts and (since Phase 3) messaging, typing,
+  presence and receipts — see [messaging-security.md](messaging-security.md). Calls will
   enforce it when they exist.
 - Photo delivery through the API uses bandwidth; a CDN with signed URLs is a later
   optimisation.

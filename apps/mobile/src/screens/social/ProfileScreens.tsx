@@ -1,4 +1,5 @@
 import type { OwnProfile } from '@ogc/types';
+import { color } from '@ogc/ui';
 import { BIO_MAX_LENGTH, formatOgcIdForDisplay, updateProfileRequestSchema } from '@ogc/validation';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useState } from 'react';
@@ -9,6 +10,7 @@ import { Button, Field, Notice } from '../../components/ui';
 import { errorMessage, fieldErrors } from '../../lib/errors';
 import { shareIdentity } from '../../lib/share';
 import { useResource } from '../../lib/use-resource';
+import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
 import { social } from './styles';
@@ -31,6 +33,7 @@ export function ProfileScreen() {
   const { logout } = useAuth();
   const nav = useNavigation();
   const { state } = useOwnProfile();
+  const { unreadTotal } = useMessaging();
 
   if (state.status === 'loading')
     return <ActivityIndicator style={{ flex: 1 }} accessibilityLabel="Loading" />;
@@ -79,6 +82,18 @@ export function ProfileScreen() {
           }}
         />
       </View>
+      <Text
+        style={[social.menuItem, social.menuText, { color: color.accent }]}
+        accessibilityRole="button"
+        accessibilityLabel={
+          unreadTotal > 0 ? `Messages, ${String(unreadTotal)} unread` : 'Messages'
+        }
+        onPress={() => {
+          nav.push({ name: 'messages' });
+        }}
+      >
+        Messages{unreadTotal > 0 ? `  ·  ${String(unreadTotal)} unread` : ''}
+      </Text>
       <View>
         {MENU.map((item) => (
           <Text

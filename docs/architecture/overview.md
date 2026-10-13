@@ -47,9 +47,12 @@ Enforced by review now and by lint rules (import restrictions) once modules exis
 
 Implemented so far: **Identity**, **Authentication**, **Audit** (Phase 1); **Profiles**,
 **Contacts**, **Privacy/Blocks**, **Reports**, and the shared **Relationships** service
-(Phase 2); plus `Email` and `Storage` ports. See
-[identity-and-authentication.md](identity-and-authentication.md),
-[social-graph.md](social-graph.md) and [data-model.md](data-model.md).
+(Phase 2); **Conversations/Messaging**, **E2EE device keys**, **Attachments**, **Realtime**
+and **Notifications** (Phase 3); plus `Email`, `Storage`, `Redis` and `Metrics` platform
+pieces. See [identity-and-authentication.md](identity-and-authentication.md),
+[social-graph.md](social-graph.md), [messaging.md](messaging.md),
+[encryption.md](encryption.md), [realtime.md](realtime.md), [sync.md](sync.md) and
+[data-model.md](data-model.md).
 
 | Module             | Responsibility                                                                              |
 | ------------------ | ------------------------------------------------------------------------------------------- |
@@ -98,10 +101,12 @@ see [data-model.md](data-model.md). Guidelines:
   need it.
 - Migrations are forward-only in shared environments and reviewed like code.
 
-## Realtime and calls (later phases)
+## Realtime and calls
 
-- **Realtime:** a Socket.IO gateway inside the API, authenticated at connection time,
-  with rooms per conversation. Moving to multiple API instances adds the Redis adapter.
+- **Realtime (Phase 3):** a Socket.IO gateway inside the API at `/api/realtime`
+  (namespace `/v1`), authenticated at connection time with the same sessions as REST; rooms
+  per user, device and session; the Redis adapter, shared presence and shared rate limits
+  when `REDIS_URL` is set. See [realtime.md](realtime.md).
 - **Calls:** WebRTC media flows peer-to-peer (or via TURN); the API only provides
   signalling over the realtime channel and issues short-lived TURN credentials. A media
   server (SFU) is considered only if group calls require it.
@@ -111,11 +116,15 @@ see [data-model.md](data-model.md). Guidelines:
 - **Web** — React + Vite SPA. Design tokens are compiled into CSS custom properties at
   build time (no inline styles, so a strict CSP is possible).
 - **Mobile** — Expo / React Native. Uses the same tokens as typed values.
-- Both consume `@ogc/types` and `@ogc/validation`, so contracts and rules are shared.
+- Both consume `@ogc/types` and `@ogc/validation`, so contracts and rules are shared, and
+  both run the same end-to-end encrypted messaging engine (`@ogc/messaging` on top of
+  `@ogc/e2ee`), differing only in storage (IndexedDB vs files + Keychain/Keystore) and
+  transport (cookies vs bearer tokens).
 
 ## Deployment shape
 
 Production images are defined in `infrastructure/docker/`: the API runs as a non-root Node
 process with a read-only filesystem; the web client is static files served by unprivileged
-nginx with strict security headers and a same-origin `/api` proxy. Hosting platform is
-not yet chosen.
+nginx with strict security headers and a same-origin `/api` proxy (including WebSocket
+upgrades for `/api/realtime`). Redis (no persistence) holds shared ephemeral state; it is
+required in production. Hosting platform is not yet chosen.

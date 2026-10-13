@@ -58,6 +58,10 @@ enum AuditEventType {
   USER_BLOCKED
   USER_UNBLOCKED
   USER_REPORTED
+  DEVICE_KEY_REGISTERED
+  DEVICE_KEY_REVOKED
+  CONVERSATION_CREATED
+  MESSAGE_DELETED_FOR_EVERYONE
 }
 
 enum ProfileVisibility {
@@ -97,6 +101,27 @@ enum StaffRole {
   ADMIN
 }
 
+/// DIRECT = exactly two accounts. Group and channel types are added later (ADR-022).
+enum ConversationType {
+  DIRECT
+}
+
+/// Declared by the uploader; the server only sees ciphertext and enforces per-kind size limits.
+enum AttachmentKind {
+  IMAGE
+  VIDEO
+  AUDIO
+  VOICE
+  DOCUMENT
+  FILE
+}
+
+enum PushProvider {
+  EXPO
+  FCM
+  APNS
+}
+
 /// An OGC account. Identity only: credentials, profile and sessions live in their own tables.
 model User {
   id              String        @id @default(uuid(7)) @db.Uuid
@@ -115,14 +140,21 @@ model User {
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
   staffRoles              StaffRoleAssignment[]
-  contactRequestsSent     ContactRequest[]         @relation("ContactRequestSender")
-  contactRequestsReceived ContactRequest[]         @relation("ContactRequestRecipient")
-  contacts                Contact[]                @relation("ContactOwner")
-  contactOf               Contact[]                @relation("ContactTarget")
-  blocksMade              Block[]                  @relation("Blocker")
-  blocksReceived          Block[]                  @relation("Blocked")
-  reportsMade             UserReport[]             @relation("Reporter")
-  reportsReceived         UserReport[]             @relation("ReportedUser")
+  contactRequestsSent     ContactRequest[]          @relation("ContactRequestSender")
+  contactRequestsReceived ContactRequest[]          @relation("ContactRequestRecipient")
+  contacts                Contact[]                 @relation("ContactOwner")
+  contactOf               Contact[]                 @relation("ContactTarget")
+  blocksMade              Block[]                   @relation("Blocker")
+  blocksReceived          Block[]                   @relation("Blocked")
+  reportsMade             UserReport[]              @relation("Reporter")
+  reportsReceived         UserReport[]              @relation("ReportedUser")
+  deviceKeys              DeviceKey[]
+  conversationsCreated    Conversation[]
+  participations          ConversationParticipant[]
+  messagesSent            Message[]
+  reactions               MessageReaction[]
+  messageHides            MessageHide[]
+  attachmentsUploaded     Attachment[]
 
   @@map("users")
 }
@@ -175,8 +207,10 @@ model Device {
   createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   lastSeenAt DateTime       @default(now()) @map("last_seen_at") @db.Timestamptz(3)
 
-  user     User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessions Session[]
+  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions  Session[]
+  keys      DeviceKey[]
+  pushToken PushToken?
 
   @@index([userId])
   @@map("devices")
@@ -318,4 +352,255 @@ model UserReport {
   @@index([reportedUserId])
   @@index([reporterId, createdAt])
   @@map("user_reports")
+}
+
+/// A device's end-to-end encryption identity: an Ed25519 signature public key used for its
+/// MLS credential (ADR-024). The private key never leaves the device. At most one active
+/// (non-revoked) key per device (partial unique index in the migration).
+model DeviceKey {
+  /// Random (v4) public identifier embedded in MLS credentials; reveals nothing about time.
+  id                 String    @id @db.Uuid
+  deviceId           String    @map("device_id") @db.Uuid
+  userId             String    @map("user_id") @db.Uuid
+  signaturePublicKey Bytes     @unique @map("signature_public_key")
+  createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  revokedAt          DateTime? @map("revoked_at") @db.Timestamptz(3)
+
+  device       Device       @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyPackages  KeyPackage[]
+  welcomes     MlsWelcome[]
+  messagesSent Message[]
+
+  @@index([userId])
+  @@index([deviceId])
+  @@map("device_keys")
+}
+
+/// One-time MLS KeyPackage published by a device so others can add it to conversations.
+model KeyPackage {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  deviceKeyId String    @map("device_key_id") @db.Uuid
+  /// Hex KeyPackageRef (RFC 9420 §5.2).
+  ref         String    @unique @db.Char(64)
+  data        Bytes
+  expiresAt   DateTime  @map("expires_at") @db.Timestamptz(3)
+  claimedAt   DateTime? @map("claimed_at") @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  deviceKey DeviceKey @relation(fields: [deviceKeyId], references: [id], onDelete: Cascade)
+
+  @@index([deviceKeyId, claimedAt])
+  @@map("key_packages")
+}
+
+/// A conversation. `version` is a per-conversation change counter: every message, edit,
+/// deletion, reaction, hide and MLS commit takes the next value under a row lock, so
+/// versions are strictly increasing in commit order (ADR-025).
+model Conversation {
+  /// Random (v4) opaque identifier; also the MLS group ID.
+  id             String           @id @db.Uuid
+  type           ConversationType
+  /// DIRECT only: "<smaller user id>:<larger user id>" — one conversation per pair (unique).
+  directKey      String?          @unique @map("direct_key") @db.VarChar(73)
+  version        BigInt           @default(0)
+  /// Current MLS epoch accepted by the delivery service (compare-and-set on commits).
+  mlsEpoch       BigInt           @default(0) @map("mls_epoch")
+  /// Latest MLS GroupInfo (public data: ratchet tree, external public key) for `mlsEpoch`.
+  groupInfo      Bytes?           @map("group_info")
+  lastActivityAt DateTime         @default(now()) @map("last_activity_at") @db.Timestamptz(3)
+  createdById    String?          @map("created_by_id") @db.Uuid
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @default(now()) @map("updated_at") @db.Timestamptz(3)
+
+  createdBy    User?                     @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  participants ConversationParticipant[]
+  messages     Message[]
+  commits      MlsCommit[]
+  welcomes     MlsWelcome[]
+  attachments  Attachment[]
+  hides        MessageHide[]
+
+  @@index([updatedAt, id])
+  @@map("conversations")
+}
+
+/// Membership plus per-user read/delivery high-water marks (message `seq` values).
+model ConversationParticipant {
+  conversationId   String    @map("conversation_id") @db.Uuid
+  userId           String    @map("user_id") @db.Uuid
+  lastReadSeq      BigInt    @default(0) @map("last_read_seq")
+  lastDeliveredSeq BigInt    @default(0) @map("last_delivered_seq")
+  readAt           DateTime? @map("read_at") @db.Timestamptz(3)
+  joinedAt         DateTime  @default(now()) @map("joined_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, userId])
+  @@index([userId, conversationId])
+  @@map("conversation_participants")
+}
+
+/// An end-to-end encrypted message. The server stores only the MLS ciphertext and the
+/// metadata needed for routing, ordering and authorization (ADR-022, ADR-024).
+model Message {
+  id                String    @id @default(uuid(7)) @db.Uuid
+  conversationId    String    @map("conversation_id") @db.Uuid
+  /// Position in the conversation (the conversation version when it was created).
+  seq               BigInt
+  /// Conversation version of the latest change to this message (edit, delete, reaction).
+  version           BigInt
+  senderId          String?   @map("sender_id") @db.Uuid
+  senderDeviceKeyId String?   @map("sender_device_key_id") @db.Uuid
+  /// Client-generated idempotency key (UUID): retries never create duplicates.
+  clientMessageId   String    @map("client_message_id") @db.Uuid
+  /// MLS epoch of the current ciphertext.
+  epoch             BigInt
+  /// MLS PrivateMessage; NULL once deleted for everyone.
+  ciphertext        Bytes?
+  replyToId         String?   @map("reply_to_id") @db.Uuid
+  forwarded         Boolean   @default(false)
+  revision          Int       @default(0)
+  editedAt          DateTime? @map("edited_at") @db.Timestamptz(3)
+  deletedAt         DateTime? @map("deleted_at") @db.Timestamptz(3)
+  /// Sent while the recipient had blocked the sender: never delivered to the recipient.
+  withheld          Boolean   @default(false)
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation    Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  sender          User?             @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  senderDeviceKey DeviceKey?        @relation(fields: [senderDeviceKeyId], references: [id], onDelete: SetNull)
+  /// Composite key: a reply can only reference a message in the same conversation.
+  replyTo         Message?          @relation("Replies", fields: [conversationId, replyToId], references: [conversationId, id], onDelete: NoAction, onUpdate: NoAction)
+  replies         Message[]         @relation("Replies")
+  edits           MessageEdit[]
+  reactions       MessageReaction[]
+  hides           MessageHide[]
+  attachments     Attachment[]
+
+  @@unique([conversationId, seq])
+  @@unique([conversationId, id])
+  @@unique([senderId, clientMessageId])
+  @@index([conversationId, version])
+  @@map("messages")
+}
+
+/// Edit history metadata (who, when, which revision). Earlier ciphertexts are not kept.
+model MessageEdit {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  messageId         String   @map("message_id") @db.Uuid
+  revision          Int
+  editorDeviceKeyId String?  @map("editor_device_key_id") @db.Uuid
+  editedAt          DateTime @default(now()) @map("edited_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, revision])
+  @@map("message_edits")
+}
+
+/// One reaction of a given type per user per message. Reaction types come from a fixed set
+/// (CHECK constraint) and are visible to the server (ADR-022).
+model MessageReaction {
+  messageId String   @map("message_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  reaction  String   @db.VarChar(16)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([messageId, userId, reaction])
+  @@map("message_reactions")
+}
+
+/// "Delete for me": hides a message from one user's devices only.
+model MessageHide {
+  userId         String   @map("user_id") @db.Uuid
+  messageId      String   @map("message_id") @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  version        BigInt
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user         User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message      Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([userId, messageId])
+  @@index([userId, conversationId, version])
+  @@map("message_hides")
+}
+
+/// Accepted MLS commits, one per epoch (the primary key is the compare-and-set guarantee).
+model MlsCommit {
+  conversationId    String   @map("conversation_id") @db.Uuid
+  /// The epoch the commit was created in; applying it yields epoch + 1.
+  epoch             BigInt
+  version           BigInt
+  data              Bytes
+  senderDeviceKeyId String?  @map("sender_device_key_id") @db.Uuid
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([conversationId, epoch])
+  @@index([conversationId, version])
+  @@map("mls_commits")
+}
+
+/// An MLS Welcome waiting for one target device; deleted once the device has joined.
+model MlsWelcome {
+  id             String   @id @default(uuid(7)) @db.Uuid
+  conversationId String   @map("conversation_id") @db.Uuid
+  deviceKeyId    String   @map("device_key_id") @db.Uuid
+  /// The epoch the device joins at.
+  epoch          BigInt
+  data           Bytes
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  deviceKey    DeviceKey    @relation(fields: [deviceKeyId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceKeyId, conversationId, epoch])
+  @@index([deviceKeyId, id])
+  @@map("mls_welcomes")
+}
+
+/// An encrypted attachment blob. The server stores ciphertext only; the key travels inside
+/// the MLS-encrypted message (ADR-027).
+model Attachment {
+  /// Random (v4) opaque identifier.
+  id             String         @id @db.Uuid
+  conversationId String         @map("conversation_id") @db.Uuid
+  uploaderId     String?        @map("uploader_id") @db.Uuid
+  messageId      String?        @map("message_id") @db.Uuid
+  kind           AttachmentKind
+  size           Int
+  /// SHA-256 of the ciphertext.
+  sha256         Bytes
+  storageKey     String         @unique @map("storage_key") @db.VarChar(128)
+  createdAt      DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  uploader     User?        @relation(fields: [uploaderId], references: [id], onDelete: SetNull)
+  message      Message?     @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@index([messageId])
+  @@index([uploaderId, createdAt])
+  @@map("attachments")
+}
+
+/// The push notification token of one device. Notifications never contain message content.
+model PushToken {
+  deviceId  String       @id @map("device_id") @db.Uuid
+  provider  PushProvider
+  token     String       @db.VarChar(512)
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, token])
+  @@map("push_tokens")
 }

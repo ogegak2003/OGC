@@ -2,7 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { validateEnv } from './env.schema.js';
 
 const base = { DATABASE_URL: 'postgresql://user:secret-value@localhost:5432/ogc' };
-const production = { ...base, NODE_ENV: 'production', WEB_APP_URL: 'https://ogc.test' };
+const production = {
+  ...base,
+  NODE_ENV: 'production',
+  WEB_APP_URL: 'https://ogc.test',
+  REDIS_URL: 'redis://redis:6379',
+};
 
 describe('validateEnv', () => {
   it('applies safe defaults', () => {
@@ -72,5 +77,22 @@ describe('validateEnv', () => {
     expect(validateEnv({ ...base, WEB_APP_URL: 'http://localhost:5173/' }).WEB_APP_URL).toBe(
       'http://localhost:5173',
     );
+  });
+
+  it('requires Redis and forbids the push outbox in production', () => {
+    const { REDIS_URL: _unused, ...withoutRedis } = production;
+    expect(() => validateEnv(withoutRedis)).toThrow(/REDIS_URL/);
+    expect(() => validateEnv({ ...production, PUSH_PROVIDER: 'outbox' })).toThrow(/PUSH_PROVIDER/);
+    expect(() => validateEnv({ ...base, REDIS_URL: 'http://redis' })).toThrow(/REDIS_URL/);
+  });
+
+  it('makes messaging rate limits configurable with bounded values', () => {
+    expect(validateEnv(base).RATE_LIMIT_MESSAGE_SEND).toBe(60);
+    expect(validateEnv({ ...base, RATE_LIMIT_MESSAGE_SEND: '5' }).RATE_LIMIT_MESSAGE_SEND).toBe(5);
+    expect(() => validateEnv({ ...base, RATE_LIMIT_MESSAGE_SEND: '0' })).toThrow(/RATE_LIMIT/);
+  });
+
+  it('requires a long metrics token when one is set', () => {
+    expect(() => validateEnv({ ...base, METRICS_TOKEN: 'short' })).toThrow(/METRICS_TOKEN/);
   });
 });

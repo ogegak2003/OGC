@@ -13,9 +13,9 @@ export abstract class ObjectStorage {
   abstract delete(key: string): Promise<void>;
 }
 
-/** `<prefix>/<uuid>.<ext>` — nothing else is a valid key. */
+/** `avatars/<uuid>.webp` or `attachments/<uuid>.bin` (ciphertext) — nothing else is a valid key. */
 export const STORAGE_KEY_PATTERN =
-  /^[a-z]+\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.(webp)$/;
+  /^(?:avatars\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.webp|attachments\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.bin)$/;
 
 export function assertValidKey(key: string): void {
   if (!STORAGE_KEY_PATTERN.test(key)) {

@@ -5,6 +5,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router';
 import { App } from './app/App';
 import { AuthProvider } from './auth/AuthProvider';
+import { MessagingProvider } from './messaging/MessagingProvider';
 
 const container = document.getElementById('root');
 if (!container) {
@@ -15,7 +16,9 @@ createRoot(container).render(
   <StrictMode>
     <BrowserRouter>
       <AuthProvider>
-        <App />
+        <MessagingProvider>
+          <App />
+        </MessagingProvider>
       </AuthProvider>
     </BrowserRouter>
   </StrictMode>,

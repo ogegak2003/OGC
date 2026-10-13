@@ -11,12 +11,19 @@ export type Route =
   | { name: 'contacts' }
   | { name: 'privacy' }
   | { name: 'blocked' }
-  | { name: 'report'; ogcId: string };
+  | { name: 'report'; ogcId: string }
+  | { name: 'messages' }
+  | { name: 'conversation'; conversationId: string }
+  | { name: 'new-conversation' }
+  | { name: 'forward'; conversationId: string; messageId: string }
+  | { name: 'safety-number'; conversationId: string };
 
 interface Navigation {
   route: Route;
   canGoBack: boolean;
   push: (route: Route) => void;
+  /** Replaces the current screen (e.g. "new conversation" → the conversation). */
+  replace: (route: Route) => void;
   back: () => void;
 }
 
@@ -42,6 +49,9 @@ export function StackNavigator({
       canGoBack: stack.length > 1,
       push: (route) => {
         setStack((s) => [...s, route]);
+      },
+      replace: (route) => {
+        setStack((s) => [...s.slice(0, -1), route]);
       },
       back: () => {
         setStack((s) => (s.length > 1 ? s.slice(0, -1) : s));

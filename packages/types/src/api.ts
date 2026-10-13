@@ -28,7 +28,13 @@ export type ApiErrorCode =
   | 'CONFLICT'
   | 'CONTACT_REQUESTS_DISABLED'
   | 'INVALID_MEDIA'
-  | 'MEDIA_UNAVAILABLE';
+  | 'MEDIA_UNAVAILABLE'
+  | 'NOT_A_CONTACT'
+  | 'BLOCKED'
+  | 'STALE_EPOCH'
+  | 'E2EE_DEVICE_REQUIRED'
+  | 'INVALID_MLS_MESSAGE'
+  | 'PAYLOAD_TOO_LARGE';
 
 /**
  * Error body returned by the API. Never contains stack traces or internal

@@ -1,10 +1,10 @@
 import { Global, Injectable, Logger, Module } from '@nestjs/common';
 
 /**
- * Domain events raised after a change commits. Today nothing but tests and
- * logs listen; they are the seam for future realtime updates and push
- * notifications (see docs/architecture/social-graph.md#events). Payloads carry
- * internal IDs only and must never include secrets or private content.
+ * Domain events raised after a change commits. Listeners include the realtime
+ * gateway (session revocation) and push notifications (new messages); see
+ * docs/architecture/social-graph.md#events. Payloads carry internal IDs only
+ * and must never include secrets or message content (not even ciphertext).
  */
 export type DomainEvent =
   | { type: 'contact.request.sent'; requestId: string; senderId: string; recipientId: string }
@@ -14,7 +14,16 @@ export type DomainEvent =
   | { type: 'contact.removed'; userId: string; contactUserId: string }
   | { type: 'user.blocked'; blockerId: string; blockedId: string }
   | { type: 'user.unblocked'; blockerId: string; blockedId: string }
-  | { type: 'profile.updated'; userId: string; fields: string[] };
+  | { type: 'profile.updated'; userId: string; fields: string[] }
+  | { type: 'session.revoked'; sessionId: string; userId: string }
+  | {
+      type: 'message.created';
+      conversationId: string;
+      messageId: string;
+      senderId: string;
+      /** Users who should be notified (excludes recipients who blocked the sender). */
+      recipientIds: string[];
+    };
 
 export type DomainEventHandler = (event: DomainEvent) => void;
 

@@ -5,7 +5,16 @@ import { useEffect, useState } from 'react';
 import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
 import type { ApiClient } from './api/client';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
+import type { MessagingDependencies } from './messaging/messaging-context';
+import { MessagingProvider } from './messaging/MessagingProvider';
 import { type Route, StackNavigator } from './navigation';
+import { ConversationScreen } from './screens/messaging/ConversationScreen';
+import { MessagesScreen } from './screens/messaging/MessagesScreen';
+import {
+  ForwardScreen,
+  NewConversationScreen,
+  SafetyNumberScreen,
+} from './screens/messaging/OtherScreens';
 import { RegisterScreen } from './screens/RegisterScreen';
 import { SignInScreen } from './screens/SignInScreen';
 import { CheckEmailScreen, PendingVerificationScreen } from './screens/VerificationScreens';
@@ -66,6 +75,18 @@ function renderSignedIn(route: Route) {
       return <BlockedScreen />;
     case 'report':
       return <ReportScreen ogcId={route.ogcId} />;
+    case 'messages':
+      return <MessagesScreen />;
+    case 'conversation':
+      return (
+        <ConversationScreen key={route.conversationId} conversationId={route.conversationId} />
+      );
+    case 'new-conversation':
+      return <NewConversationScreen />;
+    case 'forward':
+      return <ForwardScreen conversationId={route.conversationId} messageId={route.messageId} />;
+    case 'safety-number':
+      return <SafetyNumberScreen conversationId={route.conversationId} />;
   }
 }
 
@@ -120,12 +141,21 @@ function Router() {
   }
 }
 
-export function App({ client }: { client: ApiClient }) {
+export function App({
+  client,
+  messaging,
+}: {
+  client: ApiClient;
+  /** Injected in tests; the real engine, storage and realtime connection by default. */
+  messaging?: MessagingDependencies;
+}) {
   return (
     <AuthProvider client={client}>
-      <View style={styles.root}>
-        <Router />
-      </View>
+      <MessagingProvider {...(messaging ? { dependencies: messaging } : {})}>
+        <View style={styles.root}>
+          <Router />
+        </View>
+      </MessagingProvider>
       <StatusBar style="light" />
     </AuthProvider>
   );

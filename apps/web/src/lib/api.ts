@@ -39,7 +39,7 @@ export class ApiError extends Error {
 }
 
 interface RequestOptions {
-  method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+  method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
   body?: unknown;
   signal?: AbortSignal | undefined;
   /** Retry once after refreshing the session when the access cookie has expired. */
@@ -67,7 +67,7 @@ function refreshSession(): Promise<boolean> {
  * Calls the OGC API in browser mode: credentials travel only in HttpOnly
  * cookies (never readable here), and the client header doubles as CSRF proof.
  */
-async function send<T>(path: string, options: RequestOptions = {}): Promise<T> {
+export async function send<T>(path: string, options: RequestOptions = {}): Promise<T> {
   const { method = 'GET', body, signal, retryOnUnauthorized = true } = options;
   const headers: Record<string, string> = {
     Accept: 'application/json',
@@ -98,6 +98,27 @@ async function send<T>(path: string, options: RequestOptions = {}): Promise<T> {
   }
   if (response.status === 204) return undefined as T;
   return (await response.json()) as T;
+}
+
+/** Downloads binary data (encrypted attachments) with the same session and refresh rules. */
+export async function sendForBytes(path: string, retryOnUnauthorized = true): Promise<Uint8Array> {
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    headers: { [CLIENT_HEADER]: WEB_CLIENT },
+    credentials: 'same-origin',
+  });
+  if (response.status === 401 && retryOnUnauthorized && (await refreshSession())) {
+    return sendForBytes(path, false);
+  }
+  if (!response.ok) {
+    const error = (await response.json().catch(() => undefined)) as ApiErrorBody | undefined;
+    throw new ApiError(response.status, error?.message ?? 'Download failed', error?.code);
+  }
+  return new Uint8Array(await response.arrayBuffer());
+}
+
+/** Renews the session cookie (used before reconnecting the realtime socket). */
+export function renewSession(): Promise<boolean> {
+  return refreshSession();
 }
 
 export const api = {

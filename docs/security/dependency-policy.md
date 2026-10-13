@@ -21,6 +21,31 @@
    otherwise pull the Prisma CLI, Studio, and TypeScript into the API image
    (728 MB → 393 MB). Changes to `.pnpmfile.cjs` require review.
 
+## Cryptography dependencies (Phase 3)
+
+Cryptographic code is never written in OGC; it comes from these libraries, pinned exactly and
+reviewed on every upgrade (read the changelog and advisories, run the e2ee and messaging test
+suites, including the Hermes simulation).
+
+| Package                                                                        | Role                                                                     | Notes                                                                                                  |
+| ------------------------------------------------------------------------------ | ------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------ |
+| `ts-mls` 1.6.4                                                                 | MLS (RFC 9420)                                                           | MIT; passes MLS interop vectors; **not independently audited**; ≥ 1.6.4 required (GHSA-gwp3-968w-m7gv) |
+| `@noble/curves` 2.0.1, `@noble/hashes` 2.0.1, `@noble/ciphers` 2.1.1           | Ed25519, X25519, SHA-2, HMAC/HKDF, ChaCha20-Poly1305, XChaCha20-Poly1305 | Audited, dependency-free                                                                               |
+| `@hpke/core` 1.9.0, `@hpke/dhkem-x25519` 1.8.0, `@hpke/chacha20poly1305` 1.8.0 | HPKE (RFC 9180) used by MLS                                              | MIT                                                                                                    |
+| `expo-crypto` 57.0.3                                                           | Platform CSPRNG on mobile                                                | Pinned below 57.0.4, which was inside the release-age window (see below)                               |
+
+Release-age incident (Phase 3): `expo install` resolved `expo-crypto@57.0.4` (published the
+same day) and **automatically wrote a `minimumReleaseAgeExclude` entry**. It was reverted
+immediately; `57.0.3` is pinned and the lockfile passes pnpm's supply-chain check. Add new
+packages with `pnpm add <pkg>@<version>` and check `pnpm-workspace.yaml` is unchanged after any
+`expo install`. `expo-sharing` is likewise pinned to 57.0.22.
+
+Other Phase 3 runtime dependencies: `socket.io`/`socket.io-client` 4.8.3,
+`@nestjs/websockets`/`@nestjs/platform-socket.io` 12.1.2, `@socket.io/redis-adapter` 8.3.0,
+`ioredis` 5.11.1 (the adapter's supported major), `prom-client` 15.1.3, `express` 5.2.1 (same
+version as Nest's, for a route-specific body limit), `expo-audio`, `expo-document-picker`,
+`expo-file-system` (SDK 57). Test-only: `fake-indexeddb` 6.2.5.
+
 ## Security overrides
 
 Configured in `pnpm-workspace.yaml` → `overrides`.

@@ -1,3 +1,5 @@
+// Must be first: prepares crypto for the end-to-end encryption engine on Hermes.
+import './src/crypto-setup';
 import { registerRootComponent } from 'expo';
 import { createElement } from 'react';
 import { apiClient } from './src/api/default-client';

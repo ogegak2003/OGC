@@ -299,3 +299,220 @@ describe('social graph constraints', () => {
     expect(kept).toMatchObject({ reporterId: b.id, reportedUserId: null });
   });
 });
+
+describe('messaging constraints', () => {
+  let t: TestApp;
+  let prisma: PrismaService;
+
+  beforeAll(async () => {
+    t = await createTestApp();
+    prisma = t.prisma;
+  });
+
+  afterAll(async () => {
+    await t.close();
+  });
+
+  const user = () =>
+    prisma.user.create({
+      data: {
+        ogcId: `OGC${String(randomInt(100_000_000, 1_000_000_000))}`,
+        email: uniqueEmail(),
+        profile: { create: { displayName: 'Messaging Test' } },
+      },
+    });
+
+  async function direct() {
+    const [a, b] = [await user(), await user()];
+    const conversation = await prisma.conversation.create({
+      data: {
+        id: randomUUID(),
+        type: 'DIRECT',
+        directKey: [a.id, b.id].sort().join(':'),
+        participants: { create: [{ userId: a.id }, { userId: b.id }] },
+      },
+    });
+    return { a, b, conversation };
+  }
+
+  const message = (
+    conversationId: string,
+    senderId: string,
+    seq: number,
+    extra: Record<string, unknown> = {},
+  ) =>
+    prisma.message.create({
+      data: {
+        conversationId,
+        senderId,
+        seq: BigInt(seq),
+        version: BigInt(seq),
+        clientMessageId: randomUUID(),
+        epoch: 1n,
+        ciphertext: new Uint8Array([1, 2, 3]),
+        ...extra,
+      },
+    });
+
+  it('allows exactly one DIRECT conversation per pair of users', async () => {
+    const { a, b } = await direct();
+    await expect(
+      prisma.conversation.create({
+        data: { id: randomUUID(), type: 'DIRECT', directKey: [a.id, b.id].sort().join(':') },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    // The key must be the ordered pair; DIRECT conversations must have one.
+    await expect(
+      prisma.conversation.create({
+        data: {
+          id: randomUUID(),
+          type: 'DIRECT',
+          directKey: [a.id, b.id].sort().reverse().join(':'),
+        },
+      }),
+    ).rejects.toThrow(/conversations_direct_key_format/);
+    await expect(
+      prisma.conversation.create({ data: { id: randomUUID(), type: 'DIRECT' } }),
+    ).rejects.toThrow(/conversations_direct_key_consistent/);
+  });
+
+  it('admits only the two named users as participants of a DIRECT conversation', async () => {
+    const { conversation } = await direct();
+    const outsider = await user();
+    await expect(
+      prisma.conversationParticipant.create({
+        data: { conversationId: conversation.id, userId: outsider.id },
+      }),
+    ).rejects.toThrow(/not part of this direct conversation/);
+  });
+
+  it('orders messages uniquely and deduplicates client submissions', async () => {
+    const { a, conversation } = await direct();
+    const first = await message(conversation.id, a.id, 1);
+    await expect(message(conversation.id, a.id, 1)).rejects.toMatchObject({ code: 'P2002' });
+    await expect(
+      message(conversation.id, a.id, 2, { clientMessageId: first.clientMessageId }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    await expect(message(conversation.id, a.id, 0)).rejects.toThrow(/messages_ordering/);
+  });
+
+  it('prevents replies across conversations', async () => {
+    const one = await direct();
+    const two = await direct();
+    const target = await message(one.conversation.id, one.a.id, 1);
+    await expect(
+      message(two.conversation.id, two.a.id, 1, { replyToId: target.id }),
+    ).rejects.toMatchObject({ code: 'P2003' });
+    await expect(
+      message(one.conversation.id, one.a.id, 2, { replyToId: target.id }),
+    ).resolves.toBeDefined();
+  });
+
+  it('keeps deletion and edit metadata consistent and bounds ciphertext size', async () => {
+    const { a, conversation } = await direct();
+    await expect(message(conversation.id, a.id, 1, { deletedAt: new Date() })).rejects.toThrow(
+      /messages_deleted_consistent/,
+    );
+    await expect(message(conversation.id, a.id, 2, { ciphertext: null })).rejects.toThrow(
+      /messages_deleted_consistent/,
+    );
+    await expect(message(conversation.id, a.id, 3, { revision: 1 })).rejects.toThrow(
+      /messages_edit_consistent/,
+    );
+    await expect(
+      message(conversation.id, a.id, 4, { ciphertext: new Uint8Array(65_537) }),
+    ).rejects.toThrow(/messages_ciphertext_size/);
+  });
+
+  it('accepts only the fixed reaction set, once per user and type', async () => {
+    const { a, conversation } = await direct();
+    const m = await message(conversation.id, a.id, 1);
+    await prisma.messageReaction.create({
+      data: { messageId: m.id, userId: a.id, reaction: 'heart' },
+    });
+    await expect(
+      prisma.messageReaction.create({ data: { messageId: m.id, userId: a.id, reaction: 'heart' } }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    await expect(
+      prisma.messageReaction.create({
+        data: { messageId: m.id, userId: a.id, reaction: '<script>' },
+      }),
+    ).rejects.toThrow(/message_reactions_allowed/);
+  });
+
+  it('accepts one MLS commit per epoch', async () => {
+    const { conversation } = await direct();
+    await prisma.mlsCommit.create({
+      data: { conversationId: conversation.id, epoch: 0n, version: 1n, data: new Uint8Array([1]) },
+    });
+    await expect(
+      prisma.mlsCommit.create({
+        data: {
+          conversationId: conversation.id,
+          epoch: 0n,
+          version: 2n,
+          data: new Uint8Array([2]),
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('allows one active encryption key per device, 32-byte keys, unique across devices', async () => {
+    const owner = await user();
+    const device = await prisma.device.create({ data: { userId: owner.id, platform: 'WEB' } });
+    const key = new Uint8Array(32).fill(9);
+    await prisma.deviceKey.create({
+      data: { id: randomUUID(), deviceId: device.id, userId: owner.id, signaturePublicKey: key },
+    });
+    await expect(
+      prisma.deviceKey.create({
+        data: {
+          id: randomUUID(),
+          deviceId: device.id,
+          userId: owner.id,
+          signaturePublicKey: new Uint8Array(32).fill(8),
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+    await expect(
+      prisma.deviceKey.create({
+        data: {
+          id: randomUUID(),
+          deviceId: device.id,
+          userId: owner.id,
+          signaturePublicKey: new Uint8Array(31),
+          revokedAt: new Date(),
+        },
+      }),
+    ).rejects.toThrow(/device_keys_signature_key_length/);
+    const other = await prisma.device.create({ data: { userId: owner.id, platform: 'IOS' } });
+    await expect(
+      prisma.deviceKey.create({
+        data: { id: randomUUID(), deviceId: other.id, userId: owner.id, signaturePublicKey: key },
+      }),
+    ).rejects.toMatchObject({ code: 'P2002' });
+  });
+
+  it('accepts only server-generated attachment storage keys', async () => {
+    const { a, conversation } = await direct();
+    const attachment = (storageKey: string) =>
+      prisma.attachment.create({
+        data: {
+          id: randomUUID(),
+          conversationId: conversation.id,
+          uploaderId: a.id,
+          kind: 'FILE',
+          size: 10,
+          sha256: new Uint8Array(32),
+          storageKey,
+        },
+      });
+    await expect(attachment('attachments/../../etc/passwd')).rejects.toThrow(
+      /attachments_storage_key_format/,
+    );
+    await expect(attachment('attachments/photo.jpg')).rejects.toThrow(
+      /attachments_storage_key_format/,
+    );
+    await expect(attachment(`attachments/${randomUUID()}.bin`)).resolves.toBeDefined();
+  });
+});

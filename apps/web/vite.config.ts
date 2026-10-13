@@ -24,7 +24,8 @@ export default defineConfig({
     port: 5173,
     strictPort: true,
     proxy: {
-      '/api': { target: 'http://localhost:3000', changeOrigin: false },
+      // ws: realtime (Socket.IO) is served under /api/realtime by the API.
+      '/api': { target: 'http://localhost:3000', changeOrigin: false, ws: true },
     },
   },
   build: {

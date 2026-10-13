@@ -4,6 +4,9 @@ import { MemoryRouter } from 'react-router';
 import { vi } from 'vitest';
 import { App } from '../app/App';
 import { AuthProvider } from '../auth/AuthProvider';
+import type { MessagingDependencies } from '../messaging/messaging-context';
+import { MessagingProvider } from '../messaging/MessagingProvider';
+import { inertMessaging } from './fake-messaging';
 
 export type Handler = (url: string, init: RequestInit) => Response | Promise<Response>;
 
@@ -50,11 +53,13 @@ export function mockApi(routes: Record<string, Handler>) {
   return fetchMock;
 }
 
-export function renderApp(path: string) {
+export function renderApp(path: string, messaging: MessagingDependencies = inertMessaging) {
   return render(
     <MemoryRouter initialEntries={[path]}>
       <AuthProvider>
-        <App />
+        <MessagingProvider dependencies={messaging}>
+          <App />
+        </MessagingProvider>
       </AuthProvider>
     </MemoryRouter>,
   );

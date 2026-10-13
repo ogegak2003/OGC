@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { type ExecutionContext, Injectable } from '@nestjs/common';
 import { ThrottlerGuard } from '@nestjs/throttler';
 import type { AuthenticatedRequest } from '../../modules/auth/auth-context.js';
 
@@ -9,6 +9,12 @@ import type { AuthenticatedRequest } from '../../modules/auth/auth-context.js';
  */
 @Injectable()
 export class OgcThrottlerGuard extends ThrottlerGuard {
+  /** HTTP only: realtime events are rate-limited per account inside the gateway. */
+  override canActivate(context: ExecutionContext): Promise<boolean> {
+    if (context.getType() !== 'http') return Promise.resolve(true);
+    return super.canActivate(context);
+  }
+
   protected override getTracker(req: Record<string, unknown>): Promise<string> {
     const { auth, ip } = req as unknown as AuthenticatedRequest;
     return Promise.resolve(auth ? `user:${auth.userId}` : `ip:${ip ?? 'unknown'}`);

@@ -3,6 +3,7 @@ import { HttpStatus, Injectable } from '@nestjs/common';
 import type { AccountStatus, OgcId } from '@ogc/types';
 import type { DeviceInfo } from '@ogc/validation';
 import { ApiException, unauthenticated } from '../../common/errors.js';
+import { DomainEventBus } from '../../common/events/domain-events.js';
 import type { RequestMeta } from '../../common/request-meta.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma, SessionRevocationReason } from '../../generated/prisma/client.js';
@@ -52,6 +53,7 @@ export class SessionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly events: DomainEventBus,
   ) {}
 
   /** Creates a device and a session for it. Must run inside the caller's transaction. */
@@ -133,6 +135,7 @@ export class SessionService {
       accountStatus: session.user.status,
       sessionId: session.id,
       deviceId: session.deviceId,
+      accessExpiresAt: session.accessExpiresAt,
       via,
       staffRoles: session.user.staffRoles.map((assignment) => assignment.role),
     };
@@ -222,6 +225,7 @@ export class SessionService {
         meta,
         details: { reason },
       });
+      this.events.publish({ type: 'session.revoked', sessionId, userId });
     }
   }
 

@@ -37,7 +37,7 @@
   position: fixed;
   inset: auto 0 0;
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(5, 1fr);
   padding: var(--ogc-space-2) var(--ogc-space-2)
     calc(var(--ogc-space-2) + env(safe-area-inset-bottom));
   background: var(--ogc-color-surface);
@@ -96,4 +96,41 @@
     opacity: 0;
     transform: translateY(6px);
   }
+}
+
+.navBadge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  margin-left: var(--ogc-space-1);
+  padding: 0 0.3rem;
+  color: var(--ogc-color-on-accent);
+  font-size: var(--ogc-font-size-xs);
+  font-weight: 700;
+  background: var(--ogc-color-accent);
+  border-radius: var(--ogc-radius-full);
+}
+
+/* Full-height content (messaging): fills the space between header and bottom bar. */
+.full {
+  width: min(100%, 80rem);
+  height: calc(100dvh - 3.75rem - 4.5rem);
+  margin: 0 auto;
+}
+
+@media (min-width: 760px) {
+  .full {
+    height: calc(100dvh - 3.75rem);
+    padding: var(--ogc-space-4) var(--ogc-space-5);
+  }
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
 }

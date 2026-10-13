@@ -11,15 +11,24 @@ import {
   LogDestinationModule,
 } from './common/logging/log-destination.module.js';
 import { loggerConfig } from './common/logging/logger.config.js';
+import { MetricsModule } from './common/metrics/metrics.js';
+import { RedisConnections, RedisModule } from './common/redis/redis.module.js';
 import { OgcThrottlerGuard } from './common/throttling/ogc-throttler.guard.js';
+import { messagingLimitsFrom, setMessagingLimits } from './common/throttling/rate-limits.js';
+import { RedisThrottlerStorage } from './common/throttling/redis-throttler.storage.js';
 import { type Env, validateEnv } from './config/env.schema.js';
 import { DatabaseModule } from './database/database.module.js';
 import { AuthGuard } from './modules/auth/auth.guard.js';
+import { AttachmentsModule } from './modules/attachments/attachments.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { BlocksModule } from './modules/blocks/blocks.module.js';
 import { ContactsModule } from './modules/contacts/contacts.module.js';
+import { ConversationsModule } from './modules/conversations/conversations.module.js';
+import { E2eeModule } from './modules/e2ee/e2ee.module.js';
 import { HealthModule } from './modules/health/health.module.js';
+import { NotificationsModule } from './modules/notifications/notifications.module.js';
 import { ProfilesModule } from './modules/profiles/profiles.module.js';
+import { RealtimeCoreModule, RealtimeGatewayModule } from './modules/realtime/realtime.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
 import { StorageModule } from './modules/storage/storage.module.js';
 
@@ -48,16 +57,26 @@ import { StorageModule } from './modules/storage/storage.module.js';
           destination,
         ),
     }),
+    RedisModule,
     ThrottlerModule.forRootAsync({
-      inject: [ConfigService],
-      useFactory: (config: ConfigService<Env, true>) => [
-        {
-          ttl: config.get('RATE_LIMIT_TTL_MS', { infer: true }),
-          limit: config.get('RATE_LIMIT_MAX', { infer: true }),
-        },
-      ],
+      inject: [ConfigService, RedisConnections],
+      useFactory: (config: ConfigService<Env, true>, redis: RedisConnections) => {
+        setMessagingLimits(messagingLimitsFrom((key) => config.get(key, { infer: true })));
+        return {
+          // Shared across API instances when Redis is configured; in-process otherwise.
+          ...(redis.client ? { storage: new RedisThrottlerStorage(redis.client) } : {}),
+          throttlers: [
+            {
+              ttl: config.get('RATE_LIMIT_TTL_MS', { infer: true }),
+              limit: config.get('RATE_LIMIT_MAX', { infer: true }),
+            },
+          ],
+        };
+      },
     }),
     DatabaseModule,
+    MetricsModule,
+    RealtimeCoreModule,
     DomainEventsModule,
     StorageModule,
     HealthModule,
@@ -66,6 +85,11 @@ import { StorageModule } from './modules/storage/storage.module.js';
     ContactsModule,
     BlocksModule,
     ReportsModule,
+    E2eeModule,
+    ConversationsModule,
+    AttachmentsModule,
+    NotificationsModule,
+    RealtimeGatewayModule,
   ],
   providers: [
     // Order matters: authentication first, so rate limits can be keyed per account

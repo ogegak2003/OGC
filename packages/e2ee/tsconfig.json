@@ -1,0 +1,9 @@
+{
+  "extends": "@ogc/config/tsconfig/library.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "lib": ["ES2023", "DOM"]
+  },
+  "include": ["src"]
+}

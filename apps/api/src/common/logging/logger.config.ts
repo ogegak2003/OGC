@@ -22,6 +22,13 @@ export const REDACTED_PATHS = [
   '*.tokenHash',
   '*.accessTokenHash',
   '*.refreshTokenHash',
+  '*.ciphertext',
+  '*.plaintext',
+  '*.privateKey',
+  '*.welcome',
+  '*.groupInfo',
+  '*.keyPackage',
+  '*.keyPackages',
 ];
 
 export function resolveRequestId(req: IncomingMessage, res: ServerResponse): string {

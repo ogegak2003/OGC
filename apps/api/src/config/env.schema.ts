@@ -1,5 +1,8 @@
 import { z } from 'zod';
 
+const perWindow = (fallback: number) =>
+  z.coerce.number().int().min(1).max(100_000).default(fallback);
+
 const csv = z.string().transform((value) =>
   value
     .split(',')
@@ -40,6 +43,36 @@ export const envSchema = z
     /** `local` stores media on disk (development only); `disabled` turns uploads off. */
     STORAGE_DRIVER: z.enum(['disabled', 'local']).default('disabled'),
     STORAGE_LOCAL_DIR: z.string().min(1).default('.dev-storage'),
+    /**
+     * Redis for state shared between API instances: rate limits, presence and
+     * realtime fan-out. Optional for a single development/test instance; required in production.
+     */
+    REDIS_URL: z
+      .string()
+      .refine((value) => /^rediss?:\/\//.test(value), {
+        message: 'REDIS_URL must be a redis:// or rediss:// URL',
+      })
+      .optional(),
+    /** Bearer token for GET /api/v1/metrics. Unset = metrics endpoint disabled (404). */
+    METRICS_TOKEN: z.string().min(32).max(256).optional(),
+    /** `outbox` writes push notifications to local files (development only). */
+    PUSH_PROVIDER: z.enum(['disabled', 'outbox', 'expo']).default('disabled'),
+    PUSH_OUTBOX_DIR: z.string().min(1).default('.dev-outbox/push'),
+    /** Optional Expo push access token (enhanced push security in the Expo dashboard). */
+    EXPO_ACCESS_TOKEN: z.string().min(1).max(256).optional(),
+    // Per-account messaging rate limits (ADR-029). Windows: per minute unless noted.
+    RATE_LIMIT_MESSAGE_SEND: perWindow(60),
+    RATE_LIMIT_CONVERSATION_CREATE_PER_HOUR: perWindow(30),
+    RATE_LIMIT_ATTACHMENT_UPLOAD_PER_HOUR: perWindow(100),
+    RATE_LIMIT_REACTION: perWindow(120),
+    RATE_LIMIT_EDIT: perWindow(30),
+    RATE_LIMIT_DELETE: perWindow(60),
+    RATE_LIMIT_RECEIPT: perWindow(600),
+    RATE_LIMIT_SYNC: perWindow(600),
+    RATE_LIMIT_E2EE: perWindow(120),
+    RATE_LIMIT_TYPING: perWindow(60),
+    RATE_LIMIT_PRESENCE: perWindow(60),
+    RATE_LIMIT_SOCKET_CONNECT: perWindow(30),
     /** Defaults to true outside development and test. Required in production. */
     COOKIE_SECURE: z
       .enum(['true', 'false'])
@@ -78,6 +111,20 @@ export const envSchema = z
         code: 'custom',
         path: ['EMAIL_TRANSPORT'],
         message: 'The development email outbox cannot be used in production',
+      });
+    }
+    if (!env.REDIS_URL) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['REDIS_URL'],
+        message: 'Redis is required in production (shared rate limits, presence and realtime)',
+      });
+    }
+    if (env.PUSH_PROVIDER === 'outbox') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['PUSH_PROVIDER'],
+        message: 'The development push outbox cannot be used in production',
       });
     }
     if (env.STORAGE_DRIVER === 'local') {

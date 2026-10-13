@@ -190,7 +190,7 @@ no account enumeration through registration or login.
 
 ## ADR-012: Messaging is designed for end-to-end encryption
 
-**Status:** Accepted as a design direction (Phase 1); protocol choice before Phase 3
+**Status:** Accepted (Phase 1); protocol chosen in Phase 3 — MLS, see ADR-024
 
 **Context.** OGC's value depends on private communication. Retrofitting E2E encryption into
 a server-readable messaging system is very hard; the identity and device model must allow it
@@ -348,3 +348,167 @@ management UI, and MFA for staff come in Phase 9.
 
 `@ogc/ui` now also holds **platform-neutral visual primitives** that both clients must render
 identically — currently `qrSvgPath()`. It still contains no React or platform code.
+
+---
+
+## ADR-022: Messaging domain — DIRECT conversations, server-visible metadata only
+
+**Status:** Accepted (Phase 3)
+
+**Context.** One-to-one messaging must ship now without blocking groups and channels later,
+and the server must not need message content.
+
+**Decision.**
+
+- A `conversations` table with a `type` (only `DIRECT` today) and participants in
+  `conversation_participants`. DIRECT conversations have a unique ordered-pair key, so a pair
+  has exactly one conversation; a trigger admits only those two users. Groups will add types
+  and participant roles without changing messages.
+- Conversations can be started **with contacts only** (spam control); existing
+  conversations continue if someone is removed from contacts (blocking is the tool to stop
+  contact). Message requests from non-contacts are a later product decision.
+- `messages` store MLS ciphertext and routing metadata only. Edits keep metadata, not old
+  ciphertext. "Delete for everyone" erases ciphertext, reactions and attachments but keeps
+  the record and an audit event. "Delete for me" is a per-user hide.
+- Edit and delete-for-everyone windows: 48 hours.
+- Reactions use a fixed set of six types and are **visible to the server** (to enforce
+  uniqueness and the allowed set). Encrypting reactions was rejected for now: it would move
+  the uniqueness rule to clients for little privacy gain over a six-value set.
+- When the recipient has blocked the sender, messages are accepted and **withheld** (never
+  delivered), so the block is not revealed.
+
+**Consequences.** The server enforces authorization, ordering and integrity rules in the
+database; it learns metadata (who, when, sizes, reaction types) but not content.
+
+---
+
+## ADR-023: Socket.IO for realtime, with a versioned, closed event contract
+
+**Status:** Accepted (Phase 3)
+
+**Decision.** Socket.IO 4.8 via `@nestjs/platform-socket.io` at `/api/realtime`, namespace
+`/v1` as the protocol version: mature reconnection, acknowledgements, rooms, a React Native
+client and a Redis adapter for horizontal scaling. Plain `ws` was rejected (reconnection,
+rooms and fan-out would be rebuilt by hand). Durable operations (send, edit, receipts) stay on
+REST, so an acknowledgement means persistence; realtime only notifies. The event contract is
+typed in `@ogc/types`; unknown client events disconnect the socket. Sockets authenticate with
+the same sessions as REST (bearer, or cookie plus an Origin allowlist), and close at token
+expiry and on revocation. Details: [realtime.md](realtime.md).
+
+**Consequences.** One transport for later phases (groups, call signalling). Browsers that
+fall back to long-polling need sticky sessions behind a load balancer.
+
+---
+
+## ADR-024: End-to-end encryption with MLS (RFC 9420) via `ts-mls`
+
+**Status:** Accepted (Phase 3) — **production use requires an independent audit**
+
+**Context.** OGC needs E2E encryption across browsers, Node and React Native (Hermes), with
+multiple devices per person, forward secrecy and post-compromise security, and a path to
+groups. Custom cryptography is ruled out.
+
+**Decision.** MLS (RFC 9420), ciphersuite 0x0003 (X25519, ChaCha20-Poly1305, SHA-256,
+Ed25519), implemented with `ts-mls` 1.6.4 (MIT, pure TypeScript, passes the MLS interop
+vectors) over the audited `@noble/*` primitives and `hpke-js`. Each device is an MLS leaf with
+its own Ed25519 identity key; one MLS group per conversation; commits are public messages so
+the server can enforce membership policy without decrypting; new devices join by Welcome or
+external commit. Libsignal (AGPL, no web or React Native build), community Signal ports (GPL,
+stale) and vodozemac (no standalone JS/React Native binding) were evaluated and rejected;
+OpenMLS is the alternative if WASM/React Native bindings are built later. Full evaluation and
+trust model: [encryption.md](encryption.md).
+
+**Consequences.** One protocol for direct and group messaging. `ts-mls` is unaudited: an
+independent review of the library and of OGC's integration is a production prerequisite.
+Hermes needs a narrow, tested HMAC/HKDF SubtleCrypto shim. New devices cannot read earlier
+history until encrypted history transfer exists.
+
+---
+
+## ADR-025: Per-conversation change counter for synchronization
+
+**Status:** Accepted (Phase 3)
+
+**Decision.** Each conversation has a `version` counter incremented under a row lock inside
+every change's transaction; messages (position `seq`, last change `version`), MLS commits and
+per-user hides carry versions. Clients keep a cursor per conversation and pull
+`/sync?after=cursor`; a changes feed (`updated_at` with a 10 s safety lag) finds conversations
+to sync. Rejected: a global sequence (not commit-ordered, so late commits create gaps) and a
+per-user event log (one write per recipient, heavy for groups). Details: [sync.md](sync.md).
+
+**Consequences.** Simple, gap-free sync with indexed range queries; writes to one
+conversation are serialized (fine for DIRECT and moderate groups; revisit for very large
+groups or channels).
+
+---
+
+## ADR-026: Presence and typing are ephemeral
+
+**Status:** Accepted (Phase 3)
+
+**Decision.** Typing and presence never touch PostgreSQL. Presence lives in Redis sorted
+sets with expiring entries (in memory without Redis); typing is relayed directly and expires
+after 8 s. Both are visible only between conversation partners with no block in either
+direction, are rate-limited, and are documented as approximate. There is no "last seen".
+
+**Consequences.** No write amplification; presence may lag by up to the heartbeat interval
+after a crash. Privacy settings for presence and read receipts come later.
+
+---
+
+## ADR-027: Attachments are encrypted on the device
+
+**Status:** Accepted (Phase 3)
+
+**Decision.** Each file is encrypted with a fresh random 256-bit key using
+XChaCha20-Poly1305 (`@noble/ciphers`); the key, nonce, ciphertext digest, name and type travel
+inside the MLS-encrypted message. The server stores ciphertext under server-generated keys,
+enforces per-kind size limits, serves it only to participants as an opaque download, and
+deletes unattached uploads after 24 hours. Recipients verify digest and size and decide how to
+display content from the decrypted bytes, never from declared types. Server-side content
+scanning is therefore impossible by design; moderation relies on user reports.
+
+**Consequences.** No plaintext media on OGC servers. Media goes through the API (direct
+uploads with short-lived signed URLs are planned with the object-storage provider). Whole-file
+encryption in memory limits sizes to 25 MiB until chunked encryption is added.
+
+---
+
+## ADR-028: Push notifications carry no message content
+
+**Status:** Accepted (Phase 3) — backend implemented; mobile token registration pending
+
+**Decision.** Notifications say only "New message" plus the conversation ID; third-party
+push services never see content. Tokens are bound to the authenticated device, moved if
+another device registers the same token, and deleted at logout. Devices with a live socket are
+skipped. Providers sit behind a port: `disabled`, `outbox` (development) and `expo` (Expo push
+HTTP API). Rich, decrypted notifications (notification service extensions) are a later step.
+
+---
+
+## ADR-029: Configurable per-account rate limits, shared through Redis
+
+**Status:** Accepted (Phase 3)
+
+**Decision.** Messaging limits (sends, conversation creation, attachments, reactions, edits,
+deletes, receipts, sync, E2E operations, typing, presence, socket connections) are environment
+variables with sensible defaults, applied per account (and per IP for socket connections, with
+the trusted-proxy rule). With `REDIS_URL` the throttler storage is an atomic Redis script
+shared by all instances; Redis is **required in production**.
+
+**Consequences.** Closes the Phase 2 "per-instance rate limits" gap for production; local
+development and tests stay single-instance in memory unless they opt in.
+
+---
+
+## ADR-030: Message search runs on the device
+
+**Status:** Accepted (Phase 3)
+
+**Decision.** No server-side message search (the server cannot read messages). Each device
+searches its own sealed, decrypted store. Searchable/encrypted indexes on the server were
+rejected: they leak access patterns and add complex cryptography for little benefit at this
+stage.
+
+**Consequences.** Search covers only messages on that device (not history from before it
+joined); it is a linear scan for now — an encrypted local index is a later optimisation.

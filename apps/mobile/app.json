@@ -40,6 +40,12 @@
           "cameraPermission": false,
           "microphonePermission": false
         }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "OGC uses the microphone only while you record a voice message."
+        }
       ]
     ]
   }

@@ -51,7 +51,7 @@ export class ApiClient {
   private async send<T>(
     path: string,
     init: {
-      method?: 'GET' | 'POST' | 'PATCH' | 'DELETE';
+      method?: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
       body?: unknown;
       auth?: boolean;
       retry?: boolean;
@@ -78,6 +78,39 @@ export class ApiClient {
     }
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;
+  }
+
+  /** Authenticated request for feature clients (e.g. the messaging transport). */
+  request<T>(
+    method: 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<T> {
+    return this.send<T>(path, { method, auth: true, ...(body !== undefined ? { body } : {}) });
+  }
+
+  /** Authenticated binary download (encrypted attachments), with the same refresh rule. */
+  async bytes(path: string, retry = true): Promise<Uint8Array> {
+    const response = await this.fetchImpl(`${this.options.baseUrl}${path}`, {
+      headers: this.accessToken ? { Authorization: `Bearer ${this.accessToken}` } : {},
+    });
+    if (response.status === 401 && retry && (await this.refresh())) return this.bytes(path, false);
+    if (!response.ok) {
+      const error = (await response.json().catch(() => undefined)) as ApiErrorBody | undefined;
+      throw new ApiError(response.status, error?.message ?? 'Download failed', error?.code);
+    }
+    return new Uint8Array(await response.arrayBuffer());
+  }
+
+  /** The current access token, for authenticating the realtime connection. */
+  async currentAccessToken(): Promise<string | undefined> {
+    if (!this.accessToken) await this.refresh();
+    return this.accessToken;
+  }
+
+  /** API origin (scheme + host), e.g. for the realtime connection. */
+  get origin(): string {
+    return this.options.baseUrl.replace(/\/api\/?$/, '');
   }
 
   private async adopt(response: AuthResponse): Promise<AccountView> {

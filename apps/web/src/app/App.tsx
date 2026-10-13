@@ -8,6 +8,7 @@ import { DiscoverPage } from '../pages/DiscoverPage';
 import { EditProfilePage } from '../pages/EditProfilePage';
 import { HomePage } from '../pages/HomePage';
 import { LoginPage } from '../pages/LoginPage';
+import { MessagesPage } from '../pages/MessagesPage';
 import { PendingVerificationPage } from '../pages/PendingVerificationPage';
 import { PrivacyPage } from '../pages/PrivacyPage';
 import { PublicProfilePage } from '../pages/PublicProfilePage';
@@ -36,6 +37,8 @@ export function App() {
         }
       />
       <Route path="/home" element={member(<HomePage />)} />
+      <Route path="/messages" element={member(<MessagesPage />)} />
+      <Route path="/messages/:conversationId" element={member(<MessagesPage />)} />
       <Route path="/profile/edit" element={member(<EditProfilePage />)} />
       <Route path="/discover" element={member(<DiscoverPage />)} />
       {/* Web form of the OGC identity link ogc://id/OGC… (future universal link). */}

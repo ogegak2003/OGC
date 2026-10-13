@@ -7,6 +7,9 @@ import { defineConfig } from 'vitest/config';
 if (existsSync('.env') && !process.env.TEST_DATABASE_URL) {
   process.loadEnvFile('.env');
 }
+// Tests run as a single in-memory instance (like CI) unless a test opts in to Redis
+// explicitly with TEST_REDIS_URL (see test/redis-scaleout.test.ts).
+delete process.env.REDIS_URL;
 
 const baseEnv = {
   NODE_ENV: 'test',
@@ -44,7 +47,11 @@ export default defineConfig({
           fileParallelism: false,
           testTimeout: 30_000,
           hookTimeout: 60_000,
-          env: { ...baseEnv, DATABASE_URL: process.env.TEST_DATABASE_URL ?? '' },
+          env: {
+            ...baseEnv,
+            DATABASE_URL: process.env.TEST_DATABASE_URL ?? '',
+            TEST_REDIS_URL: process.env.TEST_REDIS_URL ?? '',
+          },
         },
       },
     ],

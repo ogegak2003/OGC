@@ -27,6 +27,15 @@ users ─┬─ 1:N ─ contact_requests     (as sender / as recipient)
        ├─ 1:N ─ user_reports         (as reporter / as reported; SET NULL on delete)
        └─ 1:N ─ staff_roles
 
+users ─┬─ 1:N ─ device_keys ── 1:N ── key_packages, mls_welcomes   (devices ── 1:N ── device_keys)
+       └─ N:M ─ conversations (via conversation_participants)
+
+conversations ─┬─ 1:N ─ messages ─┬─ 1:N ─ message_edits, message_reactions, message_hides
+               │                  └─ 1:N ─ attachments
+               ├─ 1:N ─ mls_commits (one per epoch)
+               └─ 1:N ─ mls_welcomes
+devices ── 1:1 ── push_tokens
+
 audit_events                          (no foreign keys — outlives what it describes)
 ```
 
@@ -127,12 +136,37 @@ CHECK not self.
 
 `(user_id, role)` primary key; `role` is `MODERATOR` or `ADMIN`. Granted by operators only.
 
+### Messaging (Phase 3)
+
+Details and rationale: [messaging.md](messaging.md), [sync.md](sync.md),
+[encryption.md](encryption.md).
+
+| Table                       | Key columns and rules                                                                                                                                                                                                                                                                                    |
+| --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `device_keys`               | `id` (random v4, embedded in MLS credentials), `device_id`, `user_id`, `signature_public_key` (32 bytes, unique), `revoked_at`. Partial unique index: one active key per device                                                                                                                          |
+| `key_packages`              | `device_key_id`, `ref` (hex, unique), `data` (≤ 4 KiB), `expires_at`, `claimed_at` (each package handed out once)                                                                                                                                                                                        |
+| `conversations`             | `id` (random v4, = MLS group ID), `type` (`DIRECT`), `direct_key` (unique ordered pair, CHECK format/consistency), `version` (change counter), `mls_epoch`, `group_info`, `last_activity_at`                                                                                                             |
+| `conversation_participants` | `(conversation_id, user_id)` PK, `last_read_seq`, `last_delivered_seq` (high-water marks). Trigger: DIRECT participants must be the pair in `direct_key`                                                                                                                                                 |
+| `messages`                  | UUIDv7 `id`, `seq`/`version` (unique `(conversation, seq)`), `sender_id`, `sender_device_key_id`, `client_message_id` (unique per sender), `epoch`, `ciphertext` (≤ 64 KiB; NULL exactly when deleted), `reply_to_id` (composite FK: same conversation), `forwarded`, `revision`/`edited_at`, `withheld` |
+| `message_edits`             | Edit metadata only: `(message_id, revision)` unique, editor device, time                                                                                                                                                                                                                                 |
+| `message_reactions`         | `(message_id, user_id, reaction)` PK; CHECK reaction in the fixed set                                                                                                                                                                                                                                    |
+| `message_hides`             | "Delete for me": `(user_id, message_id)` PK with a `version` for sync                                                                                                                                                                                                                                    |
+| `mls_commits`               | `(conversation_id, epoch)` PK (one commit per epoch), `version`, `data`                                                                                                                                                                                                                                  |
+| `mls_welcomes`              | Pending Welcome per target device key; unique `(device_key_id, conversation_id, epoch)`                                                                                                                                                                                                                  |
+| `attachments`               | Random v4 `id`, `conversation_id`, `uploader_id`, `message_id` (NULL until sent), `kind`, `size`, `sha256` of the ciphertext, `storage_key` (CHECK `attachments/<uuid>.bin`)                                                                                                                             |
+| `push_tokens`               | One per device (`device_id` PK); `(provider, token)` unique                                                                                                                                                                                                                                              |
+
+New audit events: `DEVICE_KEY_REGISTERED`, `DEVICE_KEY_REVOKED`, `CONVERSATION_CREATED`,
+`MESSAGE_DELETED_FOR_EVERYONE` (IDs only — never content).
+
 ## Migrations
 
-| Migration                       | Purpose                                                   |
-| ------------------------------- | --------------------------------------------------------- |
-| `…_identity_and_authentication` | Enums, tables, indexes, foreign keys (Prisma-generated)   |
-| `…_integrity_rules`             | CHECK constraints, OGC ID immutability, append-only audit |
+| Migration                       | Purpose                                                                                                                                        |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `…_identity_and_authentication` | Enums, tables, indexes, foreign keys (Prisma-generated)                                                                                        |
+| `…_integrity_rules`             | CHECK constraints, OGC ID immutability, append-only audit                                                                                      |
+| `…_profiles_contacts_discovery` | Profiles, contacts, requests, blocks, reports, staff roles                                                                                     |
+| `…_private_messaging`           | Device keys, key packages, conversations, messages, reactions, hides, MLS commits/welcomes, attachments, push tokens, and their CHECKs/trigger |
 
 Integration tests apply all migrations to a fresh database (`prisma migrate deploy`) and
 assert there is **no drift** between the migrated database and `schema.prisma`.
@@ -143,5 +177,7 @@ assert there is **no drift** between the migrated database and `schema.prisma`.
   (e.g. pseudonymise after 90 days) before launch.
 - **Least-privilege roles:** separate migration and runtime database roles; the runtime
   role gets no `TRUNCATE`/DDL rights and no `UPDATE`/`DELETE` on `audit_events`.
-- **E2E encryption:** device public keys (identity key, signed pre-keys) will attach to
-  `devices` (ADR-012).
+- **E2E encryption:** implemented with MLS in Phase 3 (`device_keys`, `key_packages`,
+  `mls_commits`, `mls_welcomes`); group conversations will add conversation types and
+  participant roles.
+- **Local message retention:** per-conversation pruning of device-local history (Planned).

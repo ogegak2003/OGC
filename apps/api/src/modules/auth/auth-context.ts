@@ -13,6 +13,8 @@ export interface AuthContext {
   accountStatus: AccountStatus;
   sessionId: string;
   deviceId: string;
+  /** When the presented access token expires (realtime connections are closed at this time). */
+  accessExpiresAt: Date;
   /** How the token was presented; cookie-authenticated requests are CSRF-checked. */
   via: 'cookie' | 'bearer';
   /** Platform staff roles, loaded from the database on every request (never from the client). */

@@ -15,7 +15,7 @@ Data details: [data-model.md](data-model.md). Security rationale:
 | `blocks`                         | Blocking and unblocking                                                                      |
 | `reports`                        | User reports and the staff-only report queue                                                 |
 | `storage`                        | `ObjectStorage` port for binary media (local dev adapter today)                              |
-| `common/events`                  | `DomainEventBus` — in-process events for future realtime and notifications                   |
+| `common/events`                  | `DomainEventBus` — in-process events consumed by realtime and notifications                  |
 
 Every endpoint takes the acting user **only** from `@CurrentAuth()`; no route accepts a user
 ID, and other people are addressed only by their public OGC ID.
@@ -176,8 +176,10 @@ exist. No offsets, no unbounded loads, stable under concurrent inserts, and serv
 ## Events
 
 `DomainEventBus` publishes, after commit: `contact.request.sent`, `.accepted`, `.declined`,
-`.cancelled`, `contact.removed`, `user.blocked`, `user.unblocked`, `profile.updated`. Nothing
-consumes them yet except tests. Future use:
+`.cancelled`, `contact.removed`, `user.blocked`, `user.unblocked`, `profile.updated`; Phase 3
+added `session.revoked` (closes that session's sockets and revokes its device key) and
+`message.created` (push notifications). Since Phase 3, `user.blocked` immediately stops
+presence sharing in both directions. Planned use of the remaining social events:
 
 | Event                      | Realtime (Phase 3)               | Notification (Phase 7)              |
 | -------------------------- | -------------------------------- | ----------------------------------- |
@@ -187,7 +189,8 @@ consumes them yet except tests. Future use:
 | `user.blocked`/`unblocked` | Hide/refresh conversations       | — (never notify the blocked person) |
 | `profile.updated`          | Refresh cached profile cards     | —                                   |
 
-No WebSockets were added in this phase; clients re-fetch after their own actions.
+Social screens still re-fetch after their own actions; realtime events for contact changes are
+not emitted yet.
 
 ## API endpoints (all under `/api/v1`, authenticated, ACTIVE accounts only)
 
