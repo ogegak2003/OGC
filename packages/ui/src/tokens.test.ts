@@ -29,6 +29,26 @@ describe('colour tokens meet WCAG AA', () => {
     }
   });
 
+  it('text roles are readable on tinted backgrounds', () => {
+    const pairs = [
+      ['textPrimary', 'accentSubtle'],
+      ['accent', 'accentSubtle'],
+      ['accentHighlight', 'accentSubtle'],
+      ['textSecondary', 'surfaceHover'],
+      ['textPrimary', 'dangerSubtle'],
+      ['danger', 'dangerSubtle'],
+      ['textPrimary', 'successSubtle'],
+      ['success', 'successSubtle'],
+      ['textPrimary', 'warningSubtle'],
+      ['textPrimary', 'infoSubtle'],
+      ['accentHighlight', 'surfaceRaised'],
+    ] as const;
+    for (const [text, fill] of pairs) {
+      const ratio = contrastRatio(color[text], color[fill]);
+      expect(ratio, `${text} on ${fill}`).toBeGreaterThanOrEqual(AA_TEXT);
+    }
+  });
+
   it('text on the gold accent is readable', () => {
     for (const fill of ['accent', 'accentHover', 'accentPressed'] as const) {
       const ratio = contrastRatio(color.onAccent, color[fill]);

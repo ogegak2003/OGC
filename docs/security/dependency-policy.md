@@ -46,6 +46,26 @@ Other Phase 3 runtime dependencies: `socket.io`/`socket.io-client` 4.8.3,
 version as Nest's, for a route-specific body limit), `expo-audio`, `expo-document-picker`,
 `expo-file-system` (SDK 57). Test-only: `fake-indexeddb` 6.2.5.
 
+## Calls dependencies
+
+| Package                                      | Role                                            | Notes                                                                                                                                                                                                                                              |
+| -------------------------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `react-native-webrtc` 124.0.8                | WebRTC (media, peer connections) on mobile      | MIT. Pinned below 155.0.0, published the day it was evaluated (release-age window). React Native Directory lists it as "untested on New Architecture"; its Java module compiles and links in OGC's RN 0.86 build. Verify on devices before release |
+| `@config-plugins/react-native-webrtc` 15.0.2 | Expo config plugin (permissions, iOS bitcode)   | Supports `expo >= 56`                                                                                                                                                                                                                              |
+| `expo-dev-client` 57.0.20                    | Development builds (Expo Go cannot load WebRTC) | SDK 57 (`~57.0.19` bundled)                                                                                                                                                                                                                        |
+| `expo-keep-awake` 57.0.2                     | Keeps the screen on during calls                | SDK 57; already part of Expo, now a direct dependency                                                                                                                                                                                              |
+
+No install scripts were added (`pnpm-workspace.yaml` unchanged) and `pnpm audit --audit-level=high`
+reports no new advisories. The web app uses the browsers' built-in WebRTC (no dependency).
+
+## Email dependency (Phase 9)
+
+| Package             | Role                                   | Notes                                                                                                                        |
+| ------------------- | -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `nodemailer` 10.1.0 | SMTP delivery (`EMAIL_TRANSPORT=smtp`) | MIT-0, no dependencies, bundled types. Published 5 days before adoption (outside the release-age window); 10.1.1 was too new |
+
+`pnpm-workspace.yaml` was unchanged by the install, no install scripts were added, and the audit gate reports no new advisories.
+
 ## Security overrides
 
 Configured in `pnpm-workspace.yaml` → `overrides`.

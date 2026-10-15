@@ -19,7 +19,15 @@ import {
   REALTIME_NAMESPACE,
   type RealtimeAck,
 } from '@ogc/types';
-import { presenceSubscriptionSchema, typingEventSchema } from '@ogc/validation';
+import {
+  callEndSchema,
+  callIdSchema,
+  callSignalSchema,
+  callStartSchema,
+  callSyncSchema,
+  presenceSubscriptionSchema,
+  typingEventSchema,
+} from '@ogc/validation';
 import type { Socket } from 'socket.io';
 import { DomainEventBus } from '../../common/events/domain-events.js';
 import { MetricsService } from '../../common/metrics/metrics.js';
@@ -27,6 +35,7 @@ import { type MessagingLimitName, messagingLimit } from '../../common/throttling
 import type { Env } from '../../config/env.schema.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import { cookieNames } from '../auth/cookies.js';
+import { CallError, CallsService } from '../calls/calls.service.js';
 import { SessionService } from '../auth/session.service.js';
 import {
   ConversationAccessService,
@@ -57,6 +66,14 @@ const CLIENT_EVENTS: ReadonlySet<string> = new Set<ClientEventName>([
   'typing.stop',
   'presence.subscribe',
   'presence.unsubscribe',
+  'call.start',
+  'call.accept',
+  'call.decline',
+  'call.cancel',
+  'call.end',
+  'call.signal',
+  'call.connected',
+  'call.sync',
 ]);
 /** A socket may watch at most this many accounts' presence. */
 const PRESENCE_SUBSCRIPTIONS_MAX = 200;
@@ -99,8 +116,9 @@ function readCookie(header: string | undefined, name: string): string | undefine
  * authenticated with the same session tokens as the REST API — a bearer token
  * in the handshake `auth` (native) or the HttpOnly access cookie plus an
  * allowlisted Origin (web) — and are closed when the access token expires or
- * the session is revoked. Clients may only send the four events in the
- * contract; each is validated, rate-limited and authorized. Identity always
+ * the session is revoked. Clients may only send the events in the
+ * contract (typing, presence and call signaling); each is validated, rate-limited and
+ * authorized. Identity always
  * comes from the socket's session, never from the payload.
  */
 @WebSocketGateway({ namespace: REALTIME_NAMESPACE })
@@ -115,6 +133,7 @@ export class RealtimeGateway
   private readonly accessCache = new Map<string, { recipients: string[]; expires: number }>();
   private readonly presenceSubscriptions = new Map<string, Set<string>>();
   private heartbeat: NodeJS.Timeout | undefined;
+  private sessionCheck: NodeJS.Timeout | undefined;
   private unsubscribe: (() => void) | undefined;
 
   constructor(
@@ -126,6 +145,7 @@ export class RealtimeGateway
     private readonly prisma: PrismaService,
     private readonly events: DomainEventBus,
     private readonly metrics: MetricsService,
+    private readonly calls: CallsService,
     @Inject(ThrottlerStorage) private readonly limiter: ThrottlerStorage,
   ) {}
 
@@ -157,11 +177,68 @@ export class RealtimeGateway
       });
     }, PRESENCE_HEARTBEAT_MS);
     this.heartbeat.unref();
+    // Defence in depth: sessions revoked or accounts suspended by any path — including an
+    // operator changing the database directly — lose their sockets within one interval,
+    // not only when the access token expires.
+    this.sessionCheck = setInterval(
+      () => {
+        this.revalidateSessions().catch((error: unknown) => {
+          this.logger.warn({ err: error }, 'Realtime session check failed');
+        });
+      },
+      this.config.get('REALTIME_SESSION_CHECK_MS', { infer: true }),
+    );
+    this.sessionCheck.unref();
+  }
+
+  /** Closes local sockets whose session ended or whose account may no longer connect. */
+  async revalidateSessions(): Promise<number> {
+    const bySession = new Map<string, OgcSocket[]>();
+    for (const socket of this.local.values()) {
+      const { sessionId } = this.identity(socket);
+      bySession.set(sessionId, [...(bySession.get(sessionId) ?? []), socket]);
+    }
+    const ids = [...bySession.keys()];
+    let closed = 0;
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      const rows = await this.prisma.session.findMany({
+        where: { id: { in: chunk } },
+        select: {
+          id: true,
+          userId: true,
+          revokedAt: true,
+          expiresAt: true,
+          user: { select: { status: true } },
+        },
+      });
+      const found = new Map(rows.map((row) => [row.id, row]));
+      const now = Date.now();
+      for (const sessionId of chunk) {
+        const row = found.get(sessionId);
+        if (row === undefined) {
+          for (const socket of bySession.get(sessionId) ?? []) socket.disconnect(true);
+          continue;
+        }
+        const ended = row.revokedAt !== null || row.expiresAt.getTime() <= now;
+        if (!ended && row.user.status === 'ACTIVE') continue;
+        if (!ended && row.user.status !== 'PENDING_VERIFICATION') {
+          // Suspended or deactivated: end the session everywhere (publishes session.revoked).
+          await this.sessions.revoke(row.id, row.userId, 'ACCOUNT_DISABLED', {});
+        }
+        for (const socket of bySession.get(sessionId) ?? []) {
+          socket.disconnect(true);
+          closed += 1;
+        }
+      }
+    }
+    return closed;
   }
 
   onModuleDestroy(): void {
     this.unsubscribe?.();
     if (this.heartbeat) clearInterval(this.heartbeat);
+    if (this.sessionCheck) clearInterval(this.sessionCheck);
     for (const timer of [...this.expiryTimers.values(), ...this.typingTimers.values()])
       clearTimeout(timer);
   }
@@ -473,5 +550,111 @@ export class RealtimeGateway
       subscriptions?.delete(user.id);
       await socket.leave(presenceRoom(user.id));
     }
+  }
+
+  // ── One-to-one calls (ADR-037) ──────────────────────────────────────────────────────────
+  // Identity (user and device) comes from the socket session. Payloads are never logged:
+  // session descriptions and ICE candidates contain network addresses.
+
+  /**
+   * Validates, rate-limits and runs a call operation, turning refusals into an
+   * acknowledgement error code. Unexpected failures are logged without the payload.
+   */
+  private async callOperation<T>(
+    socket: OgcSocket,
+    limit: 'callStart' | 'callSignal',
+    run: (actor: { userId: string; deviceId: string }) => Promise<T>,
+  ): Promise<{ ok: true; data: T } | { ok: false; error: string }> {
+    const { userId, deviceId } = this.identity(socket);
+    if (!(await this.consume(limit, `user:${userId}`))) return { ok: false, error: 'rate_limited' };
+    try {
+      return { ok: true, data: await run({ userId, deviceId }) };
+    } catch (error) {
+      if (error instanceof CallError) {
+        this.metrics.failures.inc({ operation: 'call', reason: error.code });
+        return { ok: false, error: error.code };
+      }
+      this.metrics.failures.inc({ operation: 'call', reason: 'error' });
+      this.logger.warn(
+        { error: error instanceof Error ? error.name : 'unknown' },
+        'Call operation failed',
+      );
+      return { ok: false, error: 'unavailable' };
+    }
+  }
+
+  @SubscribeMessage('call.start')
+  async callStart(@ConnectedSocket() socket: OgcSocket, @MessageBody() body: unknown) {
+    const parsed = callStartSchema.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'invalid' };
+    return this.callOperation(socket, 'callStart', (actor) =>
+      this.calls.start(actor, parsed.data.conversationId, parsed.data.media),
+    );
+  }
+
+  @SubscribeMessage('call.accept')
+  async callAccept(@ConnectedSocket() socket: OgcSocket, @MessageBody() body: unknown) {
+    const parsed = callIdSchema.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'invalid' };
+    return this.callOperation(socket, 'callSignal', (actor) =>
+      this.calls.accept(actor, parsed.data.callId, socket.id),
+    );
+  }
+
+  @SubscribeMessage('call.decline')
+  async callDecline(@ConnectedSocket() socket: OgcSocket, @MessageBody() body: unknown) {
+    const parsed = callIdSchema.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'invalid' };
+    return this.callOperation(socket, 'callSignal', async (actor) => {
+      await this.calls.decline(actor, parsed.data.callId);
+      return null;
+    });
+  }
+
+  @SubscribeMessage('call.cancel')
+  async callCancel(@ConnectedSocket() socket: OgcSocket, @MessageBody() body: unknown) {
+    const parsed = callIdSchema.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'invalid' };
+    return this.callOperation(socket, 'callSignal', async (actor) => {
+      await this.calls.end(actor, parsed.data.callId);
+      return null;
+    });
+  }
+
+  @SubscribeMessage('call.end')
+  async callEnd(@ConnectedSocket() socket: OgcSocket, @MessageBody() body: unknown) {
+    const parsed = callEndSchema.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'invalid' };
+    return this.callOperation(socket, 'callSignal', async (actor) => {
+      await this.calls.end(actor, parsed.data.callId, parsed.data.reason === 'failed');
+      return null;
+    });
+  }
+
+  @SubscribeMessage('call.signal')
+  async callSignal(@ConnectedSocket() socket: OgcSocket, @MessageBody() body: unknown) {
+    const parsed = callSignalSchema.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'invalid' };
+    return this.callOperation(socket, 'callSignal', async (actor) => {
+      await this.calls.signal(actor, parsed.data.callId, parsed.data.signal);
+      return null;
+    });
+  }
+
+  @SubscribeMessage('call.connected')
+  async callConnected(@ConnectedSocket() socket: OgcSocket, @MessageBody() body: unknown) {
+    const parsed = callIdSchema.safeParse(body);
+    if (!parsed.success) return { ok: false, error: 'invalid' };
+    return this.callOperation(socket, 'callSignal', async (actor) => {
+      await this.calls.connected(actor, parsed.data.callId);
+      return null;
+    });
+  }
+
+  @SubscribeMessage('call.sync')
+  async callSync(@ConnectedSocket() socket: OgcSocket, @MessageBody() body: unknown) {
+    const parsed = callSyncSchema.safeParse(body ?? {});
+    if (!parsed.success) return { ok: false, error: 'invalid' };
+    return this.callOperation(socket, 'callSignal', (actor) => this.calls.current(actor));
   }
 }

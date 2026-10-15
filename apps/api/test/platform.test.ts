@@ -25,7 +25,11 @@ class ThrowingController {
 describe('API (e2e)', () => {
   let app: INestApplication;
   let server: App;
-  const prisma = { isReachable: vi.fn<() => Promise<boolean>>(), onModuleDestroy: vi.fn() };
+  const prisma = {
+    isReachable: vi.fn<() => Promise<boolean>>(),
+    migrationsComplete: vi.fn<() => Promise<boolean>>(),
+    onModuleDestroy: vi.fn(),
+  };
 
   beforeAll(async () => {
     const moduleRef = await Test.createTestingModule({
@@ -44,6 +48,7 @@ describe('API (e2e)', () => {
 
   beforeEach(() => {
     prisma.isReachable.mockReset();
+    prisma.migrationsComplete.mockReset().mockResolvedValue(true);
   });
 
   afterAll(async () => {
@@ -59,13 +64,29 @@ describe('API (e2e)', () => {
   it('GET /api/v1/health/ready is 200 when the database is reachable', async () => {
     prisma.isReachable.mockResolvedValue(true);
     const res = await request(server).get('/api/v1/health/ready').expect(200);
-    expect(res.body).toMatchObject({ status: 'ok', checks: { database: 'ok' } });
+    expect(res.body).toMatchObject({
+      status: 'ok',
+      checks: { database: 'ok', migrations: 'ok', process: 'ok' },
+    });
+    expect(res.headers['cache-control']).toBe('no-store');
   });
 
   it('GET /api/v1/health/ready is 503 when the database is unreachable', async () => {
     prisma.isReachable.mockResolvedValue(false);
     const res = await request(server).get('/api/v1/health/ready').expect(503);
     expect(res.body).toMatchObject({ status: 'down', checks: { database: 'down' } });
+  });
+
+  it('GET /api/v1/health/ready is 503 while a migration is failed or unfinished', async () => {
+    prisma.isReachable.mockResolvedValue(true);
+    prisma.migrationsComplete.mockResolvedValue(false);
+    const res = await request(server).get('/api/v1/health/ready').expect(503);
+    expect(res.body).toMatchObject({
+      status: 'down',
+      checks: { database: 'ok', migrations: 'down' },
+    });
+    // Liveness is unaffected: the process is fine, it just must not receive traffic.
+    await request(server).get('/api/v1/health').expect(200);
   });
 
   it('sets security headers and hides the framework', async () => {

@@ -18,9 +18,9 @@ import {
 class CapturingPushProvider extends PushProvider {
   readonly name = 'capture';
   readonly sent: PushNotification[] = [];
-  send(notifications: PushNotification[]): Promise<void> {
+  send(notifications: PushNotification[]): Promise<undefined> {
     this.sent.push(...notifications);
-    return Promise.resolve();
+    return Promise.resolve(undefined);
   }
 }
 
@@ -126,7 +126,9 @@ describe('community notifications', () => {
       .send({ level: 'MENTIONS' })
       .expect(200);
     expect(await service.notifyNewMessage(groupId, [bob.userId], [])).toBe(0);
-    expect(await service.notifyNewMessage(groupId, [bob.userId], [bob.userId])).toBe(1);
+    // A mentioned member gets the "You were mentioned" push (community notification) instead
+    // of a second "New message" push for the same message.
+    expect(await service.notifyNewMessage(groupId, [bob.userId], [bob.userId])).toBe(0);
 
     await bob
       .as(api().put(`/api/v1/conversations/${groupId}/notifications`))

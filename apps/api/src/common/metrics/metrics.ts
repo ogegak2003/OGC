@@ -65,6 +65,52 @@ export class MetricsService {
     registers: [this.registry],
   });
 
+  readonly callsStarted = new Counter({
+    name: 'ogc_calls_started_total',
+    help: 'Calls started, by media type',
+    labelNames: ['media'] as const,
+    registers: [this.registry],
+  });
+
+  readonly callsEnded = new Counter({
+    name: 'ogc_calls_ended_total',
+    help: 'Calls ended, by media type and outcome',
+    labelNames: ['media', 'outcome'] as const,
+    registers: [this.registry],
+  });
+
+  readonly openCalls = new Gauge({
+    name: 'ogc_calls_open',
+    help: 'Calls ringing or in progress (as seen by the last sweep on this instance)',
+    registers: [this.registry],
+  });
+
+  readonly pushDeliveries = new Counter({
+    name: 'ogc_push_deliveries_total',
+    help: 'Push deliveries by category and outcome (queued, sent, delivered, retried, failed, expired)',
+    labelNames: ['category', 'outcome'] as const,
+    registers: [this.registry],
+  });
+
+  readonly pushErrors = new Counter({
+    name: 'ogc_push_errors_total',
+    help: 'Push provider errors by code (e.g. DeviceNotRegistered, HTTP_503, NETWORK)',
+    labelNames: ['code'] as const,
+    registers: [this.registry],
+  });
+
+  readonly pushBacklog = new Gauge({
+    name: 'ogc_push_queue_pending',
+    help: 'Pushes waiting to be sent (as seen by the last check on this instance)',
+    registers: [this.registry],
+  });
+
+  readonly pushOldestPendingSeconds = new Gauge({
+    name: 'ogc_push_queue_oldest_pending_seconds',
+    help: 'Age of the oldest pending push (alert when it keeps growing)',
+    registers: [this.registry],
+  });
+
   readonly rateLimited = new Counter({
     name: 'ogc_rate_limited_total',
     help: 'Requests and realtime events rejected by rate limits',

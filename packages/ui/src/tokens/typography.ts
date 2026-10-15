@@ -32,9 +32,10 @@ export const lineHeight = {
   normal: 1.5,
 } as const;
 
-/** Letter spacing in em. The wide setting is used for OGC identities. */
+/** Letter spacing in em. The wide setting is used for OGC identities and overlines. */
 export const letterSpacing = {
   tight: -0.02,
   normal: 0,
   wide: 0.08,
+  identity: 0.12,
 } as const;

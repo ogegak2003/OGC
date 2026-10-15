@@ -25,16 +25,32 @@ function fill(label: RegExp | string, value: string) {
 }
 
 describe('welcome', () => {
-  it('invites visitors to create an OGC ID or sign in', async () => {
+  it('invites visitors to create an account or sign in', async () => {
     mockApi(signedOut);
     renderApp('/');
     expect(await screen.findByRole('heading', { level: 1 })).toHaveProperty(
       'textContent',
-      'Your identity.Not your phone number.',
+      'OGC GlobalCommunication',
     );
-    expect(screen.getByRole('link', { name: 'Create your OGC ID' }).getAttribute('href')).toBe(
+    expect(screen.getByRole('img', { name: 'OGC' })).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'Create Account' }).getAttribute('href')).toBe(
       '/register',
     );
+    expect(screen.getByRole('link', { name: 'Sign In' }).getAttribute('href')).toBe('/login');
+  });
+
+  it('opens the existing registration form from Create Account', async () => {
+    mockApi(signedOut);
+    renderApp('/');
+    fireEvent.click(await screen.findByRole('link', { name: 'Create Account' }));
+    expect(await screen.findByRole('heading', { name: 'Create your OGC account' })).toBeTruthy();
+  });
+
+  it('opens the existing sign-in form from Sign In', async () => {
+    mockApi(signedOut);
+    renderApp('/');
+    fireEvent.click(await screen.findByRole('link', { name: 'Sign In' }));
+    expect(await screen.findByRole('heading', { name: 'Sign in to OGC' })).toBeTruthy();
   });
 
   it('sends signed-out visitors away from protected pages', async () => {
@@ -91,7 +107,7 @@ describe('sign in', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }));
 
     expect(await screen.findByRole('heading', { name: 'Your OGC ID' })).toBeTruthy();
-    expect(screen.getByText('OGC 306 841 127')).toBeTruthy();
+    expect(within(screen.getByRole('main')).getByText('OGC 306 841 127')).toBeTruthy();
     const qr = screen.getByRole('img', { name: 'QR code for OGC306841127' });
     expect(qr.closest('figure')?.getAttribute('data-payload')).toBe('ogc://id/OGC306841127');
     expect(screen.getByRole('button', { name: 'Share my OGC' })).toBeTruthy();
@@ -226,18 +242,19 @@ describe('signed-in home', () => {
       'GET /api/v1/profile': () => json(ownProfile()),
     });
     renderApp('/home');
-    const [, tabBar] = await screen.findAllByRole('navigation', { name: 'Main' });
+    const [sidebar, tabBar] = await screen.findAllByRole('navigation', { name: 'Main' });
     const tabs = within(required(tabBar));
-    for (const name of ['Messages', 'Channels', 'Alerts', 'Contacts']) {
+    for (const name of ['Home', 'Chats', 'Contacts', 'Communities']) {
       expect(tabs.getByRole('link', { name })).toBeTruthy();
     }
+    expect(tabs.getByRole('link', { name: 'Home' }).getAttribute('aria-current')).toBe('page');
     const more = tabs.getByRole('button', { name: 'More' });
     expect(more.getAttribute('aria-expanded')).toBe('false');
     expect(tabs.queryByRole('link', { name: 'Discover' })).toBeNull();
 
     fireEvent.click(more);
     expect(more.getAttribute('aria-expanded')).toBe('true');
-    for (const name of ['My OGC', 'Discover', 'Privacy']) {
+    for (const name of ['Notifications', 'Discover', 'Invitations', 'Edit profile', 'Privacy']) {
       expect(tabs.getByRole('link', { name })).toBeTruthy();
     }
     expect(tabs.getByRole('button', { name: 'Sign out' })).toBeTruthy();
@@ -245,6 +262,22 @@ describe('signed-in home', () => {
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(more.getAttribute('aria-expanded')).toBe('false');
     expect(tabs.queryByRole('link', { name: 'Discover' })).toBeNull();
+
+    // Wide screens: the sidebar lists every destination at once.
+    const side = within(required(sidebar));
+    for (const name of [
+      'Home',
+      'Chats',
+      'Calls',
+      'Groups',
+      'Channels',
+      'Contacts',
+      'Notifications',
+      'Discover',
+      'Settings',
+    ]) {
+      expect(side.getByRole('link', { name })).toBeTruthy();
+    }
   });
 });
 

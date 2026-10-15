@@ -1,30 +1,28 @@
 import type { OwnProfile } from '@ogc/types';
-import { color } from '@ogc/ui';
-import { BIO_MAX_LENGTH, formatOgcIdForDisplay, updateProfileRequestSchema } from '@ogc/validation';
+import { color, fontSize, fontWeight, radius, space } from '@ogc/ui';
+import { BIO_MAX_LENGTH, updateProfileRequestSchema } from '@ogc/validation';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Text, TextInput, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../auth/AuthProvider';
-import { Avatar, OgcQrCode } from '../../components/identity';
-import { Button, Field, Notice } from '../../components/ui';
+import { Icon } from '../../components/Icon';
+import { Avatar, OgcIdText, OgcQrCode, useCopy } from '../../components/identity';
+import {
+  Button,
+  CountBadge,
+  Field,
+  ListGroup,
+  ListRow,
+  Loading,
+  Notice,
+  SectionHeader,
+} from '../../components/ui';
 import { errorMessage, fieldErrors } from '../../lib/errors';
 import { shareIdentity } from '../../lib/share';
 import { useResource } from '../../lib/use-resource';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
-import { social } from './styles';
-
-const MENU = [
-  { label: 'Notifications', route: { name: 'notifications' } },
-  { label: 'Community channels', route: { name: 'channels' } },
-  { label: 'Group invitations', route: { name: 'invitations' } },
-  { label: 'Join with a link', route: { name: 'join' } },
-  { label: 'Discover people', route: { name: 'discover' } },
-  { label: 'Contacts', route: { name: 'contacts' } },
-  { label: 'Privacy', route: { name: 'privacy' } },
-  { label: 'Blocked people', route: { name: 'blocked' } },
-] as const;
 
 function useOwnProfile() {
   const { client } = useAuth();
@@ -32,87 +30,141 @@ function useOwnProfile() {
   return useResource(load);
 }
 
-/** "My OGC": identity, sharing, and the way into every social feature. */
+/** "You": the user's profile, identity and every setting. */
 export function ProfileScreen() {
-  const { logout } = useAuth();
+  const { logout, state: auth } = useAuth();
   const nav = useNavigation();
-  const { state } = useOwnProfile();
-  const { unreadTotal } = useMessaging();
+  const { state, reload } = useOwnProfile();
+  const { notificationsUnread } = useMessaging();
+  const email = auth.status === 'signed-in' ? auth.account.email : '';
 
-  if (state.status === 'loading')
-    return <ActivityIndicator style={{ flex: 1 }} accessibilityLabel="Loading" />;
+  if (state.status === 'loading') return <Loading label="Loading" />;
   if (state.status === 'error') {
     return (
-      <Screen title="My OGC">
-        <Notice>{errorMessage(state.error)}</Notice>
+      <Screen title="You">
+        <Notice action={{ label: 'Retry', onPress: reload }}>{errorMessage(state.error)}</Notice>
+        <Button title="Sign out" variant="ghost" icon="logout" onPress={() => void logout()} />
       </Screen>
     );
   }
   const profile = state.data;
   return (
-    <Screen>
-      <View style={social.row}>
-        <Avatar url={profile.avatarUrl} name={profile.displayName} size={64} />
-        <View style={social.names}>
-          <Text style={social.name} accessibilityRole="header">
+    <Screen title="You">
+      <View style={styles.profile}>
+        <Avatar url={profile.avatarUrl} name={profile.displayName} size={72} ring />
+        <View style={styles.profileText}>
+          <Text style={styles.name} accessibilityRole="header" numberOfLines={2}>
             {profile.displayName}
           </Text>
-          <Text
-            style={social.muted}
-            onPress={() => {
-              nav.push({ name: 'edit-profile' });
-            }}
-            accessibilityRole="button"
-          >
-            Edit profile
-          </Text>
+          <OgcIdText ogcId={profile.ogcId} />
         </View>
       </View>
-      <View style={social.card}>
-        <Text style={social.label}>YOUR OGC ID</Text>
-        <Text style={social.bigOgcId} accessibilityLabel={profile.ogcId} selectable>
-          {formatOgcIdForDisplay(profile.ogcId)}
-        </Text>
-        {profile.bio ? <Text style={social.body}>{profile.bio}</Text> : null}
+      {profile.bio ? <Text style={styles.bio}>{profile.bio}</Text> : null}
+      <View style={styles.buttons}>
         <Button
-          title="Share my OGC"
-          onPress={() => void shareIdentity(profile.ogcId, profile.displayName)}
+          title="Edit profile"
+          icon="edit"
+          variant="secondary"
+          compact
+          style={styles.flex}
+          onPress={() => {
+            nav.push({ name: 'edit-profile' });
+          }}
         />
         <Button
           title="Show my QR code"
+          icon="qr"
           variant="secondary"
+          compact
+          style={styles.flex}
           onPress={() => {
             nav.push({ name: 'my-qr' });
           }}
         />
       </View>
-      <Text
-        style={[social.menuItem, social.menuText, { color: color.accent }]}
-        accessibilityRole="button"
-        accessibilityLabel={
-          unreadTotal > 0 ? `Messages, ${String(unreadTotal)} unread` : 'Messages'
-        }
-        onPress={() => {
-          nav.push({ name: 'messages' });
-        }}
-      >
-        Messages{unreadTotal > 0 ? `  ·  ${String(unreadTotal)} unread` : ''}
-      </Text>
-      <View>
-        {MENU.map((item) => (
-          <Text
-            key={item.label}
-            style={[social.menuItem, social.menuText]}
-            accessibilityRole="button"
-            onPress={() => {
-              nav.push(item.route);
-            }}
-          >
-            {item.label}
-          </Text>
-        ))}
-      </View>
-      <Button title="Sign out" variant="ghost" onPress={() => void logout()} />
+
+      <SectionHeader title="Activity" />
+      <ListGroup>
+        <ListRow
+          icon="bell"
+          title="Notifications"
+          accessibilityLabel={
+            notificationsUnread > 0
+              ? `Notifications, ${String(notificationsUnread)} new`
+              : 'Notifications'
+          }
+          trailing={<CountBadge count={notificationsUnread} />}
+          onPress={() => {
+            nav.push({ name: 'notifications' });
+          }}
+        />
+        <ListRow
+          icon="settings"
+          title="Notification settings"
+          subtitle="Alerts, previews and quiet hours"
+          onPress={() => {
+            nav.push({ name: 'notification-settings' });
+          }}
+        />
+        <ListRow
+          icon="inbox"
+          title="Group invitations"
+          onPress={() => {
+            nav.push({ name: 'invitations' });
+          }}
+        />
+        <ListRow
+          icon="userPlus"
+          title="Discover people"
+          subtitle="Find someone by their OGC ID"
+          onPress={() => {
+            nav.push({ name: 'discover' });
+          }}
+        />
+      </ListGroup>
+
+      <SectionHeader title="Privacy and security" />
+      <ListGroup>
+        <ListRow
+          icon="eye"
+          title="Privacy"
+          subtitle="Who can see your profile and contact you"
+          onPress={() => {
+            nav.push({ name: 'privacy' });
+          }}
+        />
+        <ListRow
+          icon="ban"
+          title="Blocked people"
+          onPress={() => {
+            nav.push({ name: 'blocked' });
+          }}
+        />
+        <ListRow
+          icon="shieldCheck"
+          title="Security and devices"
+          subtitle="Signed-in devices, password and encryption"
+          onPress={() => {
+            nav.push({ name: 'security' });
+          }}
+        />
+      </ListGroup>
+
+      <SectionHeader title="Account" />
+      <ListGroup>
+        <ListRow icon="mail" title={email} subtitle="Private — never shown to others" />
+        <ListRow
+          icon="clock"
+          title="Member since"
+          subtitle={new Date(profile.memberSince).toLocaleDateString(undefined, {
+            year: 'numeric',
+            month: 'long',
+            day: 'numeric',
+          })}
+        />
+      </ListGroup>
+
+      <Button title="Sign out" variant="danger" icon="logout" onPress={() => void logout()} />
     </Screen>
   );
 }
@@ -121,24 +173,46 @@ export function ProfileScreen() {
 export function MyQrScreen() {
   const nav = useNavigation();
   const { state } = useOwnProfile();
+  const [copied, copy] = useCopy();
   return (
     <Screen title="My OGC QR" onBack={nav.back}>
       {state.status === 'ready' ? (
         <>
-          <OgcQrCode ogcId={state.data.ogcId} size={260} />
-          <Text style={[social.bigOgcId, { textAlign: 'center' }]}>
-            {formatOgcIdForDisplay(state.data.ogcId)}
-          </Text>
-          <Text style={[social.muted, { textAlign: 'center' }]}>
-            Scanning shows your public profile. Nobody is added until they choose to send a request.
-          </Text>
-          <Button
-            title="Share my OGC"
-            onPress={() => void shareIdentity(state.data.ogcId, state.data.displayName)}
-          />
+          <View style={styles.qrCard}>
+            <Avatar url={state.data.avatarUrl} name={state.data.displayName} size={56} ring />
+            <Text style={styles.qrName}>{state.data.displayName}</Text>
+            <OgcQrCode ogcId={state.data.ogcId} size={232} />
+            <OgcIdText ogcId={state.data.ogcId} size="lg" />
+          </View>
+          <View style={styles.qrNote}>
+            <Icon name="shieldCheck" size={16} tint={color.accent} />
+            <Text style={styles.qrNoteText}>
+              Scanning shows your public profile. Nobody is added until they choose to send a
+              request.
+            </Text>
+          </View>
+          <View style={styles.buttons}>
+            <Button
+              title={copied ? 'Copied' : 'Copy ID'}
+              icon={copied ? 'check' : 'copy'}
+              variant="secondary"
+              style={styles.flex}
+              onPress={() => {
+                copy(state.data.ogcId);
+              }}
+            />
+            <Button
+              title="Share my OGC"
+              icon="share"
+              style={styles.flex}
+              onPress={() => void shareIdentity(state.data.ogcId, state.data.displayName)}
+            />
+          </View>
         </>
+      ) : state.status === 'error' ? (
+        <Notice>{errorMessage(state.error)}</Notice>
       ) : (
-        <ActivityIndicator accessibilityLabel="Loading" />
+        <Loading label="Loading" />
       )}
     </Screen>
   );
@@ -197,16 +271,30 @@ function EditForm({ initial }: { initial: OwnProfile }) {
   return (
     <>
       {notice ? <Notice tone={notice.tone}>{notice.text}</Notice> : null}
-      <View style={social.row}>
-        <Avatar url={profile.avatarUrl} name={displayName || profile.displayName} size={72} />
-        <View style={social.names}>
-          <Button
-            title="Choose photo"
-            variant="secondary"
-            busy={busy === 'photo'}
-            onPress={() => void choosePhoto()}
+      <View style={styles.photo}>
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Choose photo"
+          disabled={busy === 'photo'}
+          onPress={() => void choosePhoto()}
+        >
+          <Avatar
+            url={profile.avatarUrl}
+            name={displayName || profile.displayName}
+            size={96}
+            ring
           />
-        </View>
+          <View style={styles.photoBadge}>
+            <Icon name="image" size={16} tint={color.onAccent} />
+          </View>
+        </Pressable>
+        <Button
+          title="Choose photo"
+          variant="ghost"
+          compact
+          busy={busy === 'photo'}
+          onPress={() => void choosePhoto()}
+        />
       </View>
       <Field
         label="Display name"
@@ -214,16 +302,15 @@ function EditForm({ initial }: { initial: OwnProfile }) {
         onChangeText={setDisplayName}
         error={errors.displayName}
       />
-      <Text style={social.muted}>About</Text>
-      <TextInput
-        accessibilityLabel="About"
-        style={social.input}
+      <Field
+        label="About"
         multiline
         value={bio}
         onChangeText={setBio}
         maxLength={BIO_MAX_LENGTH * 2}
+        error={errors.bio}
+        hint={`${String(bio.trim().length)} / ${String(BIO_MAX_LENGTH)}`}
       />
-      <Text style={social.muted}>{errors.bio ?? `${bio.trim().length} / ${BIO_MAX_LENGTH}`}</Text>
       <Button title="Save profile" busy={busy === 'save'} onPress={() => void save()} />
     </>
   );
@@ -235,8 +322,43 @@ export function EditProfileScreen() {
   return (
     <Screen title="Edit profile" onBack={nav.back}>
       {state.status === 'ready' ? <EditForm initial={state.data} /> : null}
-      {state.status === 'loading' ? <ActivityIndicator accessibilityLabel="Loading" /> : null}
+      {state.status === 'loading' ? <Loading label="Loading" /> : null}
       {state.status === 'error' ? <Notice>{errorMessage(state.error)}</Notice> : null}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  profile: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
+  profileText: { flex: 1, gap: space[1] },
+  name: { color: color.textPrimary, fontSize: fontSize.xl, fontWeight: fontWeight.bold },
+  bio: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 22 },
+  buttons: { flexDirection: 'row', gap: space[3] },
+  qrCard: {
+    alignItems: 'center',
+    gap: space[4],
+    padding: space[6],
+    backgroundColor: color.surface,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.xl,
+  },
+  qrName: { color: color.textPrimary, fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
+  qrNote: { flexDirection: 'row', gap: space[2], alignItems: 'flex-start' },
+  qrNoteText: { flex: 1, color: color.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
+  photo: { alignItems: 'center', gap: space[2] },
+  photoBadge: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 32,
+    height: 32,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.accent,
+    borderRadius: 16,
+    borderWidth: 3,
+    borderColor: color.background,
+  },
+});

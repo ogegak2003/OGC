@@ -32,8 +32,8 @@ describe('My OGC', () => {
   it('shows the OGC ID, bio, and a QR code holding only the public identity link', async () => {
     mockApi(signedInRoutes(ownProfile({ bio: 'Mathematician.' })));
     renderApp('/home');
-    expect(await screen.findByText('OGC 306 841 127')).toBeTruthy();
-    expect(screen.getByText('Mathematician.')).toBeTruthy();
+    expect(await screen.findByText('Mathematician.')).toBeTruthy();
+    expect(within(screen.getByRole('main')).getByText('OGC 306 841 127')).toBeTruthy();
     const qr = screen.getByRole('img', { name: 'QR code for OGC306841127' });
     const payload = qr.closest('figure')?.getAttribute('data-payload');
     expect(payload).toBe('ogc://id/OGC306841127');

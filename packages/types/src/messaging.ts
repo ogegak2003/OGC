@@ -6,6 +6,7 @@ import type {
   NotificationView,
   ReceivedInvitationView,
 } from './community.js';
+import type { CallEndReason, CallSetup, CallSignal, CallView } from './calls.js';
 import type { OgcId } from './identity.js';
 import type { ProfileSummary } from './social.js';
 
@@ -277,6 +278,18 @@ export interface ServerToClientEvents {
   'channel.access_revoked': (payload: { channelId: string }) => void;
 
   'community.notification': (payload: { notification: NotificationView }) => void;
+
+  // One-to-one calls (Phase 6). Signaling only; media flows between the two devices.
+  /** To every device of the callee. */
+  'call.incoming': (payload: { call: CallView }) => void;
+  /** To the caller's device: the callee answered on one device, so send the offer now. */
+  'call.accepted': (payload: { callId: string }) => void;
+  /** To the callee's other devices: stop ringing. */
+  'call.answered_elsewhere': (payload: { callId: string }) => void;
+  /** From the other device in the call. */
+  'call.signal': (payload: { callId: string; signal: CallSignal }) => void;
+  /** To every device of both participants (each sees its own view of the call). */
+  'call.ended': (payload: { call: CallView; reason: CallEndReason }) => void;
 }
 
 export type RealtimeAck<T> = (
@@ -288,6 +301,25 @@ export interface ClientToServerEvents {
   'typing.stop': (payload: { conversationId: string }) => void;
   'presence.subscribe': (payload: { ogcIds: OgcId[] }, ack: RealtimeAck<PresenceView[]>) => void;
   'presence.unsubscribe': (payload: { ogcIds: OgcId[] }) => void;
+  'call.start': (
+    payload: { conversationId: string; media: CallView['media'] },
+    ack: RealtimeAck<CallSetup>,
+  ) => void;
+  'call.accept': (payload: { callId: string }, ack: RealtimeAck<CallSetup>) => void;
+  'call.decline': (payload: { callId: string }, ack: RealtimeAck<null>) => void;
+  'call.cancel': (payload: { callId: string }, ack: RealtimeAck<null>) => void;
+  'call.end': (
+    payload: { callId: string; reason?: 'hangup' | 'failed' },
+    ack: RealtimeAck<null>,
+  ) => void;
+  'call.signal': (payload: { callId: string; signal: CallSignal }, ack: RealtimeAck<null>) => void;
+  /** Media is flowing: starts the call duration (first report wins). */
+  'call.connected': (payload: { callId: string }, ack: RealtimeAck<null>) => void;
+  /** The account's open call, if any — to restore the call screen after a reconnect. */
+  'call.sync': (
+    payload: Record<string, never>,
+    ack: RealtimeAck<{ call: CallView; onThisDevice: boolean } | null>,
+  ) => void;
 }
 
 export type ServerEventName = keyof ServerToClientEvents;

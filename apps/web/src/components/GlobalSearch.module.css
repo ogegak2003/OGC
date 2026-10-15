@@ -1,0 +1,95 @@
+.search {
+  position: relative;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  max-width: 34rem;
+}
+
+.icon {
+  position: absolute;
+  left: var(--ogc-space-4);
+  color: var(--ogc-color-text-muted);
+  pointer-events: none;
+}
+
+.input {
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0 var(--ogc-space-4) 0 2.75rem;
+  color: var(--ogc-color-text-primary);
+  font: inherit;
+  font-size: var(--ogc-font-size-sm);
+  background: rgb(255 255 255 / 0.03);
+  border: 1px solid var(--ogc-color-border-strong);
+  border-radius: var(--ogc-radius-full);
+  transition:
+    border-color var(--ogc-duration-fast) var(--ogc-easing-standard),
+    background-color var(--ogc-duration-fast) var(--ogc-easing-standard);
+}
+
+.input::placeholder {
+  color: var(--ogc-color-text-muted);
+}
+
+.input:hover {
+  border-color: rgb(216 173 78 / 0.35);
+}
+
+.input:focus-visible {
+  background: rgb(255 255 255 / 0.05);
+  border-color: var(--ogc-color-accent);
+  outline: 2px solid var(--ogc-color-focus-ring);
+  outline-offset: 1px;
+}
+
+.list {
+  position: absolute;
+  top: calc(100% + var(--ogc-space-2));
+  right: 0;
+  left: 0;
+  z-index: 40;
+  display: grid;
+  margin: 0;
+  padding: var(--ogc-space-2);
+  list-style: none;
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid var(--ogc-color-border-strong);
+  border-radius: var(--ogc-radius-lg);
+  box-shadow: var(--ogc-elevation-high);
+}
+
+.list[hidden] {
+  display: none;
+}
+
+.option,
+.optionActive {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  min-height: 2.75rem;
+  padding: 0 var(--ogc-space-3);
+  color: var(--ogc-color-text-secondary);
+  border-radius: var(--ogc-radius-md);
+  cursor: pointer;
+}
+
+.optionActive {
+  color: var(--ogc-color-text-primary);
+  background: var(--ogc-color-accent-subtle);
+}
+
+.optionLabel {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--ogc-font-size-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.optionHint {
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+}

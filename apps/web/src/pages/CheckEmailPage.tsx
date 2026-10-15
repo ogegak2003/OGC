@@ -1,6 +1,7 @@
 import { Link, useLocation } from 'react-router';
 import { AuthLayout } from '../components/AuthLayout';
 import styles from './forms.module.css';
+import { Icon } from '../components/Icon';
 
 export function CheckEmailPage() {
   const { state } = useLocation() as { state: { email?: string } | null };
@@ -17,7 +18,7 @@ export function CheckEmailPage() {
     >
       <div className={styles.stack}>
         <div className={styles.icon} aria-hidden="true">
-          ✉
+          <Icon name="mail" size={28} />
         </div>
         <p className={styles.muted}>
           If {email ? <span className={styles.strong}>{email}</span> : 'that address'} can be used

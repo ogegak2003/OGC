@@ -7,6 +7,7 @@ import { Alert, Button, Spinner } from '../components/ui';
 import { api } from '../lib/api';
 import { errorMessage } from '../lib/form';
 import { useResource } from '../lib/use-resource';
+import { Icon } from '../components/Icon';
 
 interface Choice<T extends string> {
   value: T;
@@ -147,7 +148,7 @@ export function PrivacyPage() {
       {state.status === 'error' ? <Alert>{errorMessage(state.error)}</Alert> : null}
       {state.status === 'ready' ? <PrivacyForm initial={state.data.privacy} /> : null}
       <Link className={styles.textLink} to="/settings/blocked">
-        Blocked people →
+        Blocked people <Icon name="arrowRight" size={16} />
       </Link>
     </AppShell>
   );

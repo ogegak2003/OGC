@@ -38,6 +38,12 @@ enum SessionRevocationReason {
   LOGOUT
   REFRESH_TOKEN_REUSE
   ACCOUNT_DISABLED
+  /// Signed out from another of the account's devices (session management).
+  USER_REVOKED
+  /// The password changed: every other session ends.
+  PASSWORD_CHANGED
+  /// The password was reset from an emailed link: every session ends.
+  PASSWORD_RESET
 }
 
 enum AuditEventType {
@@ -74,6 +80,14 @@ enum AuditEventType {
   INVITE_LINK_CREATED
   INVITE_LINK_REVOKED
   CONVERSATION_REPORTED
+  PASSWORD_CHANGED
+  PASSWORD_CHANGE_FAILED
+  PASSWORD_RESET_REQUESTED
+  PASSWORD_RESET_COMPLETED
+  PASSWORD_RESET_FAILED
+  ACCOUNT_SUSPENDED
+  ACCOUNT_REINSTATED
+  RETENTION_PURGED
 }
 
 enum ProfileVisibility {
@@ -231,6 +245,49 @@ enum AttachmentKind {
   FILE
 }
 
+enum CallMedia {
+  AUDIO
+  VIDEO
+}
+
+enum CallStatus {
+  RINGING
+  ACCEPTED
+  ENDED
+}
+
+enum CallOutcome {
+  COMPLETED
+  MISSED
+  DECLINED
+  CANCELLED
+  BUSY
+  FAILED
+}
+
+enum NotificationPreview {
+  GENERIC
+  SENDER
+}
+
+enum PushCategory {
+  MESSAGE
+  GROUP
+  CHANNEL
+  CALL
+  CONTACT
+  ACCOUNT
+}
+
+enum PushDeliveryStatus {
+  PENDING
+  SENDING
+  SENT
+  DELIVERED
+  FAILED
+  EXPIRED
+}
+
 enum PushProvider {
   EXPO
   FCM
@@ -254,6 +311,7 @@ model User {
   devices                 Device[]
   sessions                Session[]
   emailVerificationTokens EmailVerificationToken[]
+  passwordResetTokens     PasswordResetToken[]
   staffRoles              StaffRoleAssignment[]
   contactRequestsSent     ContactRequest[]          @relation("ContactRequestSender")
   contactRequestsReceived ContactRequest[]          @relation("ContactRequestRecipient")
@@ -280,6 +338,10 @@ model User {
   channelPosts            ChannelPost[]             @relation("ChannelPostsAuthored")
   channelReactions        ChannelPostReaction[]     @relation("ChannelReactions")
   notifications           Notification[]
+  notificationSettings    NotificationSettings?
+  pushDeliveries          PushDelivery[]
+  callsMade               Call[]                    @relation("CallsMade")
+  callsReceived           Call[]                    @relation("CallsReceived")
 
   @@map("users")
 }
@@ -332,10 +394,13 @@ model Device {
   createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
   lastSeenAt DateTime       @default(now()) @map("last_seen_at") @db.Timestamptz(3)
 
-  user      User        @relation(fields: [userId], references: [id], onDelete: Cascade)
-  sessions  Session[]
-  keys      DeviceKey[]
-  pushToken PushToken?
+  user            User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  sessions        Session[]
+  keys            DeviceKey[]
+  pushToken       PushToken?
+  pushDeliveries  PushDelivery[]
+  callsMadeFrom   Call[]         @relation("CallerDevice")
+  callsAnsweredOn Call[]         @relation("CalleeDevice")
 
   @@index([userId])
   @@map("devices")
@@ -378,6 +443,34 @@ model EmailVerificationToken {
 
   @@index([userId])
   @@map("email_verification_tokens")
+}
+
+/// Single-use password-reset secret (hashed), valid for a short time. Issuing a new one or
+/// completing a reset supersedes every other outstanding token of the account.
+model PasswordResetToken {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.Char(64)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+/// Preservation hold (security investigation or legal request): while a hold exists, retention
+/// cleanup skips the account's sessions and audit events. No foreign key, like the audit log.
+/// Created and released by operators only.
+model RetentionHold {
+  userId    String   @id @map("user_id") @db.Uuid
+  reason    String   @db.VarChar(200)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  @@map("retention_holds")
 }
 
 /// Append-only security event log. No foreign keys: audit history outlives the records it describes.
@@ -553,6 +646,7 @@ model Conversation {
   inviteLinks  InviteLink[]
   events       ConversationEvent[]
   reports      ConversationReport[]
+  calls        Call[]
 
   @@index([updatedAt, id])
   @@map("conversations")
@@ -1027,4 +1121,113 @@ model Notification {
   @@unique([userId, dedupeKey])
   @@index([userId, id])
   @@map("notifications")
+}
+
+/// One-to-one voice/video call (Phase 6, ADR-037). Signaling state and history metadata only:
+/// no audio, video, session descriptions or network addresses are ever stored.
+model Call {
+  id               String       @id @default(uuid(7)) @db.Uuid
+  /// The DIRECT conversation the call belongs to.
+  conversationId   String       @map("conversation_id") @db.Uuid
+  callerId         String       @map("caller_id") @db.Uuid
+  calleeId         String       @map("callee_id") @db.Uuid
+  /// The device that started the call; signaling is relayed to it only.
+  callerDeviceId   String?      @map("caller_device_id") @db.Uuid
+  /// The device that answered (set on accept); the callee's other devices stop ringing.
+  calleeDeviceId   String?      @map("callee_device_id") @db.Uuid
+  media            CallMedia
+  status           CallStatus   @default(RINGING)
+  outcome          CallOutcome?
+  /// The callee had blocked the caller when the call started: never delivered or shown to the
+  /// callee, so the block is not revealed (the caller sees no answer).
+  hiddenFromCallee Boolean      @default(false) @map("hidden_from_callee")
+  createdAt        DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  answeredAt       DateTime?    @map("answered_at") @db.Timestamptz(3)
+  /// First report from either device that media is flowing; durations are measured from here.
+  connectedAt      DateTime?    @map("connected_at") @db.Timestamptz(3)
+  endedAt          DateTime?    @map("ended_at") @db.Timestamptz(3)
+
+  conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  caller       User         @relation("CallsMade", fields: [callerId], references: [id], onDelete: Cascade)
+  callee       User         @relation("CallsReceived", fields: [calleeId], references: [id], onDelete: Cascade)
+  callerDevice Device?      @relation("CallerDevice", fields: [callerDeviceId], references: [id], onDelete: SetNull)
+  calleeDevice Device?      @relation("CalleeDevice", fields: [calleeDeviceId], references: [id], onDelete: SetNull)
+
+  @@index([callerId, id])
+  @@index([calleeId, id])
+  @@index([conversationId, id])
+  /// Open calls (sweeper, busy checks) and retention of ended calls by age.
+  @@index([status, createdAt])
+  @@map("calls")
+}
+
+/// Account-wide push preferences (Phase 7, ADR-038). One row per account, created on first
+/// change; absent means the defaults below. Per-conversation mute/level stay on participants.
+model NotificationSettings {
+  userId            String              @id @map("user_id") @db.Uuid
+  enabled           Boolean             @default(true)
+  messages          Boolean             @default(true)
+  groups            Boolean             @default(true)
+  channels          Boolean             @default(true)
+  contactRequests   Boolean             @default(true) @map("contact_requests")
+  calls             Boolean             @default(true)
+  preview           NotificationPreview @default(GENERIC)
+  sound             Boolean             @default(true)
+  vibration         Boolean             @default(true)
+  quietHoursEnabled Boolean             @default(false) @map("quiet_hours_enabled")
+  /// Minutes after local midnight (0–1439); the window may wrap past midnight.
+  quietStart        Int                 @default(1320) @map("quiet_start")
+  quietEnd          Int                 @default(420) @map("quiet_end")
+  /// IANA time zone of the quiet hours (validated by the API).
+  timeZone          String              @default("UTC") @map("time_zone") @db.VarChar(64)
+  updatedAt         DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notification_settings")
+}
+
+/// Durable push delivery queue (Phase 7, ADR-038): one row per notification per device.
+/// Content is fixed generic text (plus a name when the recipient chose sender previews) —
+/// never message content. Rows are claimed with FOR UPDATE SKIP LOCKED, retried with
+/// backoff, and deleted after the retention period.
+model PushDelivery {
+  id            String             @id @default(uuid(7)) @db.Uuid
+  userId        String             @map("user_id") @db.Uuid
+  deviceId      String             @map("device_id") @db.Uuid
+  category      PushCategory
+  /// Idempotency: the same event never queues twice for a device.
+  dedupeKey     String             @map("dedupe_key") @db.VarChar(200)
+  title         String             @db.VarChar(120)
+  body          String             @db.VarChar(120)
+  /// Routing only (IDs), see PushData in @ogc/types.
+  data          Json
+  /// Quiet hours, or sound and vibration turned off: delivered without either.
+  sound         Boolean            @default(true)
+  vibration     Boolean            @default(true)
+  /// Calls: high priority; everything else normal.
+  urgent        Boolean            @default(false)
+  status        PushDeliveryStatus @default(PENDING)
+  attempts      Int                @default(0)
+  nextAttemptAt DateTime           @default(now()) @map("next_attempt_at") @db.Timestamptz(3)
+  /// A worker owns a SENDING row until then (a crashed worker's rows are reclaimed).
+  lockedUntil   DateTime?          @map("locked_until") @db.Timestamptz(3)
+  /// Not worth delivering after this (an incoming call that stopped ringing).
+  expiresAt     DateTime           @map("expires_at") @db.Timestamptz(3)
+  /// Provider receipt handle (Expo ticket ID).
+  ticketId      String?            @map("ticket_id") @db.VarChar(100)
+  /// Last provider or delivery error code (never the token or content).
+  lastError     String?            @map("last_error") @db.VarChar(64)
+  createdAt     DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  sentAt        DateTime?          @map("sent_at") @db.Timestamptz(3)
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  @@unique([deviceId, dedupeKey])
+  /// The worker's queue scan, the receipt check and retention.
+  @@index([status, nextAttemptAt])
+  @@index([createdAt])
+  @@map("push_deliveries")
 }

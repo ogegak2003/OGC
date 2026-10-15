@@ -1,4 +1,5 @@
 import { MessagingClient, RealtimeConnection, SealedStore } from '@ogc/messaging';
+import { browserCallMedia } from './browser-call-media';
 import { IdbKeyValueStore } from './idb-store';
 import type { MessagingDependencies } from './messaging-context';
 import { webTransport } from './web-transport';
@@ -13,4 +14,5 @@ export const browserDependencies: MessagingDependencies = {
   createRealtime: (options, onEvent, onReconnect) =>
     new RealtimeConnection({ origin: '', ...options }, onEvent, onReconnect),
   destroyLocalData: (ogcId) => IdbKeyValueStore.destroy(ogcId),
+  createCallMedia: browserCallMedia,
 };

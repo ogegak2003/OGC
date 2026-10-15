@@ -12,3 +12,26 @@
 .github
 apps/api/src/generated
 docs
+# Native mobile projects and local toolchains (large; never needed by the API or web images)
+apps/mobile/android
+apps/mobile/ios
+apps/mobile/assets
+.toolchain
+.vscode
+.claude
+# Development-only data: emails with verification/reset links, local uploads, backups, keys
+**/.dev-outbox
+**/.dev-storage
+**/*.dump
+**/*.gpg
+**/*.asc
+**/backups
+**/*.pem
+**/*.key
+**/*.p12
+**/*.p8
+**/*.jks
+**/*.keystore
+**/*.env
+!**/*.env.example
+**/production.env

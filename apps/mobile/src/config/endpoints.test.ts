@@ -30,6 +30,38 @@ describe('endpoint configuration', () => {
     ).toBe('http://192.168.1.20:3000/api');
   });
 
+  it('uses the LAN address Metro served the bundle from on a physical phone', () => {
+    const resolve = (devServerHost: string | undefined, apiBaseUrl?: string) =>
+      resolveEndpoints({
+        apiBaseUrl,
+        webAppUrl: undefined,
+        dev: true,
+        platform: 'android',
+        devServerHost,
+      }).apiBaseUrl;
+    expect(resolve('192.168.0.11')).toBe('http://192.168.0.11:3000/api');
+    // Loopback (adb reverse) and public tunnel hosts keep the emulator default.
+    expect(resolve('localhost')).toBe('http://10.0.2.2:3000/api');
+    expect(resolve('127.0.0.1')).toBe('http://10.0.2.2:3000/api');
+    expect(resolve('abc-anonymous-8081.exp.direct')).toBe('http://10.0.2.2:3000/api');
+    // An explicit URL always wins.
+    expect(resolve('192.168.0.11', 'http://192.168.1.20:3000/api')).toBe(
+      'http://192.168.1.20:3000/api',
+    );
+  });
+
+  it('never falls back to the Metro host in release builds', () => {
+    expect(() =>
+      resolveEndpoints({
+        apiBaseUrl: undefined,
+        webAppUrl: 'https://ogc.example',
+        dev: false,
+        platform: 'android',
+        devServerHost: '192.168.0.11',
+      }),
+    ).toThrow(EndpointConfigurationError);
+  });
+
   it('requires public https endpoints in release builds, with no fallback', () => {
     expect(() =>
       resolveEndpoints({

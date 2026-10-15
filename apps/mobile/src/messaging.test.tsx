@@ -70,17 +70,17 @@ const CONVERSATION = conversationView();
 async function openConversation(engine: FakeEngine, extra: Record<string, () => Response> = {}) {
   const messaging = fakeMessaging(engine);
   await render(<App client={client(extra)} messaging={messaging.dependencies} />);
-  await fireEvent.press(await screen.findByRole('button', { name: /^Messages/ }));
+  await fireEvent.press(await screen.findByRole('tab', { name: /^Chats/ }));
   await fireEvent.press(await screen.findByRole('button', { name: /Grace Hopper/ }));
   return messaging;
 }
 
 describe('mobile messaging', () => {
-  it('shows unread messages on the profile and lists conversations', async () => {
+  it('shows unread messages on the Chats tab and lists conversations', async () => {
     const engine = new FakeEngine([conversationView({ unreadCount: 2 })]);
     const messaging = fakeMessaging(engine);
     await render(<App client={client()} messaging={messaging.dependencies} />);
-    const entry = await screen.findByRole('button', { name: 'Messages, 2 unread' });
+    const entry = await screen.findByRole('tab', { name: 'Chats, 2 unread' });
     await fireEvent.press(entry);
     expect(await screen.findByRole('button', { name: 'Grace Hopper, 2 unread' })).toBeOnTheScreen();
   });
@@ -193,6 +193,31 @@ describe('mobile messaging', () => {
     expect(await screen.findByLabelText(/Safety number 12345 67890/)).toBeOnTheScreen();
   });
 
+  it('marks the person verified after comparing safety numbers', async () => {
+    const engine = new FakeEngine([CONVERSATION]);
+    await openConversation(engine);
+    await fireEvent.press(await screen.findByRole('button', { name: 'Verify' }));
+    await screen.findByLabelText(/Safety number 12345 67890/);
+    await fireEvent.press(screen.getByRole('button', { name: /mark as verified/ }));
+    expect(engine.markPeerVerified).toHaveBeenCalledWith(CONVERSATION.id);
+    // Back in the conversation, which now shows the verified state.
+    expect(await screen.findByText(/· Verified/)).toBeOnTheScreen();
+  });
+
+  it('warns when the other person’s keys change, until dismissed', async () => {
+    const engine = new FakeEngine([CONVERSATION]);
+    engine.peerKeys = { state: 'changed', added: 1 };
+    await openConversation(engine);
+    expect(await screen.findByText(/security keys changed/)).toBeOnTheScreen();
+    expect(screen.queryByText(/· Verified/)).toBeNull();
+    await fireEvent.press(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(engine.acknowledgePeerKeys).toHaveBeenCalledWith(CONVERSATION.id);
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(screen.queryByText(/security keys changed/)).toBeNull();
+  });
+
   it('starts a conversation from contacts', async () => {
     const engine = new FakeEngine([]);
     const messaging = fakeMessaging(engine);
@@ -213,7 +238,7 @@ describe('mobile messaging', () => {
         messaging={messaging.dependencies}
       />,
     );
-    await fireEvent.press(await screen.findByRole('button', { name: /^Messages/ }));
+    await fireEvent.press(await screen.findByRole('tab', { name: /^Chats/ }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Start a conversation' }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Message Grace Hopper' }));
     expect(engine.openDirect).toHaveBeenCalledWith(PEER);
@@ -228,9 +253,8 @@ describe('mobile messaging', () => {
         messaging={messaging.dependencies}
       />,
     );
-    const profile = await screen.findByRole('button', { name: /^Messages/ });
-    expect(profile).toBeOnTheScreen();
-    await fireEvent.press(screen.getByText('Sign out'));
+    await fireEvent.press(await screen.findByRole('tab', { name: 'You' }));
+    await fireEvent.press(await screen.findByText('Sign out'));
     await act(async () => {
       await Promise.resolve();
     });

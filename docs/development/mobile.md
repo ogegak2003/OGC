@@ -5,15 +5,16 @@ Hermes). It is not a web view: screens are native components, navigation uses th
 back button and gestures, keys live in the platform keystore (`expo-secure-store`), and the
 end-to-end encryption engine runs on the device.
 
-| Item                            | Value                                                                                                                                                                                          |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| App name                        | OGC                                                                                                                                                                                            |
-| Android package / iOS bundle ID | `com.obagaglobal.ogc`                                                                                                                                                                          |
-| Version                         | `0.1.0` (`app.config.ts`); build number `versionCode` / `buildNumber`                                                                                                                          |
-| Orientation                     | Portrait (iPad runs full screen)                                                                                                                                                               |
-| Configuration                   | `apps/mobile/app.config.ts`, `apps/mobile/eas.json`                                                                                                                                            |
-| Icons / splash                  | `apps/mobile/assets/` (regenerate: `pnpm --filter @ogc/mobile assets`); the splash is configured through the `expo-splash-screen` plugin in `app.config.ts` (SDK 57 has no top-level `splash`) |
-| Appearance                      | Always dark (`userInterfaceStyle: 'dark'`, applied on Android by `expo-system-ui`)                                                                                                             |
+| Item                            | Value                                                                                                                                                                                                                                               |
+| ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| App name                        | OGC                                                                                                                                                                                                                                                 |
+| Android package / iOS bundle ID | `com.obagaglobal.ogc`                                                                                                                                                                                                                               |
+| Version                         | `0.1.0` (`app.config.ts`); build number `versionCode` / `buildNumber`                                                                                                                                                                               |
+| Orientation                     | Portrait (iPad runs full screen)                                                                                                                                                                                                                    |
+| Configuration                   | `apps/mobile/app.config.ts`, `apps/mobile/eas.json`                                                                                                                                                                                                 |
+| Icons / splash                  | `apps/mobile/assets/` (regenerate: `pnpm --filter @ogc/mobile assets`); the splash is configured through the `expo-splash-screen` plugin in `app.config.ts` (SDK 57 has no top-level `splash`)                                                      |
+| Welcome Earth image             | `apps/mobile/assets/welcome-globe.jpg` and `apps/web/src/assets/welcome-globe.webp`, rendered from NASA public-domain imagery (Blue Marble, Black Marble; credit NASA Earth Observatory). Regenerate: `node apps/mobile/scripts/generate-globe.mjs` |
+| Appearance                      | Always dark (`userInterfaceStyle: 'dark'`, applied on Android by `expo-system-ui`)                                                                                                                                                                  |
 
 Native projects (`apps/mobile/android/`, `apps/mobile/ios/`) are **generated** by
 `expo prebuild` from `app.config.ts` and are git-ignored. Change the config, not the
@@ -28,7 +29,7 @@ The app talks to one origin: REST at `<API>/v1/…` and realtime (Socket.IO) at
 | ------------------------------ | ----------------------------------------------------------------------------- | --------------------------------- |
 | Android emulator (development) | _unset_ → `http://10.0.2.2:3000/api` (the emulator's alias for your computer) | _unset_ → `http://localhost:5173` |
 | iOS simulator (development)    | _unset_ → `http://localhost:3000/api`                                         | _unset_                           |
-| Physical phone (development)   | `http://<your computer's LAN IP>:3000/api`                                    | optional                          |
+| Physical phone (development)   | _unset_ → `http://<Metro's LAN host>:3000/api`, or set it explicitly          | optional                          |
 | Preview / production builds    | **required**, public `https://…/api`                                          | **required**, public `https://…`  |
 
 - Set them in `apps/mobile/.env` (copy `.env.example`; the file is git-ignored) or in the
@@ -43,8 +44,18 @@ The app talks to one origin: REST at `<API>/v1/…` and realtime (Socket.IO) at
 
 **Physical phone on your network (development only):** the phone and computer must be on
 the same network and able to reach each other — no client isolation on the Wi-Fi, and the
-Windows firewall must allow inbound TCP 3000 (API) and 8081 (Metro) on _Private_ networks.
-Find your IP with `ipconfig` (IPv4 of the Wi-Fi adapter). Never commit a LAN address.
+Windows firewall must allow inbound TCP 3000 (API) and 8081 (Metro) for the network profile
+the Wi-Fi uses (check with `Get-NetConnectionProfile`). With `EXPO_PUBLIC_API_BASE_URL` unset,
+a development build or Expo Go uses the LAN address it loaded the bundle from (Metro's host,
+port 3000) — the computer is reachable there, or the app would not have loaded. Loopback and
+tunnel (`--tunnel`) hosts keep the emulator default, so set the URL explicitly in those cases
+or if Metro advertises the wrong adapter (VirtualBox/VMware/WSL; force the right one with
+`$env:REACT_NATIVE_PACKAGER_HOSTNAME = "<Wi-Fi IPv4>"` before `expo start`). Find your IP
+with `ipconfig` (IPv4 of the Wi-Fi adapter). Never commit a LAN address.
+
+If the app shows _"We could not reach OGC"_, check from the phone's browser that
+`http://<LAN IP>:3000/api/v1/health` answers; the emulator alias `10.0.2.2` does not exist on
+a physical phone.
 
 ```powershell
 # apps/mobile/.env (example)
@@ -64,6 +75,14 @@ In the Expo terminal press `a` for an Android emulator or `i` for an iOS simulat
 or open the app on a phone. Expo Go works for quick UI work; the native development build
 below is closer to production (secure storage, permissions, native modules).
 
+**Push notifications need the development build** (and Firebase credentials on Android, an
+APNs key on iOS): see [notifications.md](notifications.md). Expo Go cannot receive them.
+
+**Calls need the development build.** Voice and video calls use `react-native-webrtc`
+(native code), which Expo Go cannot load: in Expo Go the call buttons explain that calls are
+unavailable and incoming calls cannot be accepted. Build and install the development build
+(below, or EAS `development`) to test calls; see [calls.md](calls.md).
+
 ### Android emulator
 
 1. Install Android Studio (or the SDK command-line tools) and create a virtual device
@@ -75,7 +94,8 @@ below is closer to production (secure storage, permissions, native modules).
 
 1. Enable _Developer options → USB debugging_, connect the phone, accept the prompt; check with
    `adb devices`.
-2. Set `EXPO_PUBLIC_API_BASE_URL` to your LAN address (above), then
+2. Set `EXPO_PUBLIC_API_BASE_URL` to your LAN address (above; a native development build
+   installed over USB loads Metro through `adb reverse` on localhost, so it needs it), then
    `pnpm --filter @ogc/mobile android`. Or install a built APK (below) with
    `adb install -r <path-to-apk>`.
 

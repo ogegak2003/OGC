@@ -184,16 +184,37 @@ New audit events: `GROUP_CREATED`, `GROUP_MEMBER_REMOVED`, `GROUP_OWNERSHIP_TRAN
 `CHANNEL_DELETED`, `CHANNEL_MODERATION`, `INVITE_LINK_CREATED`, `INVITE_LINK_REVOKED`,
 `CONVERSATION_REPORTED`.
 
+### Calls (Phase 6)
+
+Details: [calls.md](calls.md).
+
+| Table   | Key columns and rules                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `calls` | `conversation_id` (DIRECT), `caller_id`, `callee_id` (CHECK distinct), `caller_device_id` / `callee_device_id` (the two devices in the call; `SET NULL` when a device is deleted), `media` (`AUDIO`/`VIDEO`), `status` (`RINGING`/`ACCEPTED`/`ENDED`), `outcome` (`COMPLETED`/`MISSED`/`DECLINED`/`CANCELLED`/`BUSY`/`FAILED`), `hidden_from_callee`, `created_at`, `answered_at`, `connected_at`, `ended_at`. CHECKs: ended ⇔ outcome and `ended_at`; ringing ⇒ not answered; connected ⇒ answered; `COMPLETED` ⇒ connected. Indexes: `(caller_id, id)`, `(callee_id, id)`, `(conversation_id, id)`, `(status, created_at)`. Metadata only — no media, SDP or addresses. Ended calls deleted after `CALL_HISTORY_RETENTION_DAYS` |
+
+### Push notifications (Phase 7)
+
+Details: [notifications.md](notifications.md).
+
+| Table                   | Key columns and rules                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `notification_settings` | One row per account (absent = defaults): category switches, `preview` (`GENERIC`/`SENDER`), sound, vibration, quiet hours (`quiet_start`/`quiet_end` minutes, CHECK 0–1439 and different; `time_zone` IANA)                                                                                                                                                                                                                             |
+| `push_deliveries`       | Queue: user, device, `category`, `dedupe_key` (unique per device), fixed `title`/`body`, routing `data` (IDs only), sound/vibration/urgent, `status` (`PENDING`→`SENDING`→`SENT`→`DELIVERED`, or `FAILED`/`EXPIRED`), `attempts` (CHECK ≥ 0), `next_attempt_at`, `locked_until`, `expires_at`, `ticket_id`, `last_error` (code only). Indexes `(status, next_attempt_at)`, `(created_at)`. Deleted after `PUSH_DELIVERY_RETENTION_DAYS` |
+
 ## Migrations
 
-| Migration                       | Purpose                                                                                                                                        |
-| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `…_identity_and_authentication` | Enums, tables, indexes, foreign keys (Prisma-generated)                                                                                        |
-| `…_integrity_rules`             | CHECK constraints, OGC ID immutability, append-only audit                                                                                      |
-| `…_profiles_contacts_discovery` | Profiles, contacts, requests, blocks, reports, staff roles                                                                                     |
-| `…_private_messaging`           | Device keys, key packages, conversations, messages, reactions, hides, MLS commits/welcomes, attachments, push tokens, and their CHECKs/trigger |
-| `…_groups_channels_community`   | Phase 4 enums and tables, new columns on conversations/participants, one-owner indexes, CHECKs, `pg_trgm` search index (additive only)         |
-| `…_participant_history_start`   | `conversation_participants.visible_from_version` (additive)                                                                                    |
+| Migration                       | Purpose                                                                                                                                         |
+| ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `…_identity_and_authentication` | Enums, tables, indexes, foreign keys (Prisma-generated)                                                                                         |
+| `…_integrity_rules`             | CHECK constraints, OGC ID immutability, append-only audit                                                                                       |
+| `…_profiles_contacts_discovery` | Profiles, contacts, requests, blocks, reports, staff roles                                                                                      |
+| `…_private_messaging`           | Device keys, key packages, conversations, messages, reactions, hides, MLS commits/welcomes, attachments, push tokens, and their CHECKs/trigger  |
+| `…_groups_channels_community`   | Phase 4 enums and tables, new columns on conversations/participants, one-owner indexes, CHECKs, `pg_trgm` search index (additive only)          |
+| `…_participant_history_start`   | `conversation_participants.visible_from_version` (additive)                                                                                     |
+| `…_push_notifications`          | Phase 7: notification settings, push delivery queue, enums, CHECKs (additive only)                                                              |
+| `…_calls`                       | Phase 6: call enums, `calls` table, indexes, CHECKs (additive only)                                                                             |
+| `…_session_management`          | Phase 8: `USER_REVOKED`, `PASSWORD_CHANGED` revocation reasons; `PASSWORD_CHANGED`, `PASSWORD_CHANGE_FAILED` audit events (additive only)       |
+| `…_account_recovery_retention`  | Phase 9: `password_reset_tokens`, `retention_holds`, enum values, CHECKs; audit trigger allows retention-only deletes ≥ 365 days old (additive) |
 
 Integration tests apply all migrations to a fresh database (`prisma migrate deploy`) and
 assert there is **no drift** between the migrated database and `schema.prisma`.

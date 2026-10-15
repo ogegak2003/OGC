@@ -3,9 +3,10 @@ import type { NotificationPage, NotificationType, NotificationView } from '@ogc/
 import { decodeCursor, toPage } from '../../common/pagination.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
-import { PresenceStore } from '../realtime/presence.store.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
-import { COMMUNITY_PUSH_BODY, type PushNotification, PushProvider } from './push-provider.js';
+import { PushDeliveryService } from './push-delivery.service.js';
+import type { PushCategory } from './push-policy.js';
+import { COMMUNITY_PUSH_BODY } from './push-provider.js';
 
 /** Values allowed in notification data: IDs, public names and counts — never content. */
 export type NotificationData = Record<string, string | number | boolean | null>;
@@ -24,6 +25,24 @@ export interface NotificationInput {
 /** Recipients are processed in batches so a large channel cannot hold one huge transaction. */
 const BATCH_SIZE = 500;
 const UNREAD_CAP = 100;
+const WEEK_SECONDS = 7 * 24 * 60 * 60;
+
+/** Which notification setting governs each community notification type. */
+const PUSH_CATEGORY: Record<NotificationType, PushCategory> = {
+  GROUP_INVITATION: 'GROUP',
+  GROUP_MEMBER_ADDED: 'GROUP',
+  GROUP_MEMBER_REMOVED: 'GROUP',
+  GROUP_ROLE_CHANGED: 'GROUP',
+  GROUP_DETAILS_CHANGED: 'GROUP',
+  MENTION: 'GROUP',
+  CHANNEL_ANNOUNCEMENT: 'CHANNEL',
+  CHANNEL_ROLE_CHANGED: 'CHANNEL',
+  CHANNEL_JOIN_REQUEST: 'CHANNEL',
+  CHANNEL_REQUEST_APPROVED: 'CHANNEL',
+  CHANNEL_MEMBER_REMOVED: 'CHANNEL',
+  MODERATION_RESULT: 'ACCOUNT',
+  INVITATION_EXPIRED: 'ACCOUNT',
+};
 
 function toView(row: {
   id: string;
@@ -58,8 +77,7 @@ export class CommunityNotificationsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly realtime: RealtimePublisher,
-    private readonly presence: PresenceStore,
-    private readonly provider: PushProvider,
+    private readonly pushes: PushDeliveryService,
   ) {}
 
   /** Stores and delivers notifications. Never throws: failures are logged. */
@@ -90,38 +108,44 @@ export class CommunityNotificationsService {
     for (const row of created) {
       this.realtime.toUsers([row.userId], 'community.notification', { notification: toView(row) });
     }
-    await this.push(created.map((row) => ({ userId: row.userId, type: row.type })));
+    const keys = new Map(inputs.map((n) => [`${n.userId}|${n.type}`, n.dedupeKey]));
+    await this.push(
+      created.map((row) => ({
+        userId: row.userId,
+        type: row.type,
+        dedupeKey: keys.get(`${row.userId}|${row.type}`) ?? row.id,
+      })),
+    );
   }
 
-  private async push(items: { userId: string; type: NotificationType }[]): Promise<void> {
-    if (items.length === 0) return;
-    const now = new Date();
-    const tokens = await this.prisma.pushToken.findMany({
-      where: {
-        device: {
-          userId: { in: [...new Set(items.map((i) => i.userId))] },
-          sessions: { some: { revokedAt: null, expiresAt: { gt: now } } },
-        },
-      },
-      select: { deviceId: true, provider: true, token: true, device: { select: { userId: true } } },
-    });
-    if (tokens.length === 0) return;
-    const online = await this.presence.onlineDevices(tokens.map((t) => t.deviceId));
-    const typeByUser = new Map(items.map((i) => [i.userId, i.type]));
-    const notifications: PushNotification[] = tokens.flatMap((t) => {
-      const type = typeByUser.get(t.device.userId);
-      if (!type || online.has(t.deviceId)) return [];
-      return [
-        {
-          provider: t.provider,
-          token: t.token,
-          title: 'OGC',
-          body: COMMUNITY_PUSH_BODY[type],
-          data: { type: 'community', notification: type },
-        },
-      ];
-    });
-    await this.provider.send(notifications);
+  /**
+   * Generic push for each new notification, through the delivery queue (which applies each
+   * recipient's settings and skips devices with a live connection). One queue request per
+   * notification type and event, so a 10 000-member announcement is a handful of requests.
+   */
+  private async push(
+    items: { userId: string; type: NotificationType; dedupeKey: string }[],
+  ): Promise<void> {
+    const groups = new Map<
+      string,
+      { type: NotificationType; dedupeKey: string; userIds: string[] }
+    >();
+    for (const item of items) {
+      const key = `${item.type}|${item.dedupeKey}`;
+      const group = groups.get(key) ?? { type: item.type, dedupeKey: item.dedupeKey, userIds: [] };
+      group.userIds.push(item.userId);
+      groups.set(key, group);
+    }
+    for (const group of groups.values()) {
+      await this.pushes.enqueue({
+        userIds: group.userIds,
+        category: PUSH_CATEGORY[group.type],
+        dedupeKey: `community:${group.type}:${group.dedupeKey}`,
+        body: COMMUNITY_PUSH_BODY[group.type],
+        data: { type: 'community', notification: group.type },
+        ttlSeconds: WEEK_SECONDS,
+      });
+    }
   }
 
   async list(userId: string, cursor: string | undefined, limit: number): Promise<NotificationPage> {

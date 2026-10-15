@@ -12,9 +12,12 @@ export type {
   AuthResponse,
   AuthTokens,
   DevicePlatform,
+  DeviceSessionView,
   RegisterResponse,
   SessionView,
   VerifyEmailResponse,
+  ForgotPasswordResponse,
+  ResetPasswordResponse,
 } from './auth.js';
 export { CLIENT_HEADER, WEB_CLIENT } from './auth.js';
 export type {
@@ -72,6 +75,19 @@ export {
   REALTIME_PATH,
 } from './messaging.js';
 export type {
+  CallEndReason,
+  CallErrorCode,
+  CallMedia,
+  CallOutcome,
+  CallPage,
+  CallSetup,
+  CallSignal,
+  CallStatus,
+  CallView,
+  IceServerView,
+} from './calls.js';
+export { CALL_MEDIA } from './calls.js';
+export type {
   ChannelAttachmentView,
   ChannelJoinPolicy,
   ChannelMemberStatus,
@@ -110,3 +126,5 @@ export type {
   SentInvitationView,
   VisibilityChangeResult,
 } from './community.js';
+export type { NotificationPreview, NotificationSettingsView, PushData } from './notifications.js';
+export { NOTIFICATION_PREVIEWS } from './notifications.js';

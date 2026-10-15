@@ -10,10 +10,12 @@ import {
   Query,
 } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
-import type { NotificationPage, PushProviderName } from '@ogc/types';
+import type { NotificationPage, NotificationSettingsView, PushProviderName } from '@ogc/types';
 import {
+  type NotificationSettingsUpdate,
   type PageQuery,
   markNotificationsReadSchema,
+  notificationSettingsUpdateSchema,
   pageQuerySchema,
   pushTokenRequestSchema,
 } from '@ogc/validation';
@@ -26,7 +28,7 @@ import { NotificationsService } from './notifications.service.js';
 
 /** `/api/v1/notifications/push-token` — the push token of the *current* device only. */
 @Controller('notifications/push-token')
-@Throttle({ default: throttle('e2ee') })
+@Throttle({ default: throttle('pushRegister') })
 export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
 
@@ -69,5 +71,29 @@ export class InboxController {
     body: { ids: string[] } | { all: true },
   ): Promise<void> {
     return this.notifications.markRead(auth.userId, 'all' in body ? 'all' : body.ids);
+  }
+}
+
+/**
+ * `/api/v1/notifications/settings` — the signed-in account's push preferences (synchronised
+ * across its devices). Validated strictly on the server; there is no way to address another
+ * account.
+ */
+@Controller('notifications/settings')
+@Throttle({ default: throttle('notifications') })
+export class NotificationSettingsController {
+  constructor(private readonly notifications: NotificationsService) {}
+
+  @Get()
+  get(@CurrentAuth() auth: AuthContext): Promise<NotificationSettingsView> {
+    return this.notifications.settings(auth.userId);
+  }
+
+  @Put()
+  update(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(notificationSettingsUpdateSchema)) body: NotificationSettingsUpdate,
+  ): Promise<NotificationSettingsView> {
+    return this.notifications.updateSettings(auth.userId, body);
   }
 }

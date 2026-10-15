@@ -9,6 +9,7 @@ import { attachmentKind, duration, fileSize, safeFileName } from '../../messagin
 import { previewText } from '../../messaging/hooks';
 import styles from './messaging.module.css';
 import { type RecordedVoice, VoiceRecorder } from './VoiceRecorder';
+import { Icon } from '../Icon';
 
 const EMOJI = [
   '😀',
@@ -157,7 +158,7 @@ export function Composer({
             onClick={onCancelContext}
             aria-label={editing ? 'Cancel edit' : 'Cancel reply'}
           >
-            ✕
+            <Icon name="close" size={16} />
           </button>
         </div>
       ) : null}
@@ -176,7 +177,7 @@ export function Composer({
                   setFiles((current) => current.filter((f) => f.id !== pending.id));
                 }}
               >
-                ✕
+                <Icon name="close" size={16} />
               </button>
             </li>
           ))}
@@ -191,7 +192,7 @@ export function Composer({
                   setVoice(null);
                 }}
               >
-                ✕
+                <Icon name="close" size={16} />
               </button>
             </li>
           ) : null}
@@ -230,7 +231,7 @@ export function Composer({
               disabled={disabled}
               onClick={() => fileInput.current?.click()}
             >
-              ＋
+              <Icon name="paperclip" />
             </button>
             <input
               ref={fileInput}
@@ -256,7 +257,7 @@ export function Composer({
             setEmojiOpen((open) => !open);
           }}
         >
-          ☺
+          <Icon name="smile" />
         </button>
         <textarea
           ref={input}
@@ -291,12 +292,12 @@ export function Composer({
             disabled={disabled || busy}
             aria-label={editing ? 'Save edit' : 'Send'}
           >
-            {editing ? 'Save' : 'Send'}
+            <Icon name={editing ? 'check' : 'send'} size={18} strokeWidth={2} />
           </button>
         )}
       </div>
       <p className={styles.e2eeNote}>
-        <span aria-hidden="true">🔒</span> End-to-end encrypted
+        <Icon name="lock" size={12} /> End-to-end encrypted
       </p>
     </div>
   );

@@ -261,6 +261,45 @@ describe('conversation', () => {
     fireEvent.keyDown(dialog, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
   });
+
+  it('marks the person verified after comparing safety numbers', async () => {
+    const engine = new FakeEngine([CONVERSATION]);
+    setup(engine);
+    fireEvent.click(await screen.findByRole('button', { name: 'Verify' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Verify encryption' });
+    fireEvent.click(await within(dialog).findByRole('button', { name: /mark as verified/ }));
+    await waitFor(() => {
+      expect(engine.markPeerVerified).toHaveBeenCalledWith(CONVERSATION.id);
+    });
+    expect(await screen.findByText(/· Verified/)).toBeTruthy();
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('warns when the other person’s keys change, until verified or dismissed', async () => {
+    const engine = new FakeEngine([CONVERSATION]);
+    engine.peerKeys = { state: 'changed', added: 1 };
+    setup(engine);
+    const warning = await screen.findByRole('alert');
+    expect(warning.textContent).toMatch(/Grace Hopper’s security keys changed/);
+    expect(screen.queryByText(/· Verified/)).toBeNull();
+    fireEvent.click(within(warning).getByRole('button', { name: 'Dismiss' }));
+    await waitFor(() => {
+      expect(engine.acknowledgePeerKeys).toHaveBeenCalledWith(CONVERSATION.id);
+    });
+    await waitFor(() => {
+      expect(screen.queryByText(/security keys changed/)).toBeNull();
+    });
+  });
+
+  it('does not show a key warning while the keys are unchanged', async () => {
+    const engine = new FakeEngine([CONVERSATION]);
+    setup(engine);
+    await screen.findByRole('region', { name: /Conversation with/ });
+    await waitFor(() => {
+      expect(engine.peerKeyStatus).toHaveBeenCalledWith(CONVERSATION.id);
+    });
+    expect(screen.queryByText(/security keys changed/)).toBeNull();
+  });
 });
 
 describe('attachments and voice', () => {

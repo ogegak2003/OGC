@@ -1,6 +1,7 @@
 import { type ReactNode, useEffect, useId, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import styles from './messaging.module.css';
+import { Icon } from '../Icon';
 
 const FOCUSABLE =
   'button:not([disabled]), [href], input:not([disabled]), textarea:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -71,7 +72,7 @@ export function Modal({
             {title}
           </h2>
           <button type="button" className={styles.iconButton} onClick={onClose} aria-label="Close">
-            ✕
+            <Icon name="close" size={18} />
           </button>
         </div>
         {children}

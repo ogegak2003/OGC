@@ -1,6 +1,7 @@
 import type { PublicProfile } from '@ogc/types';
 import { ogcIdInputSchema } from '@ogc/validation';
 import { type SyntheticEvent, useState } from 'react';
+import { useSearchParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
 import { PublicProfileCard } from '../components/PublicProfileCard';
 import styles from '../components/social.module.css';
@@ -10,7 +11,9 @@ import { errorMessage } from '../lib/form';
 
 /** Find someone by their exact OGC ID — the primary, privacy-preserving discovery method. */
 export function DiscoverPage() {
-  const [input, setInput] = useState('');
+  // `?q=` comes from the global search: the OGC ID field starts with it.
+  const [params] = useSearchParams();
+  const [input, setInput] = useState(params.get('q') ?? '');
   const [inputError, setInputError] = useState<string>();
   const [result, setResult] = useState<PublicProfile | 'not-found'>();
   const [error, setError] = useState<string>();

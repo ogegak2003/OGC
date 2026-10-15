@@ -38,6 +38,10 @@ apps/mobile/ios/
 # EAS local credentials (passwords) and credentials downloaded by `eas credentials`
 apps/mobile/credentials.json
 apps/mobile/credentials/
+# Firebase / push credentials (provided to builds through EAS environment variables)
+google-services.json
+GoogleService-Info.plist
+*-firebase-adminsdk-*.json
 
 # Development email outbox (may contain verification links)
 .dev-outbox/
@@ -69,3 +73,16 @@ desktop.ini
 
 # Local Android build toolchain (JDK, Android SDK) — never committed
 .toolchain/
+
+# Backups and backup keys — never commit (infrastructure/backup/README.md)
+*.dump
+*.dump.gpg
+*.env.gpg
+*.sha256
+backups/
+*.gpg
+*.asc
+
+# Deployment env files (secrets): keep outside the repo; ignored here as a safety net
+*.env
+!*.env.example

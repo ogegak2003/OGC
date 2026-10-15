@@ -1,4 +1,8 @@
 import type {
+  PeerKeyStatus,
+  CallAck,
+  CallMediaPlatform,
+  CallRequestName,
   Draft,
   LocalMessage,
   MessagingEvent,
@@ -208,6 +212,17 @@ export class FakeEngine implements MessagingEngine {
         .filter((m) => m.payload?.text?.toLowerCase().includes(query.toLowerCase())),
     ),
   );
+  /** Key-change state reported for the other person (tests set it). */
+  peerKeys: PeerKeyStatus = { state: 'unverified', added: 0 };
+  peerKeyStatus = jest.fn(() => Promise.resolve(this.peerKeys));
+  acknowledgePeerKeys = jest.fn(() => {
+    this.peerKeys = { state: 'unverified', added: 0 };
+    return Promise.resolve();
+  });
+  markPeerVerified = jest.fn(() => {
+    this.peerKeys = { state: 'verified', added: 0 };
+    return Promise.resolve();
+  });
   safetyNumber = jest.fn(() =>
     Promise.resolve([
       '12345',
@@ -241,6 +256,14 @@ export class FakeRealtime implements RealtimeLink {
     Promise.resolve(ogcIds.map((ogcId) => ({ ogcId, state: 'ONLINE' as const }))),
   );
   unsubscribePresence = jest.fn();
+  /** Call signaling sent by the app, and scripted acknowledgements (default: ok, null). */
+  callRequests: { event: CallRequestName; payload: unknown }[] = [];
+  callReplies = new Map<CallRequestName, (payload: unknown) => unknown>();
+  callRequest = <E extends CallRequestName>(event: E, payload: unknown): Promise<CallAck<E>> => {
+    this.callRequests.push({ event, payload });
+    const reply = this.callReplies.get(event);
+    return Promise.resolve((reply ? reply(payload) : { ok: true, data: null }) as CallAck<E>);
+  };
 }
 
 export interface FakeMessaging {
@@ -256,7 +279,10 @@ export interface FakeMessaging {
   setConnection: (state: 'online' | 'offline') => void;
 }
 
-export function fakeMessaging(engine = new FakeEngine()): FakeMessaging {
+export function fakeMessaging(
+  engine = new FakeEngine(),
+  callMedia?: CallMediaPlatform,
+): FakeMessaging {
   const realtime = new FakeRealtime();
   const destroyed: string[] = [];
   let deliver: FakeMessaging['push'] = () => undefined;
@@ -272,6 +298,7 @@ export function fakeMessaging(engine = new FakeEngine()): FakeMessaging {
       destroyed.push(ogcId);
       return Promise.resolve();
     },
+    createCallMedia: () => callMedia,
   };
   return {
     engine,

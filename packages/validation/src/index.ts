@@ -21,6 +21,13 @@ export {
 export {
   DEVICE_PLATFORMS,
   DISPLAY_NAME_MAX_LENGTH,
+  PASSWORD_RESET_TOKEN,
+  accountStatusChangeSchema,
+  changePasswordRequestSchema,
+  forgotPasswordRequestSchema,
+  resetPasswordRequestSchema,
+  resetTokenFrom,
+  isContextualPassword,
   EMAIL_MAX_LENGTH,
   PASSWORD_MAX_LENGTH,
   PASSWORD_MIN_LENGTH,
@@ -37,7 +44,10 @@ export {
   verifyEmailRequestSchema,
 } from './auth.js';
 export type {
+  ChangePasswordRequest,
   DeviceInfo,
+  ForgotPasswordRequest,
+  ResetPasswordRequest,
   LoginInput,
   LoginRequest,
   RefreshRequest,
@@ -193,3 +203,16 @@ export {
   outranks,
   rank,
 } from './community-permissions.js';
+export {
+  CALL_CANDIDATE_MAX_LENGTH,
+  CALL_SDP_MAX_LENGTH,
+  callEndSchema,
+  callHistoryQuerySchema,
+  callIdSchema,
+  callSignalSchema,
+  callStartSchema,
+  callSyncSchema,
+} from './calls.js';
+export type { CallHistoryQuery, CallSignalRequest, CallStartRequest } from './calls.js';
+export { isTimeZone, notificationSettingsUpdateSchema } from './notifications.js';
+export type { NotificationSettingsUpdate } from './notifications.js';

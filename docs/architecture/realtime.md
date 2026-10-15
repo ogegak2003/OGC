@@ -52,6 +52,16 @@ Server → client:
 Client → server: `typing.start`, `typing.stop` (`{conversationId}`), `presence.subscribe`
 (`{ogcIds ≤ 100}`, acknowledged with states), `presence.unsubscribe`.
 
+**Calls** ([calls.md](calls.md), ADR-037). Client → server, each acknowledged with
+`{ok, data}` or `{ok: false, error}`: `call.start` (`{conversationId, media}`), `call.accept`,
+`call.decline`, `call.cancel`, `call.end` (`{callId, reason?}`), `call.signal`
+(`{callId, signal}`: offer, answer, ICE candidate or camera/microphone state), `call.connected`,
+`call.sync`. Server → client: `call.incoming` (every device of the callee),
+`call.accepted` (the caller's device), `call.answered_elsewhere` (the callee's other
+devices), `call.signal` (the other device in the call only), `call.ended` (both
+participants, each with their own view). Unlike other events, call signaling is not
+recoverable through sync: it is ephemeral by nature, and `call.sync` restores only the state.
+
 ## Typing (ephemeral)
 
 Never stored in PostgreSQL. Allowed only for participants with no block in either direction

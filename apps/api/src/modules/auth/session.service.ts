@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { HttpStatus, Injectable } from '@nestjs/common';
-import type { AccountStatus, OgcId } from '@ogc/types';
+import type { AccountStatus, DeviceSessionView, OgcId } from '@ogc/types';
 import type { DeviceInfo } from '@ogc/validation';
 import { ApiException, unauthenticated } from '../../common/errors.js';
 import { DomainEventBus } from '../../common/events/domain-events.js';
@@ -227,6 +227,86 @@ export class SessionService {
       });
       this.events.publish({ type: 'session.revoked', sessionId, userId });
     }
+  }
+
+  /** The account's signed-in devices (active sessions), newest activity first. */
+  async list(userId: string, currentSessionId: string): Promise<DeviceSessionView[]> {
+    const sessions = await this.prisma.session.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: new Date() } },
+      orderBy: { lastUsedAt: 'desc' },
+      select: {
+        id: true,
+        createdAt: true,
+        lastUsedAt: true,
+        expiresAt: true,
+        device: { select: { platform: true, name: true } },
+      },
+      take: 100,
+    });
+    return sessions.map((s) => ({
+      id: s.id,
+      platform: s.device.platform,
+      deviceName: s.device.name,
+      createdAt: s.createdAt.toISOString(),
+      lastUsedAt: s.lastUsedAt.toISOString(),
+      expiresAt: s.expiresAt.toISOString(),
+      current: s.id === currentSessionId,
+    }));
+  }
+
+  /**
+   * Signs out one of the caller's own sessions (e.g. a lost phone). Someone else's session
+   * gets the same 404 as an unknown ID. Revocation closes its sockets and removes the
+   * device's encryption keys and push token (session.revoked listeners).
+   */
+  async revokeOwn(
+    userId: string,
+    sessionId: string,
+    currentSessionId: string,
+    meta: RequestMeta,
+  ): Promise<void> {
+    const session = await this.prisma.session.findFirst({
+      where: { id: sessionId, userId, revokedAt: null },
+      select: { id: true },
+    });
+    if (!session) {
+      throw new ApiException(HttpStatus.NOT_FOUND, 'NOT_FOUND', 'Session not found');
+    }
+    await this.revoke(
+      session.id,
+      userId,
+      session.id === currentSessionId ? 'LOGOUT' : 'USER_REVOKED',
+      meta,
+    );
+  }
+
+  /** Ends every active session of the account (password reset); returns how many. */
+  async revokeAll(
+    userId: string,
+    reason: SessionRevocationReason,
+    meta: RequestMeta,
+  ): Promise<number> {
+    const sessions = await this.prisma.session.findMany({
+      where: { userId, revokedAt: null },
+      select: { id: true },
+    });
+    for (const session of sessions) await this.revoke(session.id, userId, reason, meta);
+    return sessions.length;
+  }
+
+  /** Ends every other active session of the account; returns how many. */
+  async revokeOthers(
+    userId: string,
+    keepSessionId: string,
+    reason: SessionRevocationReason,
+    meta: RequestMeta,
+  ): Promise<number> {
+    const others = await this.prisma.session.findMany({
+      where: { userId, revokedAt: null, id: { not: keepSessionId } },
+      select: { id: true },
+    });
+    for (const other of others) await this.revoke(other.id, userId, reason, meta);
+    return others.length;
   }
 
   async describe(sessionId: string): Promise<{ accessExpiresAt: Date; expiresAt: Date }> {

@@ -7,6 +7,10 @@ import {
   type ServerToClientEvents,
 } from '@ogc/types';
 import { type Socket, io } from 'socket.io-client';
+import type { CallAck, CallRequestName } from './calls/call-engine.js';
+
+/** Call requests not acknowledged within this time fail with `timeout`. */
+const CALL_REQUEST_TIMEOUT_MS = 10_000;
 
 export type RealtimeSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 
@@ -62,6 +66,11 @@ const SERVER_EVENTS: (keyof ServerToClientEvents)[] = [
   'channel.announcement_created',
   'channel.access_revoked',
   'community.notification',
+  'call.incoming',
+  'call.accepted',
+  'call.answered_elsewhere',
+  'call.signal',
+  'call.ended',
 ];
 
 /**
@@ -161,5 +170,29 @@ export class RealtimeConnection {
   unsubscribePresence(ogcIds: OgcId[]): void {
     if (this.socket.connected && ogcIds.length)
       this.socket.emit('presence.unsubscribe', { ogcIds });
+  }
+
+  /**
+   * Sends a call signaling request and resolves with the server's acknowledgement, or
+   * `offline` / `timeout` when it cannot be delivered or answered.
+   */
+  callRequest<E extends CallRequestName>(
+    event: E,
+    payload: Parameters<ClientToServerEvents[E]>[0],
+  ): Promise<CallAck<E>> {
+    if (!this.socket.connected) {
+      return Promise.resolve({ ok: false, error: 'offline' } as CallAck<E>);
+    }
+    const timed = this.socket.timeout(CALL_REQUEST_TIMEOUT_MS);
+    const emit = timed.emit.bind(timed) as unknown as (
+      name: string,
+      body: unknown,
+      ack: (error: Error | null, response: CallAck<E>) => void,
+    ) => void;
+    return new Promise((resolve) => {
+      emit(event, payload, (error, response) => {
+        resolve(error ? ({ ok: false, error: 'timeout' } as CallAck<E>) : response);
+      });
+    });
   }
 }

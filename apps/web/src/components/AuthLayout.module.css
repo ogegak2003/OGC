@@ -35,7 +35,7 @@
     border-bottom: 0;
     border-right: 1px solid var(--ogc-color-border);
     background:
-      radial-gradient(40rem 28rem at 0% 100%, rgb(212 170 79 / 0.1), transparent 70%),
+      radial-gradient(40rem 28rem at 0% 100%, rgb(216 173 78 / 0.1), transparent 70%),
       linear-gradient(180deg, var(--ogc-color-surface), var(--ogc-color-background));
   }
 
@@ -135,5 +135,32 @@
   from {
     opacity: 0;
     transform: translateY(8px);
+  }
+}
+
+.points {
+  display: none;
+  gap: var(--ogc-space-3);
+  margin: var(--ogc-space-6) 0 0;
+  padding: 0;
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
+  list-style: none;
+}
+
+.points li {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+}
+
+.points svg {
+  flex: none;
+  color: var(--ogc-color-accent);
+}
+
+@media (min-width: 960px) {
+  .points {
+    display: grid;
   }
 }

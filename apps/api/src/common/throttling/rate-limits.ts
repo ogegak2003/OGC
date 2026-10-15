@@ -29,7 +29,10 @@ export type MessagingLimitName =
   | 'moderation'
   | 'discovery'
   | 'communityReport'
-  | 'notifications';
+  | 'notifications'
+  | 'callStart'
+  | 'callSignal'
+  | 'pushRegister';
 
 type RateLimitKey = Extract<keyof Env, `RATE_LIMIT_${string}`>;
 
@@ -59,6 +62,9 @@ export function messagingLimitsFrom(
     RATE_LIMIT_DISCOVERY: read('RATE_LIMIT_DISCOVERY'),
     RATE_LIMIT_COMMUNITY_REPORT_PER_HOUR: read('RATE_LIMIT_COMMUNITY_REPORT_PER_HOUR'),
     RATE_LIMIT_NOTIFICATIONS: read('RATE_LIMIT_NOTIFICATIONS'),
+    RATE_LIMIT_CALL_START: read('RATE_LIMIT_CALL_START'),
+    RATE_LIMIT_CALL_SIGNAL: read('RATE_LIMIT_CALL_SIGNAL'),
+    RATE_LIMIT_PUSH_REGISTER: read('RATE_LIMIT_PUSH_REGISTER'),
   };
   return {
     messageSend: { limit: env.RATE_LIMIT_MESSAGE_SEND, ttl: MINUTE },
@@ -82,6 +88,9 @@ export function messagingLimitsFrom(
     discovery: { limit: env.RATE_LIMIT_DISCOVERY, ttl: MINUTE },
     communityReport: { limit: env.RATE_LIMIT_COMMUNITY_REPORT_PER_HOUR, ttl: HOUR },
     notifications: { limit: env.RATE_LIMIT_NOTIFICATIONS, ttl: MINUTE },
+    callStart: { limit: env.RATE_LIMIT_CALL_START, ttl: MINUTE },
+    callSignal: { limit: env.RATE_LIMIT_CALL_SIGNAL, ttl: MINUTE },
+    pushRegister: { limit: env.RATE_LIMIT_PUSH_REGISTER, ttl: MINUTE },
   };
 }
 

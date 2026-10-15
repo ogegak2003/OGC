@@ -75,6 +75,12 @@ and the web image (nginx) at <http://localhost:8080>, with the API reachable sam
 attachment uploads return `503` until a storage provider is configured.
 No email provider is configured there, so new accounts cannot be verified in that stack.
 
+The deployable stack (TLS edge, internal networks, no published database ports) is
+`infrastructure/docker/docker-compose.prod.yml`. To check it locally against a throwaway
+project with a self-signed certificate, run `pnpm deploy:check-stack`. To check what Docker
+receives as build context, run `pnpm deploy:check-context`. See
+[deployment.md](../operations/deployment.md).
+
 ## Database (Prisma)
 
 | Command (from `apps/api`) | Purpose                                                                          |

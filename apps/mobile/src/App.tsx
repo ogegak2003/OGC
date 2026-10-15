@@ -2,11 +2,18 @@ import { color } from '@ogc/ui';
 import { parseInviteToken, parseOgcIdLink } from '@ogc/validation';
 import { StatusBar } from 'expo-status-bar';
 import { useEffect, useState } from 'react';
-import { ActivityIndicator, Linking, StyleSheet, View } from 'react-native';
+import { BackHandler, Linking, StyleSheet, View } from 'react-native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { ApiClient } from './api/client';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
+import { TabShell } from './components/TabBar';
+import { Loading } from './components/ui';
 import type { MessagingDependencies } from './messaging/messaging-context';
 import { MessagingProvider } from './messaging/MessagingProvider';
+import { CallScreen } from './screens/calls/CallScreen';
+import { CallsScreen } from './screens/calls/CallsScreen';
+import { PushNotifications } from './notifications/PushNotifications';
+import { NotificationSettingsScreen } from './screens/settings/NotificationSettingsScreen';
 import { type Route, StackNavigator } from './navigation';
 import { ConversationScreen } from './screens/messaging/ConversationScreen';
 import { MessagesScreen } from './screens/messaging/MessagesScreen';
@@ -30,7 +37,11 @@ import {
   JoinScreen,
   ReportMessageScreen,
 } from './screens/community/GroupScreens';
+import { CommunitiesScreen } from './screens/community/CommunitiesScreen';
+import { HomeScreen } from './screens/HomeScreen';
+import { ForgotPasswordScreen } from './screens/ForgotPasswordScreen';
 import { RegisterScreen } from './screens/RegisterScreen';
+import { SearchScreen } from './screens/SearchScreen';
 import { SignInScreen } from './screens/SignInScreen';
 import { CheckEmailScreen, PendingVerificationScreen } from './screens/VerificationScreens';
 import { WelcomeScreen } from './screens/WelcomeScreen';
@@ -41,11 +52,13 @@ import {
 } from './screens/social/PeopleScreens';
 import { EditProfileScreen, MyQrScreen, ProfileScreen } from './screens/social/ProfileScreens';
 import { BlockedScreen, PrivacyScreen, ReportScreen } from './screens/social/SafetyScreens';
+import { SecurityScreen } from './screens/social/SecurityScreen';
 
 type GuestRoute =
   | { name: 'welcome' }
   | { name: 'sign-in' }
   | { name: 'register' }
+  | { name: 'forgot-password' }
   | { name: 'check-email'; email: string };
 
 /**
@@ -80,6 +93,14 @@ function useIncomingLink(): Route | undefined {
 
 function renderSignedIn(route: Route) {
   switch (route.name) {
+    case 'home':
+      return <HomeScreen />;
+    case 'communities':
+      return <CommunitiesScreen />;
+    case 'search':
+      return <SearchScreen />;
+    case 'security':
+      return <SecurityScreen />;
     case 'profile':
       return <ProfileScreen />;
     case 'edit-profile':
@@ -134,6 +155,10 @@ function renderSignedIn(route: Route) {
       return <ChannelManageScreen channelId={route.channelId} />;
     case 'notifications':
       return <NotificationsScreen />;
+    case 'calls':
+      return <CallsScreen />;
+    case 'notification-settings':
+      return <NotificationSettingsScreen />;
   }
 }
 
@@ -141,22 +166,34 @@ function Router() {
   const { state } = useAuth();
   const [route, setRoute] = useState<GuestRoute>({ name: 'welcome' });
   const linked = useIncomingLink();
+  const signedOut = state.status === 'signed-out';
 
-  if (state.status === 'loading') {
-    return (
-      <View style={styles.center}>
-        <ActivityIndicator color={color.accent} accessibilityLabel="Loading" />
-      </View>
-    );
-  }
+  // Android back in the signed-out flow returns to the welcome screen.
+  useEffect(() => {
+    if (!signedOut || route.name === 'welcome') return;
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      setRoute({ name: 'welcome' });
+      return true;
+    });
+    return () => {
+      subscription.remove();
+    };
+  }, [signedOut, route.name]);
+
+  if (state.status === 'loading') return <Loading label="Loading" />;
   if (state.status === 'signed-in') {
     if (state.account.accountStatus === 'PENDING_VERIFICATION')
       return <PendingVerificationScreen />;
-    const initial: Route[] = linked ? [{ name: 'profile' }, linked] : [{ name: 'profile' }];
+    const initial: Route[] = linked ? [{ name: 'home' }, linked] : [{ name: 'home' }];
     // A new link restarts the stack on its screen (the key forces a fresh navigator).
     return (
       <StackNavigator key={linked ? JSON.stringify(linked) : 'home'} initial={initial}>
-        {renderSignedIn}
+        {(current) => (
+          <>
+            <PushNotifications />
+            <TabShell route={current}>{renderSignedIn(current)}</TabShell>
+          </>
+        )}
       </StackNavigator>
     );
   }
@@ -167,15 +204,29 @@ function Router() {
   const create = () => {
     setRoute({ name: 'register' });
   };
+  const welcome = () => {
+    setRoute({ name: 'welcome' });
+  };
   switch (route.name) {
     case 'welcome':
       return <WelcomeScreen onCreate={create} onSignIn={signIn} />;
     case 'sign-in':
-      return <SignInScreen onCreate={create} />;
+      return (
+        <SignInScreen
+          onCreate={create}
+          onBack={welcome}
+          onForgot={() => {
+            setRoute({ name: 'forgot-password' });
+          }}
+        />
+      );
+    case 'forgot-password':
+      return <ForgotPasswordScreen onSignIn={signIn} />;
     case 'register':
       return (
         <RegisterScreen
           onSignIn={signIn}
+          onBack={welcome}
           onRegistered={(email) => {
             setRoute({ name: 'check-email', email });
           }}
@@ -195,18 +246,21 @@ export function App({
   messaging?: MessagingDependencies;
 }) {
   return (
-    <AuthProvider client={client}>
-      <MessagingProvider {...(messaging ? { dependencies: messaging } : {})}>
-        <View style={styles.root}>
-          <Router />
-        </View>
-      </MessagingProvider>
-      <StatusBar style="light" />
-    </AuthProvider>
+    <SafeAreaProvider style={styles.root}>
+      <AuthProvider client={client}>
+        <MessagingProvider {...(messaging ? { dependencies: messaging } : {})}>
+          <View style={styles.root}>
+            <Router />
+            {/* Incoming, outgoing and active calls, over whichever screen is open. */}
+            <CallScreen />
+          </View>
+        </MessagingProvider>
+        <StatusBar style="light" />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: color.background },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
 });

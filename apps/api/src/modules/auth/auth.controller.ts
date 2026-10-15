@@ -1,7 +1,26 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Param,
+  Post,
+  Req,
+  Res,
+} from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Throttle } from '@nestjs/throttler';
-import type { AccountView, AuthResponse, RegisterResponse, VerifyEmailResponse } from '@ogc/types';
+import type {
+  AccountView,
+  AuthResponse,
+  DeviceSessionView,
+  ForgotPasswordResponse,
+  RegisterResponse,
+  ResetPasswordResponse,
+  VerifyEmailResponse,
+} from '@ogc/types';
 import {
   type DeviceInfo,
   type LoginInput,
@@ -10,6 +29,10 @@ import {
   refreshRequestSchema,
   registerRequestSchema,
   verifyEmailRequestSchema,
+  changePasswordRequestSchema,
+  forgotPasswordRequestSchema,
+  resetPasswordRequestSchema,
+  uuidSchema,
 } from '@ogc/validation';
 import type { Request, Response } from 'express';
 import { ApiException, unauthenticated } from '../../common/errors.js';
@@ -161,5 +184,89 @@ export class AuthController {
   ): Promise<{ message: string }> {
     await this.auth.resendVerification(auth.userId, requestMeta(req));
     return { message: 'If your email still needs verifying, a new link is on its way.' };
+  }
+
+  // ── Password recovery (Phase 9) ─────────────────────────────────────────────────────────
+
+  /** Emails a reset link if the address has a recoverable account; the answer never says. */
+  @Public()
+  @Throttle({ default: AUTH_RATE_LIMITS.forgotPassword })
+  @Post('password/forgot')
+  @HttpCode(HttpStatus.ACCEPTED)
+  forgotPassword(
+    @Body(new ZodValidationPipe(forgotPasswordRequestSchema)) body: { email: string },
+    @Req() req: Request,
+  ): Promise<ForgotPasswordResponse> {
+    return this.auth.forgotPassword(body.email, requestMeta(req));
+  }
+
+  /** Sets a new password with an emailed token; every session of the account ends. */
+  @Public()
+  @Throttle({ default: AUTH_RATE_LIMITS.resetPassword })
+  @Post('password/reset')
+  @HttpCode(HttpStatus.OK)
+  async resetPassword(
+    @Body(new ZodValidationPipe(resetPasswordRequestSchema))
+    body: { token: string; newPassword: string },
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<ResetPasswordResponse> {
+    await this.auth.resetPassword(body, requestMeta(req));
+    // A browser that still holds this account's (now revoked) cookies drops them.
+    clearAuthCookies(res, this.secureCookies);
+    return { reset: true };
+  }
+
+  // ── Sessions and password (Phase 8) ─────────────────────────────────────────────────────
+
+  /** The account's signed-in devices, so a lost or stolen one can be found and signed out. */
+  @Throttle({ default: AUTH_RATE_LIMITS.sessions })
+  @Get('sessions')
+  listSessions(@CurrentAuth() auth: AuthContext): Promise<DeviceSessionView[]> {
+    return this.sessions.list(auth.userId, auth.sessionId);
+  }
+
+  /** Signs out one of the caller's own sessions (this one included). */
+  @Throttle({ default: AUTH_RATE_LIMITS.sessions })
+  @Delete('sessions/:id')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async revokeSession(
+    @CurrentAuth() auth: AuthContext,
+    @Param('id', new ZodValidationPipe(uuidSchema)) id: string,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<void> {
+    await this.sessions.revokeOwn(auth.userId, id, auth.sessionId, requestMeta(req));
+    if (id === auth.sessionId) clearAuthCookies(res, this.secureCookies);
+  }
+
+  /** Signs out every other device of the account. */
+  @Throttle({ default: AUTH_RATE_LIMITS.sessions })
+  @Post('sessions/revoke-others')
+  @HttpCode(HttpStatus.OK)
+  async revokeOtherSessions(
+    @CurrentAuth() auth: AuthContext,
+    @Req() req: Request,
+  ): Promise<{ ended: number }> {
+    const ended = await this.sessions.revokeOthers(
+      auth.userId,
+      auth.sessionId,
+      'USER_REVOKED',
+      requestMeta(req),
+    );
+    return { ended };
+  }
+
+  /** Changes the password (current one required); every other session ends. */
+  @Throttle({ default: AUTH_RATE_LIMITS.changePassword })
+  @Post('password')
+  @HttpCode(HttpStatus.OK)
+  changePassword(
+    @CurrentAuth() auth: AuthContext,
+    @Body(new ZodValidationPipe(changePasswordRequestSchema))
+    body: { currentPassword: string; newPassword: string },
+    @Req() req: Request,
+  ): Promise<{ otherSessionsEnded: number }> {
+    return this.auth.changePassword(auth, body, requestMeta(req));
   }
 }

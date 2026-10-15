@@ -53,6 +53,27 @@ export class RealtimePublisher {
     }
   }
 
+  /**
+   * Emits to users' sockets except one (e.g. "answered on another device" goes to every
+   * other tab and device of the callee, but not to the socket that answered).
+   */
+  toUsersExceptSocket<E extends keyof ServerToClientEvents>(
+    userIds: string[],
+    socketId: string,
+    event: E,
+    ...args: EventArgs<E>
+  ): void {
+    if (!this.namespace || userIds.length === 0) return;
+    try {
+      this.namespace
+        .to([...new Set(userIds)].map(userRoom))
+        .except(socketId)
+        .emit(event, ...args);
+    } catch (error) {
+      this.logger.warn({ err: error, event }, 'Realtime emit failed');
+    }
+  }
+
   toDevices<E extends keyof ServerToClientEvents>(
     deviceIds: string[],
     event: E,

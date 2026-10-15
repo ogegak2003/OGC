@@ -1,4 +1,6 @@
 import type {
+  CallEngine,
+  CallMediaPlatform,
   ConnectionState,
   MessagingClient,
   RealtimeConnection,
@@ -38,11 +40,14 @@ export type MessagingEngine = Pick<
   | 'wipe'
   | 'timeline'
   | 'forgetConversation'
+  | 'peerKeyStatus'
+  | 'acknowledgePeerKeys'
+  | 'markPeerVerified'
 >;
 
 export type RealtimeLink = Pick<
   RealtimeConnection,
-  'connect' | 'disconnect' | 'typing' | 'subscribePresence' | 'unsubscribePresence'
+  'connect' | 'disconnect' | 'typing' | 'subscribePresence' | 'unsubscribePresence' | 'callRequest'
 >;
 
 export interface MessagingDependencies {
@@ -56,6 +61,8 @@ export interface MessagingDependencies {
     onReconnect: () => void,
   ) => RealtimeLink;
   destroyLocalData: (ogcId: string) => Promise<void>;
+  /** WebRTC for calls; undefined where the browser cannot make calls (e.g. not HTTPS). */
+  createCallMedia?: () => CallMediaPlatform | undefined;
 }
 
 export interface MessagingContextValue {
@@ -79,6 +86,12 @@ export interface MessagingContextValue {
   channelRevision: Record<string, number>;
   setTyping: (conversationId: string, typing: boolean) => void;
   watchPresence: (ogcIds: OgcId[]) => void;
+  /** One-to-one calls on this device (available once the realtime connection exists). */
+  calls: CallEngine | undefined;
+  /** Bumped whenever a call ends, to refresh call history. */
+  callsRevision: number;
+  /** Starts the messaging engine again after `status: 'error'`. */
+  retry: () => void;
 }
 
 export const MessagingContext = createContext<MessagingContextValue | undefined>(undefined);

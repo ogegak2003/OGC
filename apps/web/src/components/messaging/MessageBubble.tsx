@@ -10,6 +10,7 @@ import { messageTime } from '../../messaging/format';
 import { previewText } from '../../messaging/hooks';
 import { AttachmentView } from './AttachmentView';
 import styles from './messaging.module.css';
+import { Icon, type IconName } from '../Icon';
 
 const STATUS_LABEL: Record<MessageDisplayStatus, string> = {
   PENDING: 'Sending',
@@ -19,12 +20,12 @@ const STATUS_LABEL: Record<MessageDisplayStatus, string> = {
   FAILED: 'Not sent',
 };
 
-const STATUS_ICON: Record<MessageDisplayStatus, string> = {
-  PENDING: '◷',
-  SENT: '✓',
-  DELIVERED: '✓✓',
-  READ: '✓✓',
-  FAILED: '!',
+const STATUS_ICON: Record<MessageDisplayStatus, IconName> = {
+  PENDING: 'clock',
+  SENT: 'check',
+  DELIVERED: 'checkDouble',
+  READ: 'checkDouble',
+  FAILED: 'alert',
 };
 
 export interface MessageActions {
@@ -47,8 +48,8 @@ function Placeholder({ message }: { message: LocalMessage }) {
     case 'unavailable':
       return (
         <p className={styles.placeholder}>
-          <span aria-hidden="true">🔒 </span>Sent before this device joined the conversation, so it
-          can’t be decrypted here.
+          <Icon name="lock" size={13} className={styles.placeholderIcon} />
+          Sent before this device joined the conversation, so it can’t be decrypted here.
         </p>
       );
     case 'undecryptable':
@@ -135,7 +136,7 @@ export function MessageBubble({
               aria-label={STATUS_LABEL[status]}
               title={STATUS_LABEL[status]}
             >
-              {STATUS_ICON[status]}
+              <Icon name={STATUS_ICON[status]} size={14} strokeWidth={2} />
             </span>
           ) : null}
         </p>
@@ -195,7 +196,7 @@ export function MessageBubble({
               setMenuOpen((open) => !open);
             }}
           >
-            ⋯
+            <Icon name="moreHorizontal" size={18} />
           </button>
           {menuOpen ? (
             <div

@@ -1,0 +1,45 @@
+# coturn configuration for OGC calls — EXAMPLE WITH PLACEHOLDERS ONLY.
+# Copy to /etc/turnserver.conf on a host with a public IP. Never commit the real file.
+# OGC issues short-lived per-call credentials (TURN REST API); see docs/development/calls.md.
+
+# Network
+listening-port=3478
+tls-listening-port=5349
+# The host's public address (and private address if behind 1:1 NAT): external-ip=PUBLIC/PRIVATE
+external-ip=203.0.113.10
+realm=turn.example.org
+server-name=turn.example.org
+# Relay port range — open these UDP ports in the firewall.
+min-port=49152
+max-port=65535
+
+# Authentication: same value as WEBRTC_TURN_SECRET in the API (from your secret store).
+use-auth-secret
+static-auth-secret=REPLACE_WITH_THE_SAME_SECRET_AS_WEBRTC_TURN_SECRET
+
+# TLS for turns: (use a real certificate for turn.example.org).
+cert=/etc/letsencrypt/live/turn.example.org/fullchain.pem
+pkey=/etc/letsencrypt/live/turn.example.org/privkey.pem
+no-tlsv1
+no-tlsv1_1
+
+# Hardening
+fingerprint
+no-cli
+no-multicast-peers
+# Never relay into private, loopback or link-local networks.
+denied-peer-ip=0.0.0.0-0.255.255.255
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=100.64.0.0-100.127.255.255
+denied-peer-ip=127.0.0.0-127.255.255.255
+denied-peer-ip=169.254.0.0-169.254.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+denied-peer-ip=::1
+denied-peer-ip=fc00::-fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+denied-peer-ip=fe80::-febf:ffff:ffff:ffff:ffff:ffff:ffff:ffff
+# Quotas (adjust to capacity): sessions per user name, and in total.
+user-quota=4
+total-quota=1000
+# Minimal logging (no message bodies are ever logged by coturn).
+simple-log

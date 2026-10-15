@@ -19,7 +19,10 @@
     "check": "pnpm format:check && turbo run lint typecheck build && pnpm test",
     "audit:deps": "pnpm audit --audit-level=high",
     "db:up": "docker compose -f infrastructure/docker/docker-compose.yml up -d",
-    "db:down": "docker compose -f infrastructure/docker/docker-compose.yml down"
+    "db:down": "docker compose -f infrastructure/docker/docker-compose.yml down",
+    "backup:check": "bash infrastructure/backup/test-backup-restore.sh",
+    "deploy:check-context": "bash infrastructure/docker/tests/check-build-context.sh",
+    "deploy:check-stack": "bash infrastructure/docker/tests/check-prod-stack.sh"
   },
   "devDependencies": {
     "prettier": "3.9.10",

@@ -5,7 +5,9 @@ import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import type { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from 'react';
+import { color } from '@ogc/ui';
 import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
+import { Icon } from '../../components/Icon';
 import { useMessaging } from '../../messaging/messaging-context';
 import { cacheFile } from '../../messaging/native-store';
 import { m } from './styles';
@@ -35,7 +37,13 @@ function ImageAttachment({ descriptor }: { descriptor: AttachmentDescriptor }) {
     };
   }, [engine, descriptor]);
 
-  if (uri === undefined) return <ActivityIndicator accessibilityLabel="Decrypting photo" />;
+  if (uri === undefined) {
+    return (
+      <View style={[m.image, { alignItems: 'center', justifyContent: 'center' }]}>
+        <ActivityIndicator color={color.accent} accessibilityLabel="Decrypting photo" />
+      </View>
+    );
+  }
   if (uri === null) return <FileAttachment descriptor={descriptor} />;
   return (
     <Image
@@ -76,14 +84,17 @@ function FileAttachment({ descriptor }: { descriptor: AttachmentDescriptor }) {
 
   return (
     <View style={m.file}>
-      <View style={{ flex: 1 }}>
+      <View style={m.fileIcon}>
+        <Icon name="file" size={20} tint={color.accent} />
+      </View>
+      <View style={m.fileBody}>
         <Text style={m.fileName} numberOfLines={1}>
           {name}
         </Text>
         <Text style={m.fileSize}>{fileSize(descriptor.size)}</Text>
       </View>
       <Text
-        style={m.outlinePill}
+        style={m.fileAction}
         accessibilityRole="button"
         accessibilityLabel={`Open ${name}`}
         onPress={() => void open()}
@@ -101,6 +112,7 @@ function VoicePlayer({ source, total }: { source: string; total: number }) {
   return (
     <View style={m.file}>
       <Pressable
+        style={m.play}
         accessibilityRole="button"
         accessibilityLabel={status.playing ? 'Pause voice message' : 'Play voice message'}
         onPress={() => {
@@ -108,7 +120,12 @@ function VoicePlayer({ source, total }: { source: string; total: number }) {
           else player.play();
         }}
       >
-        <Text style={m.play}>{status.playing ? '❚❚' : '▶'}</Text>
+        <Icon
+          name={status.playing ? 'pause' : 'play'}
+          size={18}
+          tint={color.onAccent}
+          strokeWidth={2.25}
+        />
       </Pressable>
       <Pressable
         style={{ flex: 1 }}
@@ -145,6 +162,7 @@ function VoiceAttachment({ descriptor }: { descriptor: AttachmentDescriptor }) {
   return (
     <View style={m.file}>
       <Pressable
+        style={m.play}
         accessibilityRole="button"
         accessibilityLabel="Play voice message"
         onPress={() => {
@@ -159,7 +177,7 @@ function VoiceAttachment({ descriptor }: { descriptor: AttachmentDescriptor }) {
           );
         }}
       >
-        <Text style={m.play}>▶</Text>
+        <Icon name="play" size={18} tint={color.onAccent} strokeWidth={2.25} />
       </Pressable>
       <Text style={m.fileSize}>
         {failed ? 'Unavailable' : `Voice message · ${duration(descriptor.durationMs ?? 0)}`}

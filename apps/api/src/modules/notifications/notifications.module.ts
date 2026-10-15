@@ -2,8 +2,13 @@ import { Module } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Env } from '../../config/env.schema.js';
 import { CommunityNotificationsService } from './community-notifications.service.js';
-import { InboxController, NotificationsController } from './notifications.controller.js';
+import {
+  InboxController,
+  NotificationSettingsController,
+  NotificationsController,
+} from './notifications.controller.js';
 import { NotificationsService } from './notifications.service.js';
+import { PushDeliveryService } from './push-delivery.service.js';
 import {
   DisabledPushProvider,
   ExpoPushProvider,
@@ -12,10 +17,11 @@ import {
 } from './push-provider.js';
 
 @Module({
-  controllers: [NotificationsController, InboxController],
+  controllers: [NotificationsController, InboxController, NotificationSettingsController],
   providers: [
     NotificationsService,
     CommunityNotificationsService,
+    PushDeliveryService,
     {
       provide: PushProvider,
       inject: [ConfigService],
@@ -31,6 +37,6 @@ import {
       },
     },
   ],
-  exports: [NotificationsService, CommunityNotificationsService],
+  exports: [NotificationsService, CommunityNotificationsService, PushDeliveryService],
 })
 export class NotificationsModule {}

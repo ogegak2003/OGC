@@ -88,7 +88,7 @@
 
 .badgeGold {
   color: var(--ogc-color-accent);
-  border-color: rgb(212 170 79 / 0.5);
+  border-color: rgb(216 173 78 / 0.5);
 }
 
 .actions {
@@ -209,8 +209,8 @@
 }
 
 .option:has(input:checked) {
-  border-color: rgb(212 170 79 / 0.6);
-  background: rgb(212 170 79 / 0.05);
+  border-color: rgb(216 173 78 / 0.6);
+  background: rgb(216 173 78 / 0.05);
 }
 
 .option input {

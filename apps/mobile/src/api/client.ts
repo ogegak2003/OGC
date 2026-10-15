@@ -4,16 +4,28 @@ import type {
   ApiErrorCode,
   AuthResponse,
   BlockView,
+  CallPage,
+  NotificationSettingsView,
   ContactRequestResult,
   ContactRequestView,
   ContactView,
   DevicePlatform,
+  DeviceSessionView,
+  ForgotPasswordResponse,
   OwnProfile,
   Page,
   PublicProfile,
   RegisterResponse,
+  ResetPasswordResponse,
 } from '@ogc/types';
-import type { RegisterRequest, ReportUserRequest, UpdateProfileRequest } from '@ogc/validation';
+import type {
+  ChangePasswordRequest,
+  ResetPasswordRequest,
+  NotificationSettingsUpdate,
+  RegisterRequest,
+  ReportUserRequest,
+  UpdateProfileRequest,
+} from '@ogc/validation';
 import type { TokenStore } from '../auth/token-store';
 
 export class ApiError extends Error {
@@ -178,6 +190,40 @@ export class ApiClient {
     }
   }
 
+  // ---------- Password recovery (signed out) ----------
+  /** Asks for a reset link; the answer is the same whether or not the address has an account. */
+  forgotPassword(email: string): Promise<ForgotPasswordResponse> {
+    return this.send('/v1/auth/password/forgot', { method: 'POST', body: { email } });
+  }
+
+  /** Sets a new password with the emailed token; every session of the account ends. */
+  resetPassword(body: ResetPasswordRequest): Promise<ResetPasswordResponse> {
+    return this.send('/v1/auth/password/reset', { method: 'POST', body, retry: false });
+  }
+
+  // ---------- Devices and password ----------
+  /** The account's signed-in devices; `current` marks this one. */
+  sessions(): Promise<DeviceSessionView[]> {
+    return this.send('/v1/auth/sessions', { auth: true });
+  }
+
+  /** Signs out another device (e.g. a lost phone): its keys and push token are removed. */
+  revokeSession(id: string): Promise<void> {
+    return this.send(`/v1/auth/sessions/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      auth: true,
+    });
+  }
+
+  revokeOtherSessions(): Promise<{ ended: number }> {
+    return this.send('/v1/auth/sessions/revoke-others', { method: 'POST', auth: true });
+  }
+
+  /** Changes the password; every other device is signed out. */
+  changePassword(body: ChangePasswordRequest): Promise<{ otherSessionsEnded: number }> {
+    return this.send('/v1/auth/password', { method: 'POST', body, auth: true, retry: false });
+  }
+
   // ---------- Profile ----------
   profile(): Promise<OwnProfile> {
     return this.send('/v1/profile', { auth: true });
@@ -279,6 +325,35 @@ export class ApiClient {
 
   reportUser(body: ReportUserRequest): Promise<{ received: true }> {
     return this.send('/v1/reports/users', { method: 'POST', body, auth: true });
+  }
+
+  // ---------- Push notifications ----------
+  /** Registers this device's push token (the server binds it to this session's device). */
+  registerPushToken(token: string): Promise<void> {
+    return this.send('/v1/notifications/push-token', {
+      method: 'PUT',
+      body: { provider: 'EXPO', token },
+      auth: true,
+    });
+  }
+
+  unregisterPushToken(): Promise<void> {
+    return this.send('/v1/notifications/push-token', { method: 'DELETE', auth: true });
+  }
+
+  notificationSettings(): Promise<NotificationSettingsView> {
+    return this.send('/v1/notifications/settings', { auth: true });
+  }
+
+  updateNotificationSettings(body: NotificationSettingsUpdate): Promise<NotificationSettingsView> {
+    return this.send('/v1/notifications/settings', { method: 'PUT', body, auth: true });
+  }
+
+  // ---------- Calls ----------
+  /** Call history (metadata only), newest first; optionally one conversation's calls. */
+  calls(conversationId?: string): Promise<CallPage> {
+    const filter = conversationId ? `&conversationId=${encodeURIComponent(conversationId)}` : '';
+    return this.send(`/v1/calls?limit=50${filter}`, { auth: true });
   }
 
   private async forget(): Promise<void> {

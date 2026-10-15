@@ -1,9 +1,20 @@
 import { conversationAvatar, conversationTitle } from '@ogc/messaging';
+import { color, radius, space } from '@ogc/ui';
+import { formatOgcIdForDisplay } from '@ogc/validation';
 import { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../auth/AuthProvider';
+import { Icon } from '../../components/Icon';
 import { Avatar } from '../../components/identity';
-import { Notice } from '../../components/ui';
+import {
+  Button,
+  EmptyState,
+  ListGroup,
+  ListRow,
+  Loading,
+  Notice,
+  SkeletonRows,
+} from '../../components/ui';
 import { useResource } from '../../lib/use-resource';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
@@ -17,30 +28,59 @@ export function NewConversationScreen() {
   const { client } = useAuth();
   const { engine } = useMessaging();
   const load = useCallback(() => client.contacts(), [client]);
-  const { state } = useResource(load);
+  const { state, reload } = useResource(load);
   const [error, setError] = useState<string>();
   const [opening, setOpening] = useState(false);
 
   return (
-    <Screen title="New conversation" onBack={nav.back}>
+    <Screen
+      title="New conversation"
+      subtitle="Choose a contact. Conversations are end-to-end encrypted."
+      onBack={nav.back}
+    >
       {error ? <Notice>{error}</Notice> : null}
       {state.status === 'loading' ? (
-        <ActivityIndicator accessibilityLabel="Loading contacts" />
+        <View style={styles.surface}>
+          <SkeletonRows count={4} label="Loading contacts" />
+        </View>
       ) : null}
-      {state.status === 'error' ? <Notice>Your contacts could not be loaded.</Notice> : null}
+      {state.status === 'error' ? (
+        <Notice action={{ label: 'Retry', onPress: reload }}>
+          Your contacts could not be loaded.
+        </Notice>
+      ) : null}
       {state.status === 'ready' && state.data.items.length === 0 ? (
-        <Text style={social.empty}>Add contacts from Discover to start messaging them.</Text>
+        <EmptyState
+          icon="contacts"
+          title="Add contacts from Discover to start messaging them."
+          action={{
+            label: 'Find someone',
+            icon: 'userPlus',
+            onPress: () => {
+              nav.push({ name: 'discover' });
+            },
+          }}
+        />
       ) : null}
-      {state.status === 'ready'
-        ? state.data.items.map((contact) => (
-            <Pressable
+      {state.status === 'ready' && state.data.items.length > 0 ? (
+        <ListGroup>
+          {state.data.items.map((contact) => (
+            <ListRow
               key={contact.profile.ogcId}
-              style={social.listItem}
-              accessibilityRole="button"
+              title={contact.profile.displayName}
+              subtitle={formatOgcIdForDisplay(contact.profile.ogcId)}
+              leading={
+                <Avatar
+                  url={contact.profile.avatarUrl}
+                  name={contact.profile.displayName}
+                  size={44}
+                />
+              }
+              trailing={<Icon name="chat" size={18} tint={color.accent} />}
+              chevron={false}
               accessibilityLabel={`Message ${contact.profile.displayName}`}
-              disabled={opening}
               onPress={() => {
-                if (!engine) return;
+                if (!engine || opening) return;
                 setOpening(true);
                 engine.openDirect(contact.profile.ogcId).then(
                   (conversation) => {
@@ -52,19 +92,10 @@ export function NewConversationScreen() {
                   },
                 );
               }}
-            >
-              <Avatar
-                url={contact.profile.avatarUrl}
-                name={contact.profile.displayName}
-                size={40}
-              />
-              <View style={social.names}>
-                <Text style={social.name}>{contact.profile.displayName}</Text>
-                <Text style={social.ogcId}>{contact.profile.ogcId}</Text>
-              </View>
-            </Pressable>
-          ))
-        : null}
+            />
+          ))}
+        </ListGroup>
+      ) : null}
     </Screen>
   );
 }
@@ -91,32 +122,41 @@ export function ForwardScreen({
       onBack={nav.back}
     >
       {error ? <Notice>{error}</Notice> : null}
-      {targets.length === 0 ? <Text style={social.empty}>No other conversations yet.</Text> : null}
-      {targets.map((target) => (
-        <Pressable
-          key={target.id}
-          style={social.listItem}
-          accessibilityRole="button"
-          accessibilityLabel={`Forward to ${conversationTitle(target)}`}
-          disabled={busy}
-          onPress={() => {
-            if (!engine) return;
-            setBusy(true);
-            engine.forward(conversationId, messageId, target.id).then(
-              () => {
-                nav.back();
-              },
-              () => {
-                setBusy(false);
-                setError('The message could not be forwarded.');
-              },
-            );
-          }}
-        >
-          <Avatar url={conversationAvatar(target).url} name={conversationTitle(target)} size={40} />
-          <Text style={social.name}>{conversationTitle(target)}</Text>
-        </Pressable>
-      ))}
+      {targets.length === 0 ? (
+        <EmptyState icon="forward" title="No other conversations yet." />
+      ) : (
+        <ListGroup>
+          {targets.map((target) => (
+            <ListRow
+              key={target.id}
+              title={conversationTitle(target)}
+              leading={
+                <Avatar
+                  url={conversationAvatar(target).url}
+                  name={conversationTitle(target)}
+                  size={44}
+                />
+              }
+              trailing={<Icon name="forward" size={18} tint={color.accent} />}
+              chevron={false}
+              accessibilityLabel={`Forward to ${conversationTitle(target)}`}
+              onPress={() => {
+                if (!engine || busy) return;
+                setBusy(true);
+                engine.forward(conversationId, messageId, target.id).then(
+                  () => {
+                    nav.back();
+                  },
+                  () => {
+                    setBusy(false);
+                    setError('The message could not be forwarded.');
+                  },
+                );
+              }}
+            />
+          ))}
+        </ListGroup>
+      )}
     </Screen>
   );
 }
@@ -138,6 +178,16 @@ export function SafetyNumberScreen({
   const other = name ?? peer?.displayName ?? 'them';
   const [groups, setGroups] = useState<string[]>();
   const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+
+  const markVerified = () => {
+    if (!engine) return;
+    setSaving(true);
+    engine.markPeerVerified(conversationId).then(nav.back, (cause: unknown) => {
+      setSaving(false);
+      setError(cause instanceof Error ? cause.message : 'Could not save');
+    });
+  };
 
   useEffect(() => {
     if (!engine) return;
@@ -157,6 +207,9 @@ export function SafetyNumberScreen({
 
   return (
     <Screen title="Verify encryption" onBack={nav.back}>
+      <View style={styles.badge}>
+        <Icon name="shieldCheck" size={30} tint={color.accent} />
+      </View>
       <Text style={social.body}>
         Compare this number with {other} in person or on a call. If it matches on both devices, your
         messages are encrypted only for your and their devices. It changes when either of you adds
@@ -172,8 +225,37 @@ export function SafetyNumberScreen({
           ))}
         </View>
       ) : !error ? (
-        <ActivityIndicator accessibilityLabel="Computing safety number" />
+        <Loading label="Computing safety number" />
+      ) : null}
+      {groups && !ogcId && peer ? (
+        <Button
+          title="Numbers match — mark as verified"
+          icon="shieldCheck"
+          busy={saving}
+          onPress={markVerified}
+        />
       ) : null}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  surface: {
+    backgroundColor: color.surface,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.lg,
+  },
+  badge: {
+    alignSelf: 'center',
+    width: 64,
+    height: 64,
+    marginTop: space[2],
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.accentSubtle,
+    borderWidth: 1,
+    borderColor: color.accentBorder,
+    borderRadius: radius.xl,
+  },
+});

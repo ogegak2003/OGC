@@ -75,6 +75,9 @@ export function LoginPage() {
           }}
           error={errors.password}
         />
+        <p className={styles.muted}>
+          <Link to="/forgot-password">Forgot your password?</Link>
+        </p>
         <Button type="submit" busy={busy}>
           Sign in
         </Button>

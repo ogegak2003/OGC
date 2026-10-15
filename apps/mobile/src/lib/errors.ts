@@ -15,6 +15,10 @@ const MESSAGES: Partial<Record<ApiErrorCode, string>> = {
   INVALID_CREDENTIALS: 'That email and password combination is not correct.',
   ACCOUNT_UNAVAILABLE: 'This account is not available. Contact support for help.',
   RATE_LIMITED: 'Too many attempts. Please wait a moment and try again.',
+  INVALID_PASSWORD: 'Your current password is not correct.',
+  INVALID_RESET_TOKEN: 'This reset link is invalid, used or expired. Ask for a new one.',
+  EMAIL_UNAVAILABLE:
+    'Password recovery by email is not available on this server yet. Contact support for help.',
 };
 
 export function errorMessage(error: unknown): string {

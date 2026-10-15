@@ -21,9 +21,9 @@ process.env.METRICS_TOKEN = 'metrics-token-for-tests-0123456789abcdef';
 class CapturingPushProvider extends PushProvider {
   readonly name = 'capture';
   readonly sent: PushNotification[] = [];
-  send(notifications: PushNotification[]): Promise<void> {
+  send(notifications: PushNotification[]): Promise<undefined> {
     this.sent.push(...notifications);
-    return Promise.resolve();
+    return Promise.resolve(undefined);
   }
 }
 
@@ -122,15 +122,14 @@ describe('messaging operations', () => {
         ),
       (list) => list.length > 0,
     );
-    expect(notifications).toEqual([
-      {
-        provider: 'EXPO',
-        token: 'ExponentPushToken[offline-device]',
-        title: 'OGC',
-        body: 'New message',
-        data: { type: 'message', conversationId: conversation.id },
-      },
-    ]);
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0]).toMatchObject({
+      provider: 'EXPO',
+      token: 'ExponentPushToken[offline-device]',
+      title: 'OGC',
+      body: 'New message',
+      data: { type: 'message', conversationId: conversation.id },
+    });
     expect(JSON.stringify(push.sent)).not.toContain('secret');
     live.socket.disconnect();
   });

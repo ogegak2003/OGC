@@ -1,11 +1,21 @@
 import type {
+  PeerKeyStatus,
+  CallAck,
+  CallMediaPlatform,
+  CallRequestName,
   Draft,
   LocalMessage,
   MessagingEvent,
   OutgoingAttachment,
   TimelineEvent,
 } from '@ogc/messaging';
-import type { ConversationView, OgcId, ReactionType, ServerToClientEvents } from '@ogc/types';
+import type {
+  ConversationView,
+  OgcId,
+  PresenceView,
+  ReactionType,
+  ServerToClientEvents,
+} from '@ogc/types';
 import type { AttachmentDescriptor } from '@ogc/validation';
 import { vi } from 'vitest';
 import type {
@@ -208,6 +218,17 @@ export class FakeEngine implements MessagingEngine {
         .filter((m) => m.payload?.text?.toLowerCase().includes(query.toLowerCase())),
     ),
   );
+  /** Key-change state reported for the other person (tests set it). */
+  peerKeys: PeerKeyStatus = { state: 'unverified', added: 0 };
+  peerKeyStatus = vi.fn(() => Promise.resolve(this.peerKeys));
+  acknowledgePeerKeys = vi.fn(() => {
+    this.peerKeys = { state: 'unverified', added: 0 };
+    return Promise.resolve();
+  });
+  markPeerVerified = vi.fn(() => {
+    this.peerKeys = { state: 'verified', added: 0 };
+    return Promise.resolve();
+  });
   safetyNumber = vi.fn(() =>
     Promise.resolve([
       '12345',
@@ -237,10 +258,18 @@ export class FakeRealtime implements RealtimeLink {
   typing = (conversationId: string, typing: boolean) => {
     this.typingCalls.push([conversationId, typing]);
   };
-  subscribePresence = vi.fn((ogcIds: OgcId[]) =>
+  subscribePresence = vi.fn((ogcIds: OgcId[]): Promise<PresenceView[]> =>
     Promise.resolve(ogcIds.map((ogcId) => ({ ogcId, state: 'ONLINE' as const }))),
   );
   unsubscribePresence = vi.fn();
+  /** Call signaling sent by the app, and scripted acknowledgements (default: ok, null). */
+  callRequests: { event: CallRequestName; payload: unknown }[] = [];
+  callReplies = new Map<CallRequestName, (payload: unknown) => unknown>();
+  callRequest = <E extends CallRequestName>(event: E, payload: unknown): Promise<CallAck<E>> => {
+    this.callRequests.push({ event, payload });
+    const reply = this.callReplies.get(event);
+    return Promise.resolve((reply ? reply(payload) : { ok: true, data: null }) as CallAck<E>);
+  };
 }
 
 export interface FakeMessaging {
@@ -256,7 +285,10 @@ export interface FakeMessaging {
   setConnection: (state: 'online' | 'offline') => void;
 }
 
-export function fakeMessaging(engine = new FakeEngine()): FakeMessaging {
+export function fakeMessaging(
+  engine = new FakeEngine(),
+  callMedia?: CallMediaPlatform,
+): FakeMessaging {
   const realtime = new FakeRealtime();
   const destroyed: string[] = [];
   let deliver: FakeMessaging['push'] = () => undefined;
@@ -272,6 +304,7 @@ export function fakeMessaging(engine = new FakeEngine()): FakeMessaging {
       destroyed.push(ogcId);
       return Promise.resolve();
     },
+    createCallMedia: () => callMedia,
   };
   return {
     engine,

@@ -2,6 +2,7 @@ import { VOICE_MAX_DURATION_MS } from '@ogc/validation';
 import { useEffect, useRef, useState } from 'react';
 import { duration } from '../../messaging/format';
 import styles from './messaging.module.css';
+import { Icon } from '../Icon';
 
 export interface RecordedVoice {
   bytes: Uint8Array;
@@ -110,7 +111,7 @@ export function VoiceRecorder({
         aria-label="Record a voice message"
         onClick={() => void start()}
       >
-        🎙
+        <Icon name="mic" />
       </button>
     );
   }

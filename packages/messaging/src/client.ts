@@ -35,6 +35,13 @@ import {
   type MessagePayload,
   messagePayloadSchema,
 } from '@ogc/validation';
+import {
+  type PeerKeyRecord,
+  type PeerKeyStatus,
+  acknowledgePeerKeys,
+  reconcilePeerKeys,
+  verifyPeerKeys,
+} from './key-tracking.js';
 import { KeyedLock } from './lock.js';
 import {
   type LocalMessage,
@@ -124,6 +131,8 @@ const bucketKey = (c: string, seq: number): string =>
 const pendingKey = (c: string): string => `pending:${c}`;
 const kpKey = (ref: string): string => `kp:${ref}`;
 const timelineKey = (c: string): string => `timeline:${c}`;
+/** Device keys last accepted for a person (key-change detection). */
+const peerKeysKey = (ogcId: string): string => `peerkeys:${ogcId}`;
 
 function toCryptoDirectory(devices: DirectoryDevice[]): CryptoDirectoryDevice[] {
   return devices.map((d) => ({
@@ -1330,6 +1339,53 @@ export class MessagingClient {
     const [a, b] = parties;
     if (!a || !b) throw new MessagingError('Both people need an encryption-ready device');
     return safetyNumber(a, b);
+  }
+
+  /** The other person of a direct conversation and their current device signature keys. */
+  private async peerKeys(
+    conversationId: string,
+  ): Promise<{ peer: string; keys: string[] } | undefined> {
+    const conversation = this.conversationCache.get(conversationId);
+    const peer = conversation?.peer?.ogcId;
+    if (!peer) return undefined;
+    // Fresh from the server, not the directory cache: a key change must show at once.
+    this.directoryCache.delete(conversationId);
+    const keys = (await this.directory(conversationId))
+      .filter((device) => device.ogcId === peer)
+      .map((device) => device.signaturePublicKey);
+    return { peer, keys };
+  }
+
+  /**
+   * Whether the other person's devices changed since this device last accepted them (direct
+   * conversations). Trust on first use: the first keys seen are remembered silently.
+   */
+  async peerKeyStatus(conversationId: string): Promise<PeerKeyStatus> {
+    const found = await this.peerKeys(conversationId);
+    if (!found || found.keys.length === 0) return { state: 'unverified', added: 0 };
+    const stored = await this.store.getJson<PeerKeyRecord>(peerKeysKey(found.peer));
+    const { record, status } = reconcilePeerKeys(stored, found.keys);
+    await this.store.setJson(peerKeysKey(found.peer), record);
+    return status;
+  }
+
+  /** Accepts the other person's current devices without verifying (dismisses the warning). */
+  async acknowledgePeerKeys(conversationId: string): Promise<void> {
+    const found = await this.peerKeys(conversationId);
+    if (!found) return;
+    await this.store.setJson(peerKeysKey(found.peer), acknowledgePeerKeys(found.keys));
+  }
+
+  /**
+   * Marks the other person as verified after comparing the safety number in person. The
+   * number is recomputed here from the current keys (never taken from the caller).
+   */
+  async markPeerVerified(conversationId: string): Promise<void> {
+    const found = await this.peerKeys(conversationId);
+    if (!found || found.keys.length === 0)
+      throw new MessagingError('Both people need an encryption-ready device');
+    const number = await this.safetyNumber(conversationId, found.peer);
+    await this.store.setJson(peerKeysKey(found.peer), verifyPeerKeys(found.keys, number));
   }
 
   /** Erases all local messaging data (sign-out). Server-side, logout revokes the device key. */

@@ -7,6 +7,7 @@ import {
 import { useState } from 'react';
 import { Avatar } from '../Avatar';
 import styles from '../messaging/messaging.module.css';
+import { Icon } from '../Icon';
 
 export interface PostActions {
   react: (post: ChannelPostView, reaction: ReactionType, add: boolean) => void;
@@ -131,7 +132,7 @@ export function PostCard({
                 setMenuOpen((open) => !open);
               }}
             >
-              ⋯
+              <Icon name="moreHorizontal" size={18} />
             </button>
             {menuOpen ? (
               <div className={styles.menu} role="menu">

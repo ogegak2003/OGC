@@ -1,141 +1,527 @@
+/*
+ * Signed-in layout.
+ * ≥1024px: sidebar (every destination + account) beside a column with the top bar (search,
+ *          notifications, account menu) and the content.
+ * <1024px: compact top bar (search on demand), content, and a bottom tab bar with "More".
+ */
 .shell {
+  --top-bar: 3.5rem;
+  --tab-bar: 4rem;
+  --desk-bar: 4.5rem;
+
   min-height: 100dvh;
-  padding-bottom: calc(4rem + env(safe-area-inset-bottom));
-  background: radial-gradient(70rem 30rem at 50% -10%, rgb(212 170 79 / 0.06), transparent 70%);
+  padding-bottom: calc(var(--tab-bar) + env(safe-area-inset-bottom));
+  background:
+    radial-gradient(60rem 26rem at 60% -12%, rgb(216 173 78 / 0.07), transparent 70%),
+    radial-gradient(50rem 30rem at 110% 10%, rgb(70 130 230 / 0.05), transparent 70%),
+    var(--ogc-color-background);
 }
 
-/* Phones with the tab bar hidden (an open conversation, shown without its list). */
-@media (max-width: 899px) {
-  .focused {
+.column {
+  min-width: 0;
+}
+
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  color: var(--ogc-color-text-primary);
+  font-weight: 700;
+  letter-spacing: 0.28em;
+  text-decoration: none;
+}
+
+/* ---------- Sidebar (wide screens) ---------- */
+.sidebar,
+.deskBar {
+  display: none;
+}
+
+@media (min-width: 1024px) {
+  .shell {
+    display: grid;
+    grid-template-columns: 17rem minmax(0, 1fr);
     padding-bottom: 0;
   }
 
-  .focused .tabBar {
-    display: none;
-  }
-
-  .focused .full {
-    height: calc(100dvh - 3.75rem);
-  }
-}
-
-/*
- * Phones in landscape: an open conversation also drops the app header (its own header has
- * the way back), leaving the short screen to the messages and the composer.
- */
-@media (max-width: 899px) and (max-height: 500px) {
-  .focused .header {
-    display: none;
-  }
-
-  .focused .full {
+  .sidebar {
+    position: sticky;
+    top: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--ogc-space-6);
     height: 100dvh;
+    padding: var(--ogc-space-6) var(--ogc-space-4) var(--ogc-space-4);
+    overflow-y: auto;
+    background:
+      linear-gradient(180deg, rgb(216 173 78 / 0.05), transparent 30%), var(--ogc-color-surface);
+    border-right: 1px solid var(--ogc-color-border);
+  }
+
+  .deskBar {
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--ogc-space-6);
+    height: var(--desk-bar);
+    padding: 0 var(--ogc-space-8);
+    background: rgb(11 11 13 / 0.82);
+    border-bottom: 1px solid var(--ogc-color-border);
+    backdrop-filter: blur(14px);
+  }
+
+  .topBar,
+  .tabBar,
+  .searchRow {
+    display: none !important;
   }
 }
 
-.header {
+.sideBrand {
+  display: grid;
+  justify-items: start;
+  gap: var(--ogc-space-2);
+  padding: 0 var(--ogc-space-3);
+  text-decoration: none;
+}
+
+.tagline {
+  max-width: 13rem;
+  color: var(--ogc-color-text-secondary);
+  font-size: 0.625rem;
+  font-weight: 500;
+  line-height: 1.5;
+  letter-spacing: 0.22em;
+}
+
+.sideNav {
+  display: grid;
+  gap: 2px;
+}
+
+.sideHeading {
+  margin: var(--ogc-space-5) var(--ogc-space-3) var(--ogc-space-2);
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.sideLink {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  min-height: 2.75rem;
+  padding: 0 var(--ogc-space-3);
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 500;
+  text-decoration: none;
+  border: 1px solid transparent;
+  border-radius: var(--ogc-radius-md);
+  transition:
+    background-color var(--ogc-duration-fast) var(--ogc-easing-standard),
+    color var(--ogc-duration-fast) var(--ogc-easing-standard);
+}
+
+.sideLink:hover {
+  color: var(--ogc-color-text-primary);
+  background: var(--ogc-color-surface-raised);
+}
+
+/* The current destination: a gold pill, as in the OGC dashboard design. */
+.sideLink.active {
+  color: var(--ogc-color-on-accent);
+  font-weight: 600;
+  background: linear-gradient(180deg, #f0d48b, #c99a3c);
+  border-color: #f0d48b;
+  box-shadow: 0 6px 18px rgb(216 173 78 / 0.18);
+}
+
+.sideLink.active .navIcon {
+  color: var(--ogc-color-on-accent);
+}
+
+.sideLink .badge {
+  margin-left: auto;
+}
+
+.sideLink.active .badge {
+  color: var(--ogc-color-accent);
+  background: var(--ogc-color-on-accent);
+}
+
+.navIcon {
+  flex: none;
+}
+
+.navLabel {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.account {
+  display: grid;
+  gap: var(--ogc-space-3);
+  margin-top: auto;
+  padding: var(--ogc-space-4) var(--ogc-space-3) var(--ogc-space-3);
+  background:
+    radial-gradient(14rem 8rem at 100% 0%, rgb(216 173 78 / 0.16), transparent 70%),
+    var(--ogc-color-surface-raised);
+  border: 1px solid rgb(216 173 78 / 0.28);
+  border-radius: var(--ogc-radius-lg);
+}
+
+.accountMotto {
+  margin: 0;
+  color: var(--ogc-color-accent-highlight);
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.accountRow {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+}
+
+.accountText {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+}
+
+.accountName {
+  overflow: hidden;
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.accountId {
+  color: var(--ogc-color-accent-highlight);
+  font-family: var(--ogc-font-mono);
+  font-size: var(--ogc-font-size-xs);
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.signOut {
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--ogc-color-text-muted);
+  background: none;
+  border: 0;
+  border-radius: var(--ogc-radius-md);
+  cursor: pointer;
+}
+
+.signOut:hover {
+  color: var(--ogc-color-danger);
+  background: var(--ogc-color-danger-subtle);
+}
+
+/* ---------- Desktop top bar ---------- */
+.deskActions {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+}
+
+.countDot {
+  position: absolute;
+  top: 0.2rem;
+  right: 0.1rem;
+  display: grid;
+  place-items: center;
+  min-width: 1.15rem;
+  height: 1.15rem;
+  padding: 0 0.25rem;
+  color: #fff;
+  font-size: 0.625rem;
+  font-weight: 700;
+  background: #d9443a;
+  border: 2px solid var(--ogc-color-background);
+  border-radius: var(--ogc-radius-full);
+}
+
+.profileWrap {
+  position: relative;
+}
+
+.profile {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  padding: var(--ogc-space-1) var(--ogc-space-2) var(--ogc-space-1) var(--ogc-space-1);
+  color: var(--ogc-color-text-primary);
+  font: inherit;
+  text-align: left;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--ogc-radius-full);
+  cursor: pointer;
+}
+
+.profile:hover,
+.profile[aria-expanded='true'] {
+  background: var(--ogc-color-surface-raised);
+  border-color: var(--ogc-color-border);
+}
+
+.profile:focus-visible {
+  outline: 2px solid var(--ogc-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.profileAvatar {
+  position: relative;
+  display: inline-flex;
+}
+
+.presenceOnline,
+.presenceOffline {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 0.7rem;
+  height: 0.7rem;
+  border: 2px solid var(--ogc-color-background);
+  border-radius: var(--ogc-radius-full);
+}
+
+.presenceOnline {
+  background: var(--ogc-color-success);
+}
+
+.presenceOffline {
+  background: var(--ogc-color-text-muted);
+}
+
+.profileText {
+  display: grid;
+  max-width: 14rem;
+}
+
+.profileName {
+  overflow: hidden;
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.profileId {
+  color: var(--ogc-color-text-muted);
+  font-family: var(--ogc-font-mono);
+  font-size: var(--ogc-font-size-xs);
+  letter-spacing: 0.06em;
+}
+
+.chevron {
+  color: var(--ogc-color-text-muted);
+}
+
+.menu {
+  position: absolute;
+  top: calc(100% + var(--ogc-space-2));
+  right: 0;
+  z-index: 40;
+  display: grid;
+  min-width: 14rem;
+  padding: var(--ogc-space-2);
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid var(--ogc-color-border-strong);
+  border-radius: var(--ogc-radius-lg);
+  box-shadow: var(--ogc-elevation-high);
+}
+
+.menu[hidden] {
+  display: none;
+}
+
+.menuLink {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  min-height: 2.75rem;
+  padding: 0 var(--ogc-space-3);
+  color: var(--ogc-color-text-primary);
+  font: inherit;
+  font-size: var(--ogc-font-size-sm);
+  text-align: left;
+  text-decoration: none;
+  background: none;
+  border: 0;
+  border-radius: var(--ogc-radius-md);
+  cursor: pointer;
+}
+
+.menuLink:hover {
+  background: var(--ogc-color-surface-hover);
+}
+
+/* ---------- Phone top bar ---------- */
+.topBar {
   position: sticky;
   top: 0;
   z-index: 10;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: var(--ogc-space-4);
-  height: 3.75rem;
-  padding: 0 max(var(--ogc-space-4), calc((100% - 64rem) / 2));
-  background: rgb(11 11 10 / 0.85);
+  height: var(--top-bar);
+  padding: 0 var(--ogc-space-2) 0 var(--ogc-space-4);
+  background: rgb(11 11 13 / 0.88);
   border-bottom: 1px solid var(--ogc-color-border);
   backdrop-filter: blur(12px);
 }
 
-.logo {
-  display: inline-flex;
+.topActions {
+  display: flex;
   align-items: center;
-  gap: var(--ogc-space-3);
-  font-weight: 600;
-  letter-spacing: 0.24em;
 }
 
-/*
- * Navigation: every destination in the header on wide screens (it needs about
- * 900px); below that, a bottom tab bar with a "More" sheet.
- */
-.wideNav {
-  display: none;
+.searchRow {
+  position: sticky;
+  top: var(--top-bar);
+  z-index: 9;
+  padding: var(--ogc-space-2) var(--ogc-space-4);
+  background: rgb(11 11 13 / 0.94);
+  border-bottom: 1px solid var(--ogc-color-border);
 }
 
+.searchRow > * {
+  max-width: none;
+}
+
+.topAction {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  width: 2.75rem;
+  height: 2.75rem;
+  color: var(--ogc-color-text-secondary);
+  background: none;
+  border: 0;
+  border-radius: var(--ogc-radius-full);
+  cursor: pointer;
+}
+
+.topAction:hover {
+  color: var(--ogc-color-text-primary);
+  background: var(--ogc-color-surface-raised);
+}
+
+.topAction:focus-visible {
+  outline: 2px solid var(--ogc-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.dot,
+.tabDot {
+  position: absolute;
+  top: 0.65rem;
+  right: 0.7rem;
+  width: 0.55rem;
+  height: 0.55rem;
+  background: var(--ogc-color-accent);
+  border: 2px solid var(--ogc-color-background);
+  border-radius: var(--ogc-radius-full);
+}
+
+/* ---------- Phone tab bar ---------- */
 .tabBar {
   position: fixed;
   z-index: 20;
   inset: auto 0 0;
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: var(--ogc-space-1);
   /* Tablets: keep the five tabs together in the middle rather than spread edge to edge. */
-  padding: var(--ogc-space-2) max(var(--ogc-space-2), calc((100% - 40rem) / 2))
-    calc(var(--ogc-space-2) + env(safe-area-inset-bottom));
+  padding: var(--ogc-space-1) max(var(--ogc-space-1), calc((100% - 36rem) / 2))
+    calc(var(--ogc-space-1) + env(safe-area-inset-bottom));
   background: var(--ogc-color-surface);
-  border-top: 1px solid var(--ogc-color-border);
+  border-top: 1px solid var(--ogc-color-border-strong);
 }
 
-/* The header's sign-out moves into "More" on phones. */
-.signOut {
-  display: none;
-}
-
-@media (min-width: 600px) {
-  .signOut {
-    display: inline-flex;
-  }
-}
-
-@media (min-width: 1100px) {
-  .shell {
-    padding-bottom: 0;
-  }
-
-  .wideNav {
-    display: flex;
-    gap: var(--ogc-space-1);
-  }
-
-  .tabBar {
-    display: none;
-  }
-}
-
-.tabBar .tab {
+.tab {
   position: relative;
-  display: inline-flex;
+  display: flex;
+  flex-direction: column;
   align-items: center;
   justify-content: center;
+  gap: 2px;
   min-width: 0;
-  min-height: 2.75rem;
+  min-height: 3.25rem;
   padding: var(--ogc-space-1) 0;
-  overflow: hidden;
-  font-size: var(--ogc-font-size-xs);
-  white-space: nowrap;
-  text-overflow: ellipsis;
+  color: var(--ogc-color-text-muted);
+  font: inherit;
+  font-size: 0.6875rem;
+  font-weight: 500;
+  text-decoration: none;
+  background: none;
   border: 0;
+  border-radius: var(--ogc-radius-md);
   cursor: pointer;
 }
 
-.tabBar .tab:not(.active) {
-  background: none;
+.tab:hover {
+  color: var(--ogc-color-text-primary);
 }
 
-@media (min-width: 400px) {
-  .tabBar .tab {
-    font-size: var(--ogc-font-size-sm);
+.tab.active {
+  color: var(--ogc-color-accent);
+  font-weight: 600;
+}
+
+.tab.active::before {
+  position: absolute;
+  top: calc(-1 * var(--ogc-space-1) - 1px);
+  width: 1.75rem;
+  height: 2px;
+  content: '';
+  background: var(--ogc-color-accent);
+  border-radius: 2px;
+}
+
+.tab .navLabel {
+  max-width: 100%;
+}
+
+/* The narrowest phones: keep "Communities" whole rather than truncated. */
+@media (max-width: 359px) {
+  .tab {
+    font-size: 0.625rem;
+    letter-spacing: -0.01em;
+  }
+
+  .tabBar {
+    gap: 0;
+    padding-inline: 2px;
   }
 }
 
-/* Unread counts sit on the tab's corner so the label keeps its width. */
-.tab .navBadge {
+@media (min-width: 400px) {
+  .tab {
+    font-size: var(--ogc-font-size-xs);
+  }
+}
+
+/* Unread counts sit on the icon's corner so the label keeps its width. */
+.tab .badge {
   position: absolute;
-  top: 0;
-  right: 0;
-  margin: 0;
+  top: 0.15rem;
+  left: calc(50% + 0.35rem);
 }
 
 .moreWrap {
@@ -148,11 +534,11 @@
   right: 0;
   bottom: calc(100% + var(--ogc-space-3));
   display: grid;
-  min-width: 12rem;
+  min-width: 15rem;
   padding: var(--ogc-space-2);
   background: var(--ogc-color-surface-raised);
   border: 1px solid var(--ogc-color-border-strong);
-  border-radius: var(--ogc-radius-md);
+  border-radius: var(--ogc-radius-lg);
   box-shadow: var(--ogc-elevation-high);
 }
 
@@ -160,49 +546,79 @@
   display: none;
 }
 
-.moreSheet .moreLink {
+.moreLink {
   display: flex;
   align-items: center;
+  gap: var(--ogc-space-3);
   min-height: 2.75rem;
-  padding: var(--ogc-space-3);
+  padding: 0 var(--ogc-space-3);
+  color: var(--ogc-color-text-primary);
   font: inherit;
   font-size: var(--ogc-font-size-md);
   text-align: left;
+  text-decoration: none;
+  background: none;
   border: 0;
+  border-radius: var(--ogc-radius-md);
   cursor: pointer;
 }
 
-.moreSheet .moreLink:not(.active) {
-  background: none;
+.moreLink:hover {
+  background: var(--ogc-color-surface-hover);
 }
 
-.link {
-  padding: var(--ogc-space-2) var(--ogc-space-3);
-  font-family: inherit;
-  color: var(--ogc-color-text-secondary);
-  font-size: var(--ogc-font-size-sm);
-  font-weight: 500;
-  text-align: center;
-  text-decoration: none;
-  border-radius: var(--ogc-radius-md);
-  transition: color var(--ogc-duration-fast) var(--ogc-easing-standard);
+.moreLink.active {
+  color: var(--ogc-color-accent-highlight);
+  background: var(--ogc-color-accent-subtle);
 }
 
-.link:hover {
-  color: var(--ogc-color-text-primary);
+.moreLink .badge {
+  margin-left: auto;
 }
 
-.active {
-  color: var(--ogc-color-accent);
-  background: var(--ogc-color-surface-raised);
+.danger {
+  color: var(--ogc-color-danger);
 }
 
+.badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.3rem;
+  color: var(--ogc-color-on-accent);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  line-height: 1;
+  background: var(--ogc-color-accent);
+  border-radius: var(--ogc-radius-full);
+}
+
+/* Phones with the bars hidden (an open conversation, shown without its list). */
+@media (max-width: 1023px) {
+  .focused {
+    padding-bottom: 0;
+  }
+
+  .focused .tabBar,
+  .focused .topBar,
+  .focused .searchRow {
+    display: none;
+  }
+
+  .focused .full {
+    height: 100dvh;
+  }
+}
+
+/* ---------- Content ---------- */
 .main {
   display: grid;
+  align-content: start;
   gap: var(--ogc-space-6);
   width: min(100% - 2.5rem, 64rem);
   margin: 0 auto;
-  padding: var(--ogc-space-8) 0 var(--ogc-space-12);
+  padding: var(--ogc-space-6) 0 var(--ogc-space-12);
   /*
    * "backwards", not "both": a transform kept after the animation would make this element
    * the containing block of fixed-position descendants (dialogs, confirmation bars).
@@ -210,11 +626,55 @@
   animation: enter var(--ogc-duration-slow) var(--ogc-easing-enter) backwards;
 }
 
+@media (min-width: 1024px) {
+  .main {
+    width: min(100% - 4rem, 72rem);
+    padding-top: var(--ogc-space-8);
+  }
+}
+
+/* Dashboards (home) use more of large screens. */
+.wide {
+  width: min(100% - 2rem, 92rem);
+}
+
+@media (min-width: 1024px) {
+  .wide {
+    width: min(100% - 4rem, 92rem);
+    padding-top: var(--ogc-space-6);
+  }
+}
+
 .title {
   margin: 0;
   font-size: var(--ogc-font-size-2xl);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+}
+
+.withAside {
+  display: grid;
+  gap: var(--ogc-space-6);
+}
+
+.content,
+.aside {
+  display: grid;
+  align-content: start;
+  gap: var(--ogc-space-6);
+  min-width: 0;
+}
+
+@media (min-width: 1200px) {
+  .withAside {
+    grid-template-columns: minmax(0, 1fr) 20rem;
+    align-items: start;
+  }
+
+  .aside {
+    position: sticky;
+    top: calc(var(--desk-bar) + var(--ogc-space-6));
+  }
 }
 
 @keyframes enter {
@@ -224,24 +684,10 @@
   }
 }
 
-.navBadge {
-  display: inline-grid;
-  place-items: center;
-  min-width: 1.25rem;
-  height: 1.25rem;
-  margin-left: var(--ogc-space-1);
-  padding: 0 0.3rem;
-  color: var(--ogc-color-on-accent);
-  font-size: var(--ogc-font-size-xs);
-  font-weight: 700;
-  background: var(--ogc-color-accent);
-  border-radius: var(--ogc-radius-full);
-}
-
-/* Full-height content (messaging): fills the space between header and tab bar. */
+/* Full-height content (messaging): fills the space between the bars. */
 .full {
-  width: min(100%, 80rem);
-  height: calc(100dvh - 3.75rem - 4rem - env(safe-area-inset-bottom));
+  width: min(100%, 88rem);
+  height: calc(100dvh - var(--top-bar) - var(--tab-bar) - env(safe-area-inset-bottom));
   margin: 0 auto;
 }
 
@@ -251,9 +697,9 @@
   }
 }
 
-@media (min-width: 1100px) {
+@media (min-width: 1024px) {
   .full {
-    height: calc(100dvh - 3.75rem);
+    height: calc(100dvh - var(--desk-bar));
   }
 }
 

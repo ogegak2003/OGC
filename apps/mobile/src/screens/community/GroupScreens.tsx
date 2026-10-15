@@ -7,7 +7,7 @@ import type {
   ReceivedInvitationView,
   ReportCategory,
 } from '@ogc/types';
-import { color } from '@ogc/ui';
+import { color, radius, space } from '@ogc/ui';
 import {
   COMMUNITY_NAME_MAX_LENGTH,
   GROUP_MEMBER_LIMIT,
@@ -20,12 +20,25 @@ import {
   parseInviteToken,
 } from '@ogc/validation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, Share, Switch, Text, View } from 'react-native';
+import { Alert, Pressable, Share, StyleSheet, Text, View } from 'react-native';
 import { communityApi } from '../../api/community';
 import { webAppUrl } from '../../config/runtime';
 import { useAuth } from '../../auth/AuthProvider';
+import { Icon } from '../../components/Icon';
 import { Avatar, LinkQrCode } from '../../components/identity';
-import { Button, Field, Notice } from '../../components/ui';
+import {
+  Button,
+  EmptyState,
+  Field,
+  ListGroup,
+  Loading,
+  Notice,
+  SectionHeader,
+  SkeletonRows,
+  SwitchRow,
+  Tabs,
+  Tag,
+} from '../../components/ui';
 import { errorMessage } from '../../lib/errors';
 import { useResource } from '../../lib/use-resource';
 import { useMessaging } from '../../messaging/messaging-context';
@@ -60,23 +73,14 @@ export function CreateGroupScreen() {
       subtitle="End-to-end encrypted. Invited people join after they accept."
       onBack={nav.back}
     >
-      <View style={social.tabs}>
-        {(['GROUP', 'CHANNEL'] as const).map((value) => (
-          <Pressable
-            key={value}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: kind === value }}
-            style={[social.tab, kind === value && social.tabActive]}
-            onPress={() => {
-              setKind(value);
-            }}
-          >
-            <Text style={[social.tabText, kind === value && social.tabTextActive]}>
-              {value === 'GROUP' ? 'Group' : 'Encrypted channel'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <Tabs
+        options={[
+          { id: 'GROUP', label: 'Group' },
+          { id: 'CHANNEL', label: 'Encrypted channel' },
+        ]}
+        value={kind}
+        onChange={setKind}
+      />
       <Text style={social.muted}>
         {kind === 'GROUP'
           ? `Up to ${String(GROUP_MEMBER_LIMIT)} people; everyone can post.`
@@ -85,21 +89,30 @@ export function CreateGroupScreen() {
       </Text>
       <Field
         label="Name"
+        icon={kind === 'GROUP' ? 'community' : 'megaphone'}
         value={name}
         maxLength={COMMUNITY_NAME_MAX_LENGTH}
         onChangeText={setName}
       />
-      <Text style={social.label}>Invite contacts ({selected.size})</Text>
+      <SectionHeader title={`Invite contacts (${String(selected.size)})`} />
       {state.status === 'loading' ? (
-        <ActivityIndicator accessibilityLabel="Loading contacts" />
+        <View style={styles.surface}>
+          <SkeletonRows count={3} label="Loading contacts" />
+        </View>
       ) : null}
-      {state.status === 'ready'
-        ? state.data.items.map((contact: ContactView) => {
+      {state.status === 'ready' && state.data.items.length === 0 ? (
+        <Text style={social.muted}>
+          You can create it now and invite people once you have contacts.
+        </Text>
+      ) : null}
+      {state.status === 'ready' && state.data.items.length > 0 ? (
+        <ListGroup>
+          {state.data.items.map((contact: ContactView) => {
             const on = selected.has(contact.profile.ogcId);
             return (
               <Pressable
                 key={contact.profile.ogcId}
-                style={social.listItem}
+                style={({ pressed }) => [styles.row, pressed && styles.pressed]}
                 accessibilityRole="checkbox"
                 accessibilityState={{ checked: on }}
                 accessibilityLabel={contact.profile.displayName}
@@ -115,16 +128,21 @@ export function CreateGroupScreen() {
                 <Avatar
                   url={contact.profile.avatarUrl}
                   name={contact.profile.displayName}
-                  size={36}
+                  size={40}
                 />
-                <Text style={[social.name, { flex: 1 }]}>{contact.profile.displayName}</Text>
-                <Text style={{ color: on ? color.accent : color.textDisabled }}>
-                  {on ? '✓' : '○'}
+                <Text style={[social.menuText, { flex: 1 }]} numberOfLines={1}>
+                  {contact.profile.displayName}
                 </Text>
+                <View style={[styles.check, on && styles.checkOn]}>
+                  {on ? (
+                    <Icon name="check" size={16} tint={color.onAccent} strokeWidth={2.5} />
+                  ) : null}
+                </View>
               </Pressable>
             );
-          })
-        : null}
+          })}
+        </ListGroup>
+      ) : null}
       {error ? <Notice>{error}</Notice> : null}
       <Button
         title="Create"
@@ -225,7 +243,7 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
     task.then(
       async () => {
         await engine?.forgetConversation(conversationId);
-        nav.replace({ name: 'messages' });
+        nav.tab('messages');
       },
       (cause: unknown) => {
         setError(errorMessage(cause));
@@ -240,136 +258,143 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
       subtitle={`${String(group.memberCount)} members · End-to-end encrypted`}
       onBack={nav.back}
     >
+      <View style={styles.head}>
+        <Avatar url={group.avatarUrl} name={group.name} size={64} />
+        <View style={styles.headTags}>
+          <Tag label="End-to-end encrypted" tone="accent" icon="lock" />
+          <Tag label={ROLE_LABEL[role]} />
+        </View>
+      </View>
       {group.description ? <Text style={social.body}>{group.description}</Text> : null}
       {error ? <Notice>{error}</Notice> : null}
       {notice ? <Notice tone="success">{notice}</Notice> : null}
 
-      <Text style={social.label}>NOTIFICATIONS</Text>
-      <View style={social.tabs}>
-        {(['ALL', 'MENTIONS', 'NONE'] as const).map((level) => (
-          <Pressable
-            key={level}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: preferences?.level === level }}
-            style={[social.tab, preferences?.level === level && social.tabActive]}
-            onPress={() => {
-              api.groups
-                .setPreferences(conversationId, { level })
-                .then(setPreferences, (cause: unknown) => {
-                  setError(errorMessage(cause));
-                });
-            }}
-          >
-            <Text style={[social.tabText, preferences?.level === level && social.tabTextActive]}>
-              {level === 'ALL' ? 'All' : level === 'MENTIONS' ? 'Mentions' : 'Off'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <SectionHeader title="Notifications" />
+      <Tabs
+        options={[
+          { id: 'ALL', label: 'All' },
+          { id: 'MENTIONS', label: 'Mentions' },
+          { id: 'NONE', label: 'Off' },
+        ]}
+        value={preferences?.level ?? 'ALL'}
+        onChange={(level) => {
+          api.groups
+            .setPreferences(conversationId, { level })
+            .then(setPreferences, (cause: unknown) => {
+              setError(errorMessage(cause));
+            });
+        }}
+      />
 
-      <Text style={social.label}>MEMBERS</Text>
-      {members.map((member) => {
-        const self = member.profile.ogcId === engine?.ogcId;
-        const actions: { text: string; onPress: () => void; style?: 'destructive' }[] = [];
-        if (!self) {
-          actions.push({
-            text: 'Verify safety number',
-            onPress: () => {
-              nav.push({ name: 'safety-number', conversationId, ogcId: member.profile.ogcId });
-            },
-          });
-        }
-        if (
-          !group.archived &&
-          !self &&
-          member.role !== 'ADMIN' &&
-          canAssignRole(role, member.role, 'ADMIN', kind, false)
-        ) {
-          actions.push({
-            text: 'Make admin',
-            onPress: () => {
-              run(api.groups.setRole(conversationId, member.profile.ogcId, 'ADMIN'));
-            },
-          });
-        }
-        if (
-          !group.archived &&
-          !self &&
-          member.role === 'ADMIN' &&
-          canAssignRole(role, member.role, 'MEMBER', kind, false)
-        ) {
-          actions.push({
-            text: 'Remove admin',
-            onPress: () => {
-              run(api.groups.setRole(conversationId, member.profile.ogcId, 'MEMBER'));
-            },
-          });
-        }
-        if (role === 'OWNER' && !self) {
-          actions.push({
-            text: 'Make owner',
-            onPress: () => {
-              confirm(
-                'Transfer ownership?',
-                `${member.profile.displayName} becomes the owner; you become an admin.`,
-                'Transfer',
-                () => {
-                  run(
-                    api.groups.transfer(conversationId, member.profile.ogcId),
-                    'Ownership transferred.',
-                  );
-                },
-              );
-            },
-          });
-        }
-        if (!self && canActOnMember(role, member.role, kind)) {
-          actions.push({
-            text: 'Remove',
-            style: 'destructive',
-            onPress: () => {
-              confirm(
-                `Remove ${member.profile.displayName}?`,
-                'Their devices are removed from the encryption group, so they can’t read anything sent afterwards.',
-                'Remove',
-                () => {
-                  run(api.groups.removeMember(conversationId, member.profile.ogcId));
-                },
-              );
-            },
-          });
-        }
-        return (
-          <Pressable
-            key={member.profile.ogcId}
-            style={social.listItem}
-            accessibilityRole="button"
-            accessibilityLabel={`${member.profile.displayName}, ${ROLE_LABEL[member.role]}`}
-            disabled={actions.length === 0}
-            onPress={() => {
-              Alert.alert(member.profile.displayName, ROLE_LABEL[member.role], [
-                ...actions,
-                { text: 'Close', style: 'cancel' },
-              ]);
-            }}
-          >
-            <Avatar url={member.profile.avatarUrl} name={member.profile.displayName} size={36} />
-            <Text style={[social.name, { flex: 1 }]}>
-              {member.profile.displayName}
-              {self ? ' (you)' : ''}
-            </Text>
-            <Text style={social.badge}>{ROLE_LABEL[member.role]}</Text>
-          </Pressable>
-        );
-      })}
+      <SectionHeader title={`Members (${String(group.memberCount)})`} />
+      <ListGroup>
+        {members.map((member) => {
+          const self = member.profile.ogcId === engine?.ogcId;
+          const actions: { text: string; onPress: () => void; style?: 'destructive' }[] = [];
+          if (!self) {
+            actions.push({
+              text: 'Verify safety number',
+              onPress: () => {
+                nav.push({ name: 'safety-number', conversationId, ogcId: member.profile.ogcId });
+              },
+            });
+          }
+          if (
+            !group.archived &&
+            !self &&
+            member.role !== 'ADMIN' &&
+            canAssignRole(role, member.role, 'ADMIN', kind, false)
+          ) {
+            actions.push({
+              text: 'Make admin',
+              onPress: () => {
+                run(api.groups.setRole(conversationId, member.profile.ogcId, 'ADMIN'));
+              },
+            });
+          }
+          if (
+            !group.archived &&
+            !self &&
+            member.role === 'ADMIN' &&
+            canAssignRole(role, member.role, 'MEMBER', kind, false)
+          ) {
+            actions.push({
+              text: 'Remove admin',
+              onPress: () => {
+                run(api.groups.setRole(conversationId, member.profile.ogcId, 'MEMBER'));
+              },
+            });
+          }
+          if (role === 'OWNER' && !self) {
+            actions.push({
+              text: 'Make owner',
+              onPress: () => {
+                confirm(
+                  'Transfer ownership?',
+                  `${member.profile.displayName} becomes the owner; you become an admin.`,
+                  'Transfer',
+                  () => {
+                    run(
+                      api.groups.transfer(conversationId, member.profile.ogcId),
+                      'Ownership transferred.',
+                    );
+                  },
+                );
+              },
+            });
+          }
+          if (!self && canActOnMember(role, member.role, kind)) {
+            actions.push({
+              text: 'Remove',
+              style: 'destructive',
+              onPress: () => {
+                confirm(
+                  `Remove ${member.profile.displayName}?`,
+                  'Their devices are removed from the encryption group, so they can’t read anything sent afterwards.',
+                  'Remove',
+                  () => {
+                    run(api.groups.removeMember(conversationId, member.profile.ogcId));
+                  },
+                );
+              },
+            });
+          }
+          return (
+            <Pressable
+              key={member.profile.ogcId}
+              style={({ pressed }) => [styles.row, pressed && styles.pressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`${member.profile.displayName}, ${ROLE_LABEL[member.role]}`}
+              disabled={actions.length === 0}
+              onPress={() => {
+                Alert.alert(member.profile.displayName, ROLE_LABEL[member.role], [
+                  ...actions,
+                  { text: 'Close', style: 'cancel' },
+                ]);
+              }}
+            >
+              <Avatar url={member.profile.avatarUrl} name={member.profile.displayName} size={40} />
+              <Text style={[social.menuText, { flex: 1 }]} numberOfLines={1}>
+                {member.profile.displayName}
+                {self ? ' (you)' : ''}
+              </Text>
+              <Tag
+                label={ROLE_LABEL[member.role]}
+                tone={member.role === 'MEMBER' ? 'neutral' : 'accent'}
+              />
+            </Pressable>
+          );
+        })}
+      </ListGroup>
 
       {canInvite(role, group.invitePolicy) && !group.archived ? (
         <>
-          <Text style={social.label}>INVITE CONTACTS</Text>
+          <SectionHeader title="Invite contacts" />
           {contacts === undefined ? (
             <Button
               title="Choose contacts"
               variant="secondary"
+              icon="userPlus"
               onPress={() => {
                 client.contacts().then(
                   (page) => {
@@ -387,7 +412,7 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
               .map((contact) => (
                 <Pressable
                   key={contact.profile.ogcId}
-                  style={social.listItem}
+                  style={({ pressed }) => [styles.row, styles.bordered, pressed && styles.pressed]}
                   accessibilityRole="button"
                   accessibilityLabel={`Invite ${contact.profile.displayName}`}
                   onPress={() => {
@@ -402,8 +427,10 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
                     name={contact.profile.displayName}
                     size={32}
                   />
-                  <Text style={[social.name, { flex: 1 }]}>{contact.profile.displayName}</Text>
-                  <Text style={{ color: color.accent }}>Invite</Text>
+                  <Text style={[social.menuText, { flex: 1 }]} numberOfLines={1}>
+                    {contact.profile.displayName}
+                  </Text>
+                  <Icon name="userPlus" size={18} tint={color.accent} />
                 </Pressable>
               ))
           )}
@@ -412,7 +439,7 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
 
       {canManageInviteLinks(role) && !group.archived ? (
         <>
-          <Text style={social.label}>INVITATION LINK</Text>
+          <SectionHeader title="Invitation link" />
           {link ? (
             <>
               <Text style={social.muted}>
@@ -424,6 +451,7 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
               />
               <Button
                 title="Share link"
+                icon="share"
                 onPress={() => {
                   void Share.share({
                     title: `Join ${group.name} on OGC`,
@@ -444,6 +472,7 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
             <Button
               title="Create invitation link"
               variant="secondary"
+              icon="link"
               onPress={() => {
                 api.links
                   .create({ groupId: conversationId }, { expiresInHours: 7 * 24 })
@@ -457,13 +486,14 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
       ) : null}
 
       {canEditDetails(role) ? (
-        <Text style={social.muted}>Edit the name, photo and permissions on the web app.</Text>
+        <Notice tone="info">Edit the name, photo and permissions on the web app.</Notice>
       ) : null}
 
-      <Text style={social.label}>LEAVE OR CLOSE</Text>
+      <SectionHeader title="Leave or close" />
       <Button
         title={`Leave ${noun}`}
         variant="secondary"
+        icon="logout"
         onPress={() => {
           if (role === 'OWNER' && group.memberCount > 1) {
             Alert.alert(
@@ -493,7 +523,8 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
           />
           <Button
             title={`Delete ${noun}`}
-            variant="ghost"
+            variant="danger"
+            icon="trash"
             onPress={() => {
               confirm(
                 `Delete ${group.name} for everyone?`,
@@ -571,20 +602,21 @@ export function ReportMessageScreen({
                 setCategory(c.value);
               }}
             >
-              <Text style={social.name}>{c.label}</Text>
+              <View style={[social.radio, category === c.value && social.radioOn]}>
+                {category === c.value ? <View style={social.radioDot} /> : null}
+              </View>
+              <Text style={social.menuText}>{c.label}</Text>
             </Pressable>
           ))}
           {text ? (
-            <View style={social.row}>
-              <Switch
+            <ListGroup>
+              <SwitchRow
+                label="Include the message text"
+                description="OGC’s safety team will read it"
                 value={disclose}
                 onValueChange={setDisclose}
-                accessibilityLabel="Include the message text"
               />
-              <Text style={[social.body, { flex: 1 }]}>
-                Include the message text (OGC’s safety team will read it)
-              </Text>
-            </View>
+            </ListGroup>
           ) : null}
           {disclose && text ? <Text style={social.card}>{text}</Text> : null}
           {error ? <Notice>{error}</Notice> : null}
@@ -640,8 +672,14 @@ export function InvitationsScreen() {
   return (
     <Screen title="Invitations" onBack={nav.back}>
       {error ? <Notice>{error}</Notice> : null}
-      {!items && !error ? <ActivityIndicator accessibilityLabel="Loading invitations" /> : null}
-      {items?.length === 0 ? <Text style={social.empty}>No invitations right now.</Text> : null}
+      {!items && !error ? <Loading label="Loading invitations" /> : null}
+      {items?.length === 0 ? (
+        <EmptyState
+          icon="inbox"
+          title="No invitations right now."
+          body="When someone invites you to a group or encrypted channel, it appears here."
+        />
+      ) : null}
       {items?.map((invitation) => (
         <View key={invitation.id} style={social.card}>
           <View style={social.row}>
@@ -655,34 +693,38 @@ export function InvitationsScreen() {
               </Text>
             </View>
           </View>
-          <Button
-            title="Join"
-            onPress={() => {
-              api.groups.acceptInvitation(invitation.id).then(
-                async ({ conversationId }) => {
-                  await engine?.refreshConversations().catch(() => undefined);
-                  nav.replace({ name: 'conversation', conversationId });
-                },
-                (cause: unknown) => {
-                  setError(errorMessage(cause));
-                },
-              );
-            }}
-          />
-          <Button
-            title="Decline"
-            variant="ghost"
-            onPress={() => {
-              api.groups.declineInvitation(invitation.id).then(
-                () => {
-                  setItems((current) => current?.filter((i) => i.id !== invitation.id));
-                },
-                (cause: unknown) => {
-                  setError(errorMessage(cause));
-                },
-              );
-            }}
-          />
+          <View style={styles.buttons}>
+            <Button
+              title="Decline"
+              variant="secondary"
+              style={styles.flex}
+              onPress={() => {
+                api.groups.declineInvitation(invitation.id).then(
+                  () => {
+                    setItems((current) => current?.filter((i) => i.id !== invitation.id));
+                  },
+                  (cause: unknown) => {
+                    setError(errorMessage(cause));
+                  },
+                );
+              }}
+            />
+            <Button
+              title="Join"
+              style={styles.flex}
+              onPress={() => {
+                api.groups.acceptInvitation(invitation.id).then(
+                  async ({ conversationId }) => {
+                    await engine?.refreshConversations().catch(() => undefined);
+                    nav.replace({ name: 'conversation', conversationId });
+                  },
+                  (cause: unknown) => {
+                    setError(errorMessage(cause));
+                  },
+                );
+              }}
+            />
+          </View>
         </View>
       ))}
     </Screen>
@@ -722,6 +764,8 @@ export function JoinScreen({ token: initial }: { token?: string | undefined }) {
       {!initial ? (
         <Field
           label="Invitation link"
+          icon="link"
+          placeholder="Paste the link you received"
           value={input}
           autoCapitalize="none"
           autoCorrect={false}
@@ -742,11 +786,18 @@ export function JoinScreen({ token: initial }: { token?: string | undefined }) {
               <Text style={social.muted}>{preview.memberCount} members</Text>
             </View>
           </View>
-          <Text style={social.muted}>
-            {preview.endToEndEncrypted
-              ? 'End-to-end encrypted. You’ll see messages sent after you join.'
-              : 'Community channel — not end-to-end encrypted; OGC can read posts for moderation and search.'}
-          </Text>
+          <View style={social.row}>
+            <Icon
+              name={preview.endToEndEncrypted ? 'lock' : 'globe'}
+              size={16}
+              tint={preview.endToEndEncrypted ? color.accent : color.textMuted}
+            />
+            <Text style={[social.muted, { flex: 1 }]}>
+              {preview.endToEndEncrypted
+                ? 'End-to-end encrypted. You’ll see messages sent after you join.'
+                : 'Community channel — not end-to-end encrypted; OGC can read posts for moderation and search.'}
+            </Text>
+          </View>
           {pending ? (
             <Notice tone="success">Request sent — a moderator will review it.</Notice>
           ) : null}
@@ -792,3 +843,40 @@ export function JoinScreen({ token: initial }: { token?: string | undefined }) {
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  buttons: { flexDirection: 'row', gap: space[3] },
+  surface: {
+    backgroundColor: color.surface,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.lg,
+  },
+  head: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
+  headTags: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  row: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    minHeight: 60,
+    paddingHorizontal: space[4],
+    paddingVertical: space[3],
+  },
+  bordered: {
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: color.borderStrong,
+    paddingHorizontal: 0,
+  },
+  pressed: { backgroundColor: color.surfaceHover },
+  check: {
+    width: 24,
+    height: 24,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: color.borderStrong,
+  },
+  checkOn: { backgroundColor: color.accent, borderColor: color.accent },
+});

@@ -18,6 +18,10 @@ export type DomainEvent =
   | { type: 'session.revoked'; sessionId: string; userId: string }
   /** Members joined or left a group/encrypted channel, or a community channel. */
   | { type: 'membership.changed'; conversationId?: string; channelId?: string; userIds: string[] }
+  /** A call started ringing on the callee's devices (not raised for hidden or busy calls). */
+  | { type: 'call.ringing'; callId: string; conversationId: string; calleeId: string }
+  /** Nobody answered before the ring timeout. */
+  | { type: 'call.missed'; callId: string; conversationId: string; calleeId: string }
   | {
       type: 'message.created';
       conversationId: string;

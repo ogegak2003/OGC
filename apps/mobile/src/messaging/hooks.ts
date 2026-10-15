@@ -1,5 +1,12 @@
-import type { LocalMessage, TimelineEvent } from '@ogc/messaging';
-import { useEffect, useState } from 'react';
+import {
+  type CallState,
+  IDLE_CALL_STATE,
+  type LocalMessage,
+  type TimelineEvent,
+} from '@ogc/messaging';
+import type { CallView } from '@ogc/types';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { useAuth } from '../auth/AuthProvider';
 import { useMessaging } from './messaging-context';
 
 /** The locally stored (decrypted) messages of a conversation, kept in sync with the engine. */
@@ -42,4 +49,60 @@ export function useTimeline(conversationId: string): TimelineEvent[] {
 
 export function useLastMessage(conversationId: string): LocalMessage | undefined {
   return useConversationMessages(conversationId, 1)?.at(-1);
+}
+
+/** The current call on this device (idle when calls are not available yet). */
+export function useCall(): CallState {
+  const { calls } = useMessaging();
+  return useSyncExternalStore(
+    useCallback((listener: () => void) => calls?.subscribe(listener) ?? (() => undefined), [calls]),
+    () => calls?.current ?? IDLE_CALL_STATE,
+  );
+}
+
+/** A conversation's calls (oldest first), refreshed whenever a call ends. */
+export function useCallHistory(conversationId: string, enabled: boolean): CallView[] {
+  const { client } = useAuth();
+  const { callsRevision } = useMessaging();
+  const [calls, setCalls] = useState<CallView[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    let active = true;
+    client.calls(conversationId).then(
+      (page) => {
+        if (active) setCalls([...page.items].reverse());
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [client, conversationId, enabled, callsRevision]);
+  return enabled ? calls : [];
+}
+
+/** The account's recent calls (newest first), refreshed whenever a call ends. */
+export function useRecentCalls(): { calls: CallView[] | undefined; failed: boolean } {
+  const { client } = useAuth();
+  const { callsRevision, status } = useMessaging();
+  const [calls, setCalls] = useState<CallView[]>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (status !== 'ready') return;
+    let active = true;
+    client.calls().then(
+      (page) => {
+        if (!active) return;
+        setCalls(page.items);
+        setFailed(false);
+      },
+      () => {
+        if (active) setFailed(true);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, [client, callsRevision, status]);
+  return { calls, failed };
 }

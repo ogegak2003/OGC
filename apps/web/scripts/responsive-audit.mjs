@@ -467,6 +467,8 @@ try {
 
   const member = [
     ['/home'],
+    ['/calls'],
+    ['/communities'],
     ['/profile/edit'],
     ['/discover'],
     ['/contacts'],

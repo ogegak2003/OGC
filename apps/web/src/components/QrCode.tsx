@@ -29,8 +29,8 @@ export function QrCode({
         aria-label={label}
         shapeRendering="crispEdges"
       >
-        <rect x={-quiet} y={-quiet} width={box} height={box} fill="#F5F2EA" />
-        <path d={path} fill="#0B0B0A" />
+        <rect x={-quiet} y={-quiet} width={box} height={box} fill="#F5F3EE" />
+        <path d={path} fill="#0B0B0D" />
       </svg>
     </figure>
   );

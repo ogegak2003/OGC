@@ -1,0 +1,310 @@
+/* Call screen: near-black surface, restrained gold, high-contrast round controls. */
+
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  justify-items: center;
+  padding: max(var(--ogc-space-8), env(safe-area-inset-top)) var(--ogc-space-4)
+    max(var(--ogc-space-6), env(safe-area-inset-bottom));
+  overflow: hidden;
+  color: var(--ogc-color-text-primary);
+  background:
+    radial-gradient(120% 70% at 50% 0%, rgb(212 170 79 / 0.1), transparent 60%),
+    var(--ogc-color-background);
+  animation: enter var(--ogc-duration-slow) var(--ogc-easing-enter);
+}
+
+.withVideo {
+  background: #000;
+}
+
+@keyframes enter {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .overlay {
+    animation: none;
+  }
+}
+
+.hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.remoteVideo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  background: #000;
+}
+
+.identity {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  align-self: center;
+  max-width: 32rem;
+  text-align: center;
+}
+
+.withVideo .identity {
+  align-self: start;
+  padding: var(--ogc-space-2) var(--ogc-space-4);
+  background: rgb(0 0 0 / 0.45);
+  border-radius: var(--ogc-radius-lg);
+}
+
+.avatarRing {
+  display: inline-flex;
+  padding: 4px;
+  margin-bottom: var(--ogc-space-5);
+  border: 1px solid var(--ogc-color-accent);
+  border-radius: 50%;
+  box-shadow: 0 0 48px rgb(212 170 79 / 0.18);
+}
+
+.name {
+  margin: 0;
+  font-size: var(--ogc-font-size-3xl);
+  font-weight: 600;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.ogcId {
+  margin: var(--ogc-space-1) 0 0;
+  color: var(--ogc-color-text-muted);
+  font-family: var(--ogc-font-mono);
+  font-size: var(--ogc-font-size-sm);
+  letter-spacing: 0.04em;
+}
+
+.status {
+  margin: var(--ogc-space-3) 0 0;
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-lg);
+}
+
+.timer {
+  color: var(--ogc-color-accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.04em;
+}
+
+.statusEnded {
+  max-width: 26rem;
+  color: var(--ogc-color-text-primary);
+}
+
+.note {
+  display: inline-flex;
+  gap: var(--ogc-space-1);
+  align-items: center;
+  margin: var(--ogc-space-2) 0 0;
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-sm);
+}
+
+.localVideo {
+  position: absolute;
+  right: var(--ogc-space-4);
+  bottom: calc(9rem + env(safe-area-inset-bottom));
+  z-index: 2;
+  width: min(30vw, 11rem);
+  aspect-ratio: 3 / 4;
+  object-fit: cover;
+  background: #111;
+  border: 1px solid rgb(255 255 255 / 0.18);
+  border-radius: var(--ogc-radius-lg);
+  box-shadow: var(--ogc-elevation-high);
+}
+
+/* Before the call connects, the preview shows what the camera sees, larger. */
+.previewLarge {
+  width: min(42vw, 14rem);
+}
+
+.mirrored {
+  transform: scaleX(-1);
+}
+
+.controls {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ogc-space-4) var(--ogc-space-6);
+  justify-content: center;
+  padding: var(--ogc-space-4) var(--ogc-space-4) 0;
+}
+
+.withVideo .controls {
+  padding: var(--ogc-space-3) var(--ogc-space-5);
+  background: rgb(0 0 0 / 0.5);
+  border-radius: var(--ogc-radius-full);
+}
+
+.control {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ogc-space-2);
+  align-items: center;
+  min-width: 4.5rem;
+}
+
+.round {
+  display: grid;
+  place-items: center;
+  width: 3.75rem;
+  height: 3.75rem;
+  color: var(--ogc-color-text-primary);
+  cursor: pointer;
+  background: rgb(255 255 255 / 0.1);
+  border: 1px solid rgb(255 255 255 / 0.16);
+  border-radius: 50%;
+  transition: background var(--ogc-duration-fast) var(--ogc-easing-standard);
+}
+
+.round:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.18);
+}
+
+.round:focus-visible {
+  outline: 3px solid var(--ogc-color-focus-ring);
+  outline-offset: 3px;
+}
+
+.round:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+/* Toggled off (muted, camera off): inverted so the state reads at a glance. */
+.pressed {
+  color: #0b0b0d;
+  background: #f4f1ea;
+  border-color: #f4f1ea;
+}
+
+.pressed:hover:not(:disabled) {
+  background: #fff;
+}
+
+.danger {
+  color: #fff;
+  background: #c8322a;
+  border-color: #c8322a;
+}
+
+.danger:hover:not(:disabled) {
+  background: #b02a23;
+}
+
+.accept {
+  color: var(--ogc-color-on-accent);
+  background: linear-gradient(180deg, #f0d48b, #c99a3c);
+  border-color: #f0d48b;
+}
+
+.accept:hover:not(:disabled) {
+  background: linear-gradient(180deg, #f5dc9b, #d4a547);
+}
+
+.controlLabel {
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-xs);
+  text-align: center;
+}
+
+.withVideo .controlLabel {
+  display: none;
+}
+
+@media (max-width: 359px) {
+  .controls {
+    gap: var(--ogc-space-3);
+  }
+
+  .control {
+    min-width: 3.5rem;
+  }
+
+  .round {
+    width: 3.25rem;
+    height: 3.25rem;
+  }
+
+  .name {
+    font-size: var(--ogc-font-size-xl);
+  }
+}
+
+/* Call actions in the conversation header and call rows in the timeline. */
+.headerActions {
+  display: flex;
+  gap: var(--ogc-space-1);
+}
+
+.headerCall {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--ogc-color-text-primary);
+  cursor: pointer;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 50%;
+}
+
+.headerCall:hover:not(:disabled) {
+  color: var(--ogc-color-accent);
+  background: var(--ogc-color-surface-raised);
+}
+
+.headerCall:focus-visible {
+  outline: 2px solid var(--ogc-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.headerCall:disabled {
+  color: var(--ogc-color-text-disabled);
+  cursor: not-allowed;
+}
+
+.callRow {
+  display: flex;
+  gap: var(--ogc-space-2);
+  align-items: center;
+  align-self: center;
+  margin: var(--ogc-space-2) auto;
+  padding: var(--ogc-space-1) var(--ogc-space-3);
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-full);
+}
+
+.callRowMissed {
+  color: var(--ogc-color-danger);
+}
+
+.callRowTime {
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+}

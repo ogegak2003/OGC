@@ -1,7 +1,13 @@
 import { HttpStatus, Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { AccountView, OgcId, RegisterResponse } from '@ogc/types';
-import type { DeviceInfo, LoginInput, RegisterInput } from '@ogc/validation';
+import type { AccountView, ForgotPasswordResponse, OgcId, RegisterResponse } from '@ogc/types';
+import {
+  type DeviceInfo,
+  type LoginInput,
+  type RegisterInput,
+  isContextualPassword,
+} from '@ogc/validation';
+import type { AuthContext } from './auth-context.js';
 import { ApiException } from '../../common/errors.js';
 import type { RequestMeta } from '../../common/request-meta.js';
 import type { Env } from '../../config/env.schema.js';
@@ -9,18 +15,39 @@ import { isUniqueViolation } from '../../database/prisma-errors.js';
 import { PrismaService } from '../../database/prisma.service.js';
 import type { Prisma } from '../../generated/prisma/client.js';
 import { AuditService } from '../audit/audit.service.js';
-import { EmailSender } from '../email/email-sender.js';
-import { accountExistsEmail, verificationEmail } from '../email/templates.js';
+import { type EmailMessage, EmailSender } from '../email/email-sender.js';
+import {
+  accountExistsEmail,
+  passwordChangedEmail,
+  passwordResetEmail,
+  verificationEmail,
+} from '../email/templates.js';
 import { IdentityService } from '../identity/identity.service.js';
 import {
   LOCKOUT_DURATION_MS,
   LOCKOUT_THRESHOLD,
+  PASSWORD_RESET_EMAILS_PER_HOUR,
+  PASSWORD_RESET_EMAIL_INTERVAL_MS,
+  PASSWORD_RESET_WINDOW_MS,
   VERIFICATION_RESEND_INTERVAL_MS,
   VERIFICATION_TOKEN_TTL_MS,
 } from './auth.constants.js';
 import { PasswordHasher } from './password-hasher.js';
 import { type CreatedSession, SessionService, canHoldSession } from './session.service.js';
 import { generateSecret, hashToken } from './tokens.js';
+
+export const FORGOT_PASSWORD_RESPONSE: ForgotPasswordResponse = {
+  message:
+    'If an account uses this email address, a link to reset its password is on its way. ' +
+    'It expires soon and can be used once.',
+};
+
+const invalidResetToken = (): ApiException =>
+  new ApiException(
+    HttpStatus.BAD_REQUEST,
+    'INVALID_RESET_TOKEN',
+    'This reset link is invalid or has expired. Ask for a new one.',
+  );
 
 export const REGISTER_RESPONSE: RegisterResponse = {
   verificationRequired: true,
@@ -214,10 +241,241 @@ export class AuthService {
     return { account: toAccountView(user), session };
   }
 
+  /**
+   * Changes the password of the signed-in account. The current password is required (a stolen
+   * session alone cannot take over the account), wrong attempts count towards the same lockout
+   * as sign-in, and every *other* session ends — signing out a thief who knew the old password.
+   */
+  async changePassword(
+    auth: AuthContext,
+    input: { currentPassword: string; newPassword: string },
+    meta: RequestMeta,
+  ): Promise<{ otherSessionsEnded: number }> {
+    const user = await this.prisma.user.findUniqueOrThrow({
+      where: { id: auth.userId },
+      select: { email: true, credentials: { where: { type: 'PASSWORD' } } },
+    });
+    const credential = user.credentials[0];
+    const wrongPassword = () =>
+      new ApiException(
+        HttpStatus.BAD_REQUEST,
+        'INVALID_PASSWORD',
+        'Your current password is incorrect',
+      );
+    if (!credential) throw wrongPassword();
+    if (credential.lockedUntil && credential.lockedUntil.getTime() > Date.now()) {
+      await this.passwords.verifyAgainstDummy(input.currentPassword);
+      await this.audit.record({
+        type: 'PASSWORD_CHANGE_FAILED',
+        userId: auth.userId,
+        sessionId: auth.sessionId,
+        meta,
+        details: { reason: 'locked' },
+      });
+      throw wrongPassword();
+    }
+    if (!(await this.passwords.verify(credential.secretHash, input.currentPassword))) {
+      await this.recordFailedPassword(credential.id, auth.userId, meta, 'PASSWORD_CHANGE_FAILED');
+      throw wrongPassword();
+    }
+    if (isContextualPassword(input.newPassword, user.email)) {
+      throw new ApiException(
+        HttpStatus.BAD_REQUEST,
+        'VALIDATION_FAILED',
+        'newPassword: Your password must not be based on your email address or the service name',
+      );
+    }
+    const secretHash = await this.passwords.hash(input.newPassword);
+    await this.prisma.credential.update({
+      where: { id: credential.id },
+      data: { secretHash, failedLoginCount: 0, lockedUntil: null, lastUsedAt: new Date() },
+    });
+    await this.audit.record({
+      type: 'PASSWORD_CHANGED',
+      userId: auth.userId,
+      sessionId: auth.sessionId,
+      meta,
+    });
+    const otherSessionsEnded = await this.sessions.revokeOthers(
+      auth.userId,
+      auth.sessionId,
+      'PASSWORD_CHANGED',
+      meta,
+    );
+    this.deliver(passwordChangedEmail(user.email, this.webAppUrl, 'changed'));
+    return { otherSessionsEnded };
+  }
+
+  /**
+   * "Forgot password". The answer is the same whether or not the address has an account (and
+   * whether or not an email was sent); the email itself is sent in the background, so the
+   * provider's latency cannot reveal it either. Without an email provider the request is
+   * refused for every address — nothing would be delivered, and saying otherwise would mislead.
+   */
+  async forgotPassword(email: string, meta: RequestMeta): Promise<ForgotPasswordResponse> {
+    if (!this.email.available) {
+      throw new ApiException(
+        HttpStatus.SERVICE_UNAVAILABLE,
+        'EMAIL_UNAVAILABLE',
+        'Password recovery by email is not available on this server yet. Contact support.',
+      );
+    }
+    const now = Date.now();
+    const user = await this.prisma.user.findUnique({
+      where: { email },
+      select: {
+        id: true,
+        status: true,
+        credentials: { where: { type: 'PASSWORD' }, select: { id: true } },
+        passwordResetTokens: {
+          where: { createdAt: { gt: new Date(now - PASSWORD_RESET_WINDOW_MS) } },
+          orderBy: { createdAt: 'desc' },
+          select: { createdAt: true },
+        },
+      },
+    });
+    const latest = user?.passwordResetTokens[0];
+    const outcome = !user
+      ? 'unknown_account'
+      : !canHoldSession(user.status) || user.credentials.length === 0
+        ? 'account_unavailable'
+        : user.passwordResetTokens.length >= PASSWORD_RESET_EMAILS_PER_HOUR ||
+            (latest && now - latest.createdAt.getTime() < PASSWORD_RESET_EMAIL_INTERVAL_MS)
+          ? 'throttled'
+          : 'sent';
+    await this.audit.record({
+      type: 'PASSWORD_RESET_REQUESTED',
+      userId: user?.id,
+      meta,
+      details: { outcome },
+    });
+    if (!user || outcome !== 'sent') return FORGOT_PASSWORD_RESPONSE;
+
+    const token = `ogc_pr_${generateSecret()}`;
+    const validMinutes = this.config.get('PASSWORD_RESET_TTL_MINUTES', { infer: true });
+    const created = await this.prisma.$transaction(async (tx) => {
+      // Only the newest link works: earlier ones are superseded.
+      await tx.passwordResetToken.updateMany({
+        where: { userId: user.id, consumedAt: null },
+        data: { consumedAt: new Date(now) },
+      });
+      return tx.passwordResetToken.create({
+        data: {
+          userId: user.id,
+          tokenHash: hashToken(token),
+          createdAt: new Date(now),
+          expiresAt: new Date(now + validMinutes * 60_000),
+        },
+        select: { id: true },
+      });
+    });
+    this.deliver(passwordResetEmail(email, this.webAppUrl, token, validMinutes), async () => {
+      // An undeliverable link is useless: retire it, and record why (never the address).
+      await this.prisma.passwordResetToken.updateMany({
+        where: { id: created.id, consumedAt: null },
+        data: { consumedAt: new Date() },
+      });
+      await this.audit.record({
+        type: 'PASSWORD_RESET_FAILED',
+        userId: user.id,
+        meta,
+        details: { reason: 'email_delivery_failed' },
+      });
+    });
+    return FORGOT_PASSWORD_RESPONSE;
+  }
+
+  /**
+   * Completes a reset: the token is consumed with a compare-and-swap (of two concurrent uses,
+   * one wins), every other outstanding token is retired, the lockout is cleared, and every
+   * session of the account ends. Encryption keys are not touched here: a device that is
+   * signed out loses its keys exactly as on any sign-out (docs/security/account-recovery.md).
+   */
+  async resetPassword(
+    input: { token: string; newPassword: string },
+    meta: RequestMeta,
+  ): Promise<void> {
+    const record = await this.prisma.passwordResetToken.findUnique({
+      where: { tokenHash: hashToken(input.token) },
+      select: {
+        id: true,
+        userId: true,
+        expiresAt: true,
+        consumedAt: true,
+        user: {
+          select: {
+            email: true,
+            status: true,
+            credentials: { where: { type: 'PASSWORD' }, select: { id: true } },
+          },
+        },
+      },
+    });
+    const credential = record?.user.credentials[0];
+    const failure = !record
+      ? 'unknown_token'
+      : record.consumedAt
+        ? 'consumed'
+        : record.expiresAt.getTime() <= Date.now()
+          ? 'expired'
+          : !canHoldSession(record.user.status) || !credential
+            ? 'account_unavailable'
+            : undefined;
+    if (failure !== undefined || !record || !credential) {
+      await this.audit.record({
+        type: 'PASSWORD_RESET_FAILED',
+        userId: record?.userId,
+        meta,
+        details: { reason: failure ?? 'unknown_token' },
+      });
+      throw invalidResetToken();
+    }
+    if (isContextualPassword(input.newPassword, record.user.email)) {
+      // The token stays valid: the person can pick another password.
+      throw new ApiException(
+        HttpStatus.BAD_REQUEST,
+        'VALIDATION_FAILED',
+        'newPassword: Your password must not be based on your email address or the service name',
+      );
+    }
+    const secretHash = await this.passwords.hash(input.newPassword);
+    await this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const { count } = await tx.passwordResetToken.updateMany({
+        where: { id: record.id, consumedAt: null, expiresAt: { gt: now } },
+        data: { consumedAt: now },
+      });
+      if (count !== 1) throw invalidResetToken();
+      await tx.passwordResetToken.updateMany({
+        where: { userId: record.userId, consumedAt: null },
+        data: { consumedAt: now },
+      });
+      await tx.credential.update({
+        where: { id: credential.id },
+        data: { secretHash, failedLoginCount: 0, lockedUntil: null },
+      });
+      await this.audit.record(
+        { type: 'PASSWORD_RESET_COMPLETED', userId: record.userId, meta },
+        tx,
+      );
+    });
+    await this.sessions.revokeAll(record.userId, 'PASSWORD_RESET', meta);
+    this.deliver(passwordChangedEmail(record.user.email, this.webAppUrl, 'reset'));
+  }
+
+  /** Sends an email without making the caller wait or fail; failures are logged by kind only. */
+  private deliver(message: EmailMessage, onFailure?: () => Promise<void>): void {
+    this.email.send(message).catch(async () => {
+      this.logger.warn({ kind: message.kind }, 'Email could not be delivered');
+      await onFailure?.().catch(() => undefined);
+    });
+  }
+
   private async recordFailedPassword(
     credentialId: string,
     userId: string,
     meta: RequestMeta,
+    type: 'LOGIN_FAILED' | 'PASSWORD_CHANGE_FAILED' = 'LOGIN_FAILED',
   ): Promise<void> {
     const updated = await this.prisma.credential.update({
       where: { id: credentialId },
@@ -225,7 +483,7 @@ export class AuthService {
       select: { failedLoginCount: true },
     });
     await this.audit.record({
-      type: 'LOGIN_FAILED',
+      type,
       userId,
       meta,
       details: { reason: 'invalid_password' },

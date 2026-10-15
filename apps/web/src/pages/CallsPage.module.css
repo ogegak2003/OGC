@@ -1,0 +1,118 @@
+.intro {
+  max-width: 44rem;
+  margin: 0;
+  color: var(--ogc-color-text-secondary);
+}
+
+.section {
+  display: grid;
+  gap: var(--ogc-space-3);
+}
+
+.heading {
+  margin: 0;
+  font-size: var(--ogc-font-size-lg);
+  font-weight: 600;
+}
+
+.surface {
+  display: grid;
+  margin: 0;
+  padding: var(--ogc-space-2);
+  list-style: none;
+  background: var(--ogc-color-surface);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-lg);
+}
+
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  min-height: 4rem;
+  padding: var(--ogc-space-2) var(--ogc-space-3);
+}
+
+.row + .row {
+  border-top: 1px solid var(--ogc-color-border);
+}
+
+.avatar {
+  position: relative;
+  display: inline-flex;
+}
+
+.online {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 0.75rem;
+  height: 0.75rem;
+  background: var(--ogc-color-success);
+  border: 2px solid var(--ogc-color-surface);
+  border-radius: var(--ogc-radius-full);
+}
+
+.text {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.text:hover .name {
+  color: var(--ogc-color-accent-highlight);
+}
+
+.name {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.detail,
+.missed {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-1);
+  min-width: 0;
+  overflow: hidden;
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.missed {
+  color: var(--ogc-color-danger);
+}
+
+.time {
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+  white-space: nowrap;
+}
+
+.empty {
+  justify-items: center;
+  gap: var(--ogc-space-2);
+  padding: var(--ogc-space-8) var(--ogc-space-4);
+  color: var(--ogc-color-text-secondary);
+  text-align: center;
+}
+
+.empty p {
+  margin: 0;
+}
+
+.empty a {
+  color: var(--ogc-color-accent-highlight);
+}
+
+@media (max-width: 420px) {
+  .time {
+    display: none;
+  }
+}

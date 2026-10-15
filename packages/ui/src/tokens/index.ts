@@ -1,6 +1,6 @@
 import { color, palette } from './color.js';
 import { elevation } from './elevation.js';
-import { borderWidth, radius, space } from './layout.js';
+import { borderWidth, radius, size, space } from './layout.js';
 import { duration, easing } from './motion.js';
 import { fontFamily, fontSize, fontWeight, letterSpacing, lineHeight } from './typography.js';
 
@@ -15,6 +15,7 @@ export const tokens = {
   space,
   radius,
   borderWidth,
+  size,
   duration,
   easing,
   elevation,

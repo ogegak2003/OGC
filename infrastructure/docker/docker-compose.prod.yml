@@ -1,0 +1,203 @@
+# OGC staging / production stack for ONE Linux host (docs/operations/deployment.md).
+#
+#   docker compose -f infrastructure/docker/docker-compose.prod.yml \
+#     --env-file /etc/ogc/production.env up -d --build --wait
+#
+# Public traffic reaches only the `edge` container (HTTPS 443, HTTP 80 → redirect). PostgreSQL
+# and Redis publish no ports and sit on an internal network without internet access. The
+# `migrate` job runs once per `up` and must succeed before any API container starts, so API
+# replicas (`--scale api=N`) never run migrations themselves.
+#
+# Every secret comes from the env file given with --env-file, which lives outside the
+# repository (chmod 600). Nothing here has a usable default password: Compose refuses to
+# start without one, and the API refuses weak or placeholder values in production.
+
+name: ogc-prod
+
+x-hardening: &hardening
+  read_only: true
+  security_opt:
+    - no-new-privileges:true
+  cap_drop: [ALL]
+
+x-database-url: &database-url postgresql://${POSTGRES_USER:-ogc}:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ogc}?schema=public
+
+services:
+  postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ogc}
+      POSTGRES_USER: ${POSTGRES_USER:-ogc}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD}
+    # No `ports`: reachable only from containers on the backend network.
+    volumes:
+      - postgres-data:/var/lib/postgresql
+    shm_size: 256m
+    stop_grace_period: 60s
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    security_opt:
+      - no-new-privileges:true
+    networks: [backend]
+
+  # Ephemeral shared state (rate limits, presence, realtime fan-out). Not persisted, not backed up.
+  redis:
+    image: redis:8.4.7-alpine
+    restart: unless-stopped
+    # The official image only drops root when started directly; we start it through sh -c.
+    user: redis
+    command:
+      - sh
+      - -c
+      - exec redis-server --requirepass "$$REDIS_PASSWORD" --save "" --appendonly no --maxmemory 256mb --maxmemory-policy volatile-lru
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD}
+      REDISCLI_AUTH: ${REDIS_PASSWORD}
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    tmpfs:
+      - /data:uid=999,gid=1000
+    <<: *hardening
+    networks: [backend]
+
+  # One-shot: `prisma migrate deploy` (forward-only, uses an advisory lock), then exits.
+  migrate:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: migrate
+    restart: 'no'
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: *database-url
+    <<: *hardening
+    networks: [backend]
+
+  api:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: runtime
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      # Exactly one proxy (edge) in front of the API. Raise only if a load balancer/CDN is added.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      # The browser app is served from the same origin; no cross-origin API callers.
+      CORS_ORIGINS: ${CORS_ORIGINS:-}
+      WEB_APP_URL: https://${OGC_DOMAIN:?Set OGC_DOMAIN}
+      DATABASE_URL: *database-url
+      REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      # PostgreSQL and Redis are on the internal `backend` network of this host only.
+      DATABASE_TLS: private-network
+      REDIS_TLS: private-network
+      EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-disabled}
+      EMAIL_FROM: ${EMAIL_FROM:-}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_SECURITY: ${SMTP_SECURITY:-starttls}
+      SMTP_USER: ${SMTP_USER:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      # Uploads stay off until S3-compatible object storage exists (production-readiness.md).
+      STORAGE_DRIVER: disabled
+      PUSH_PROVIDER: ${PUSH_PROVIDER:-disabled}
+      EXPO_ACCESS_TOKEN: ${EXPO_ACCESS_TOKEN:-}
+      METRICS_TOKEN: ${METRICS_TOKEN:-}
+      WEBRTC_STUN_URLS: ${WEBRTC_STUN_URLS:-}
+      WEBRTC_TURN_URLS: ${WEBRTC_TURN_URLS:-}
+      WEBRTC_TURN_SECRET: ${WEBRTC_TURN_SECRET:-}
+      WEBRTC_ICE_TRANSPORT_POLICY: ${WEBRTC_ICE_TRANSPORT_POLICY:-all}
+    expose: ['3000']
+    # Readiness, not liveness: the edge waits until the database, migrations and Redis are OK.
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/api/v1/health/ready']
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
+      retries: 6
+    # SIGTERM → readiness turns 503, in-flight requests finish, sockets close, then exit.
+    stop_grace_period: 30s
+    tmpfs:
+      - /tmp
+    <<: *hardening
+    networks: [backend, frontend]
+
+  web:
+    build:
+      context: ../..
+      dockerfile: infrastructure/docker/web.Dockerfile
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_started
+    expose: ['8080']
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    tmpfs:
+      - /tmp
+    <<: *hardening
+    networks: [frontend]
+
+  # Public entry point: TLS termination, HTTP→HTTPS redirect, routing, request IDs.
+  edge:
+    image: nginxinc/nginx-unprivileged:1.30-alpine
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    environment:
+      OGC_DOMAIN: ${OGC_DOMAIN:?Set OGC_DOMAIN}
+    ports:
+      - '${PUBLIC_BIND:-0.0.0.0}:${HTTP_PORT:-80}:8080'
+      - '${PUBLIC_BIND:-0.0.0.0}:${HTTPS_PORT:-443}:8443'
+    volumes:
+      - ./nginx/edge.conf.template:/etc/nginx/templates/default.conf.template:ro
+      - ./nginx/edge-proxy.conf:/etc/nginx/snippets/edge-proxy.conf:ro
+      # fullchain.pem + privkey.pem for OGC_DOMAIN (deployment.md: certificates).
+      - ${TLS_CERT_DIR:?Set TLS_CERT_DIR}:/etc/ogc/tls:ro
+      # ACME HTTP-01 challenges written by certbot on the host.
+      - ${ACME_WEBROOT:-./acme-webroot}:/var/www/acme:ro
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8081/']
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    stop_grace_period: 30s
+    tmpfs:
+      - /tmp
+      - /etc/nginx/conf.d:uid=101,gid=101
+    <<: *hardening
+    networks: [frontend]
+
+networks:
+  # No internet access and no published ports: PostgreSQL, Redis, migrations, API.
+  backend:
+    internal: true
+  frontend: {}
+
+volumes:
+  # Persistent database files. Back up with infrastructure/backup/pg-backup.sh.
+  postgres-data:

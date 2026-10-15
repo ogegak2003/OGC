@@ -22,6 +22,7 @@ import { AuthGuard } from './modules/auth/auth.guard.js';
 import { AttachmentsModule } from './modules/attachments/attachments.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { BlocksModule } from './modules/blocks/blocks.module.js';
+import { CallsModule } from './modules/calls/calls.module.js';
 import { CommunityModule } from './modules/community/community.module.js';
 import { ContactsModule } from './modules/contacts/contacts.module.js';
 import { ConversationsModule } from './modules/conversations/conversations.module.js';
@@ -31,6 +32,7 @@ import { NotificationsModule } from './modules/notifications/notifications.modul
 import { ProfilesModule } from './modules/profiles/profiles.module.js';
 import { RealtimeCoreModule, RealtimeGatewayModule } from './modules/realtime/realtime.module.js';
 import { ReportsModule } from './modules/reports/reports.module.js';
+import { RetentionModule } from './modules/retention/retention.module.js';
 import { StorageModule } from './modules/storage/storage.module.js';
 
 /**
@@ -91,6 +93,8 @@ import { StorageModule } from './modules/storage/storage.module.js';
     AttachmentsModule,
     NotificationsModule,
     CommunityModule,
+    CallsModule,
+    RetentionModule,
     RealtimeGatewayModule,
   ],
   providers: [

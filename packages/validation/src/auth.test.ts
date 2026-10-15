@@ -2,10 +2,13 @@ import { describe, expect, it } from 'vitest';
 import {
   displayNameSchema,
   emailSchema,
+  forgotPasswordRequestSchema,
   loginRequestSchema,
   newPasswordSchema,
   normalizePassword,
   registerRequestSchema,
+  resetPasswordRequestSchema,
+  resetTokenFrom,
   verifyEmailRequestSchema,
 } from './auth.js';
 
@@ -98,5 +101,38 @@ describe('verifyEmailRequestSchema', () => {
     expect(verifyEmailRequestSchema.safeParse({ token: 'a'.repeat(43) }).success).toBe(true);
     expect(verifyEmailRequestSchema.safeParse({ token: 'a'.repeat(42) }).success).toBe(false);
     expect(verifyEmailRequestSchema.safeParse({ token: `${'a'.repeat(42)}=` }).success).toBe(false);
+  });
+});
+
+describe('password reset', () => {
+  const token = `ogc_pr_${'A'.repeat(43)}`;
+
+  it('normalises the email and refuses extra fields', () => {
+    expect(forgotPasswordRequestSchema.parse({ email: ' Ada@Example.COM ' })).toEqual({
+      email: 'ada@example.com',
+    });
+    expect(
+      forgotPasswordRequestSchema.safeParse({ email: 'ada@example.com', userId: 'x' }).success,
+    ).toBe(false);
+  });
+
+  it('accepts only prefixed 256-bit tokens and policy-compliant passwords', () => {
+    const newPassword = 'violet harbour telescope morning';
+    expect(resetPasswordRequestSchema.safeParse({ token, newPassword }).success).toBe(true);
+    for (const bad of ['A'.repeat(43), `ogc_pr_${'A'.repeat(42)}`, `ogc_at_${'A'.repeat(43)}`]) {
+      expect(resetPasswordRequestSchema.safeParse({ token: bad, newPassword }).success).toBe(false);
+    }
+    expect(resetPasswordRequestSchema.safeParse({ token, newPassword: 'short' }).success).toBe(
+      false,
+    );
+  });
+
+  it('finds the token in a pasted link or on its own', () => {
+    expect(resetTokenFrom(token)).toBe(token);
+    expect(resetTokenFrom(`  https://app.ogc.example/reset-password#token=${token}  `)).toBe(token);
+    expect(resetTokenFrom(`https://x/reset-password#token=${token}&a=b`)).toBe(token);
+    expect(resetTokenFrom('https://x/reset-password#token=nope')).toBeUndefined();
+    expect(resetTokenFrom(`https://x/reset-password#token=${token}extra`)).toBeUndefined();
+    expect(resetTokenFrom('')).toBeUndefined();
   });
 });

@@ -1,6 +1,6 @@
 import type { ChannelView } from '@ogc/types';
 import { useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
 import { Avatar } from '../components/Avatar';
 import { CreateChannelDialog } from '../components/channels/CreateChannelDialog';
@@ -8,7 +8,7 @@ import styles from '../components/messaging/messaging.module.css';
 import { Alert, Button, Spinner } from '../components/ui';
 import { channelsApi } from '../lib/community-api';
 
-function ChannelRow({ channel }: { channel: ChannelView }) {
+export function ChannelRow({ channel }: { channel: ChannelView }) {
   return (
     <li className={styles.card}>
       <Avatar url={channel.avatarUrl} name={channel.name} size={48} />
@@ -36,9 +36,12 @@ function ChannelRow({ channel }: { channel: ChannelView }) {
 /** `/channels`: the user's community channels and the public directory with search. */
 export function ChannelsPage() {
   const navigate = useNavigate();
-  const [tab, setTab] = useState<'mine' | 'discover'>('mine');
+  // `?q=` comes from the global search: open the public directory with that search.
+  const [params] = useSearchParams();
+  const initialQuery = params.get('q') ?? '';
+  const [tab, setTab] = useState<'mine' | 'discover'>(initialQuery ? 'discover' : 'mine');
   const [mine, setMine] = useState<ChannelView[]>();
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [found, setFound] = useState<ChannelView[]>();
   const [cursor, setCursor] = useState<string | null>(null);
   const [error, setError] = useState<string>();

@@ -1,0 +1,113 @@
+# OGC public edge (docker-compose.prod.yml). Rendered at container start: ${OGC_DOMAIN} is the
+# only variable substituted (nginx's own $variables are left alone). Certificates are mounted
+# read-only at /etc/ogc/tls (fullchain.pem, privkey.pem). See docs/operations/deployment.md.
+
+server_tokens off;
+
+# Slow-client and idle limits. The realtime location raises read/send timeouts for WebSockets.
+client_header_timeout 15s;
+client_body_timeout 30s;
+send_timeout 30s;
+# Default body limit; the API location raises it for uploads (the API enforces exact limits).
+client_max_body_size 100k;
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+upstream ogc_api {
+    server api:3000;
+    keepalive 16;
+}
+
+upstream ogc_web {
+    server web:8080;
+    keepalive 8;
+}
+
+# Container health check only (not published: the port is not mapped).
+server {
+    listen 127.0.0.1:8081;
+    access_log off;
+    location / {
+        return 204;
+    }
+}
+
+# Plain HTTP: ACME HTTP-01 challenges, everything else redirected to HTTPS on the real domain
+# (never to the client-supplied Host).
+server {
+    listen 8080 default_server;
+    server_name ${OGC_DOMAIN};
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/acme;
+        default_type text/plain;
+        try_files $uri =404;
+    }
+
+    location / {
+        return 301 https://${OGC_DOMAIN}$request_uri;
+    }
+}
+
+# TLS for unknown names: refuse the handshake instead of presenting OGC's certificate.
+server {
+    listen 8443 ssl default_server;
+    ssl_reject_handshake on;
+}
+
+server {
+    listen 8443 ssl;
+    http2 on;
+    server_name ${OGC_DOMAIN};
+
+    ssl_certificate /etc/ogc/tls/fullchain.pem;
+    ssl_certificate_key /etc/ogc/tls/privkey.pem;
+    # Mozilla "intermediate" profile: TLS 1.2 (forward-secret AEAD suites only) and TLS 1.3.
+    ssl_protocols TLSv1.2 TLSv1.3;
+    ssl_ciphers ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES256-GCM-SHA384:ECDHE-RSA-AES256-GCM-SHA384:ECDHE-ECDSA-CHACHA20-POLY1305:ECDHE-RSA-CHACHA20-POLY1305;
+    ssl_prefer_server_ciphers off;
+    ssl_session_timeout 1d;
+    ssl_session_cache shared:OGCTLS:10m;
+    ssl_session_tickets off;
+
+    # HSTS for every response (the API's own copy is hidden below to avoid duplicates).
+    # Add `preload` only after reading https://hstspreload.org/ — it is hard to undo.
+    add_header Strict-Transport-Security "max-age=31536000; includeSubDomains" always;
+
+    # Realtime (Socket.IO over WebSocket). The server pings every 25 s.
+    location /api/realtime/ {
+        include /etc/nginx/snippets/edge-proxy.conf;
+        proxy_pass http://ogc_api;
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection $connection_upgrade;
+        proxy_read_timeout 75s;
+        proxy_send_timeout 75s;
+        proxy_buffering off;
+    }
+
+    # REST API. Encrypted attachments are up to 25 MiB; JSON is limited by the API itself.
+    location /api/ {
+        client_max_body_size 26m;
+        include /etc/nginx/snippets/edge-proxy.conf;
+        proxy_pass http://ogc_api;
+        proxy_set_header Connection "";
+        proxy_read_timeout 60s;
+        proxy_send_timeout 60s;
+    }
+
+    # Metrics are for the monitoring network, never the public internet.
+    location = /api/v1/metrics {
+        return 404;
+    }
+
+    # Static web client (its container adds the CSP and other security headers).
+    location / {
+        include /etc/nginx/snippets/edge-proxy.conf;
+        proxy_pass http://ogc_web;
+        proxy_set_header Connection "";
+        proxy_read_timeout 30s;
+    }
+}

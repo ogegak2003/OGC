@@ -6,8 +6,14 @@ ENV CI=true
 RUN corepack enable
 WORKDIR /repo
 
+# Locked packages first, cached across rebuilds (see api.Dockerfile).
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml .pnpmfile.cjs ./
+RUN --mount=type=cache,id=ogc-pnpm-store,target=/pnpm-store \
+    pnpm fetch --store-dir=/pnpm-store
+
 COPY . .
-RUN pnpm install --frozen-lockfile --filter=@ogc/web...
+RUN --mount=type=cache,id=ogc-pnpm-store,target=/pnpm-store \
+    pnpm install --frozen-lockfile --offline --store-dir=/pnpm-store --filter=@ogc/web...
 RUN pnpm turbo run build --filter=@ogc/web...
 # Source maps are for error tooling, not for public download.
 RUN find apps/web/dist -name '*.map' -delete

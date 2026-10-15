@@ -1,4 +1,5 @@
 import { MessagingClient, RealtimeConnection, SealedStore } from '@ogc/messaging';
+import { nativeCallMedia } from '../calls/native-call-media';
 import type { MessagingDependencies } from './messaging-context';
 import { FileKeyValueStore } from './native-store';
 import { nativeTransport } from './native-transport';
@@ -25,4 +26,5 @@ export const nativeDependencies: MessagingDependencies = {
       onReconnect,
     ),
   destroyLocalData: (ogcId) => FileKeyValueStore.destroy(ogcId),
+  createCallMedia: nativeCallMedia,
 };

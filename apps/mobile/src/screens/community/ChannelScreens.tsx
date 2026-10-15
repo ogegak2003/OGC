@@ -8,7 +8,7 @@ import type {
   NotificationView,
 } from '@ogc/types';
 import { REACTION_EMOJI, REACTION_TYPES } from '@ogc/types';
-import { color } from '@ogc/ui';
+import { color, fontSize, fontWeight, radius, space } from '@ogc/ui';
 import {
   CHANNEL_POST_MAX_LENGTH,
   COMMUNITY_NAME_MAX_LENGTH,
@@ -18,21 +18,28 @@ import {
   channelHandleSchema,
 } from '@ogc/validation';
 import { useEffect, useMemo, useState } from 'react';
-import {
-  ActivityIndicator,
-  Alert,
-  Pressable,
-  Share,
-  Switch,
-  Text,
-  TextInput,
-  View,
-} from 'react-native';
+import { Alert, Pressable, Share, StyleSheet, Text, TextInput, View } from 'react-native';
 import { communityApi } from '../../api/community';
 import { webAppUrl } from '../../config/runtime';
 import { useAuth } from '../../auth/AuthProvider';
+import { Icon, type IconName } from '../../components/Icon';
 import { Avatar, LinkQrCode } from '../../components/identity';
-import { Button, Field, Notice } from '../../components/ui';
+import {
+  Button,
+  CountBadge,
+  EmptyState,
+  Field,
+  ListGroup,
+  ListRow,
+  Loading,
+  Notice,
+  SectionHeader,
+  SkeletonRows,
+  SwitchRow,
+  Tabs,
+  Tag,
+} from '../../components/ui';
+import { listTime } from '../../lib/time';
 import { errorMessage } from '../../lib/errors';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
@@ -47,28 +54,21 @@ function useCommunity() {
   return useMemo(() => communityApi(client), [client]);
 }
 
-function ChannelRow({ channel }: { channel: ChannelView }) {
+export function ChannelRow({ channel }: { channel: ChannelView }) {
   const nav = useNavigation();
   return (
-    <Pressable
-      style={social.listItem}
-      accessibilityRole="button"
+    <ListRow
+      title={channel.name}
+      subtitle={`@${channel.handle} · ${String(channel.memberCount)} members${
+        channel.visibility === 'PRIVATE' ? ' · Private' : ''
+      }${channel.membership?.status === 'PENDING' ? ' · Pending' : ''}`}
+      leading={<Avatar url={channel.avatarUrl} name={channel.name} size={44} />}
+      trailing={<CountBadge count={channel.unreadCount} />}
       accessibilityLabel={`${channel.name}${channel.unreadCount ? `, ${String(channel.unreadCount)} unread` : ''}`}
       onPress={() => {
         nav.push({ name: 'channel', channelId: channel.id });
       }}
-    >
-      <Avatar url={channel.avatarUrl} name={channel.name} size={40} />
-      <View style={social.names}>
-        <Text style={social.name}>{channel.name}</Text>
-        <Text style={social.ogcId}>
-          @{channel.handle} · {channel.memberCount} members
-          {channel.visibility === 'PRIVATE' ? ' · Private' : ''}
-          {channel.membership?.status === 'PENDING' ? ' · Pending' : ''}
-        </Text>
-      </View>
-      {channel.unreadCount > 0 ? <Text style={social.badge}>{channel.unreadCount}</Text> : null}
-    </Pressable>
+    />
   );
 }
 
@@ -118,56 +118,70 @@ export function ChannelsScreen() {
 
   return (
     <Screen title="Channels" subtitle="Open spaces for larger audiences." onBack={nav.back}>
-      <Text style={social.muted}>{NOT_E2EE} Use groups for private conversations.</Text>
-      <View style={social.tabs}>
-        {(['mine', 'discover'] as const).map((value) => (
-          <Pressable
-            key={value}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === value }}
-            style={[social.tab, tab === value && social.tabActive]}
-            onPress={() => {
-              setTab(value);
-            }}
-          >
-            <Text style={[social.tabText, tab === value && social.tabTextActive]}>
-              {value === 'mine' ? 'My channels' : 'Discover'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <Notice tone="info">{NOT_E2EE} Use groups for private conversations.</Notice>
+      <Tabs
+        options={[
+          { id: 'mine', label: 'My channels' },
+          { id: 'discover', label: 'Discover' },
+        ]}
+        value={tab}
+        onChange={setTab}
+      />
       {error ? <Notice>{error}</Notice> : null}
       {tab === 'mine' ? (
         <>
-          {!mine && !error ? <ActivityIndicator accessibilityLabel="Loading channels" /> : null}
-          {mine?.length === 0 ? (
-            <Text style={social.empty}>No channels yet — find some in Discover.</Text>
+          {!mine && !error ? (
+            <View style={styles.surface}>
+              <SkeletonRows count={3} label="Loading channels" />
+            </View>
           ) : null}
-          {mine?.map((channel) => (
-            <ChannelRow key={channel.id} channel={channel} />
-          ))}
+          {mine?.length === 0 ? (
+            <EmptyState
+              icon="hash"
+              title="No channels yet — find some in Discover."
+              action={{
+                label: 'Discover channels',
+                icon: 'search',
+                onPress: () => {
+                  setTab('discover');
+                },
+              }}
+            />
+          ) : null}
+          {mine?.length ? (
+            <ListGroup>
+              {mine.map((channel) => (
+                <ChannelRow key={channel.id} channel={channel} />
+              ))}
+            </ListGroup>
+          ) : null}
         </>
       ) : (
         <>
-          <TextInput
-            style={social.input}
-            placeholder="Search public channels"
-            placeholderTextColor={color.textDisabled}
-            accessibilityLabel="Search public channels"
+          <Field
+            label="Search public channels"
+            icon="search"
+            placeholder="Name or @handle"
             value={query}
             maxLength={64}
             onChangeText={setQuery}
             autoCorrect={false}
+            autoCapitalize="none"
           />
-          {found?.length === 0 ? <Text style={social.empty}>No channels found.</Text> : null}
-          {found?.map((channel) => (
-            <ChannelRow key={channel.id} channel={channel} />
-          ))}
+          {found?.length === 0 ? <EmptyState icon="search" title="No channels found." /> : null}
+          {found?.length ? (
+            <ListGroup>
+              {found.map((channel) => (
+                <ChannelRow key={channel.id} channel={channel} />
+              ))}
+            </ListGroup>
+          ) : null}
         </>
       )}
       <Button
         title="New channel"
         variant="secondary"
+        icon="plus"
         onPress={() => {
           nav.push({ name: 'new-channel' });
         }}
@@ -187,7 +201,7 @@ export function CreateChannelScreen() {
   const [error, setError] = useState<string>();
   return (
     <Screen title="New channel" onBack={nav.back}>
-      <Notice tone="success">{NOT_E2EE}</Notice>
+      <Notice tone="info">{NOT_E2EE}</Notice>
       <Field
         label="Name"
         value={name}
@@ -196,25 +210,27 @@ export function CreateChannelScreen() {
       />
       <Field
         label="Handle"
+        icon="at"
         value={handle}
         autoCapitalize="none"
         autoCorrect={false}
+        hint="5–32 letters, digits or underscores. People find the channel by it."
         onChangeText={setHandle}
       />
-      <View style={social.row}>
-        <Switch value={isPrivate} onValueChange={setPrivate} accessibilityLabel="Private channel" />
-        <Text style={[social.body, { flex: 1 }]}>
-          Private — members only, join by invitation link
-        </Text>
-      </View>
-      <View style={social.row}>
-        <Switch
+      <ListGroup>
+        <SwitchRow
+          label="Private channel"
+          description="Members only, join by invitation link"
+          value={isPrivate}
+          onValueChange={setPrivate}
+        />
+        <SwitchRow
+          label="Approve new members"
+          description="Moderators approve each request to join"
           value={approval}
           onValueChange={setApproval}
-          accessibilityLabel="Approve new members"
         />
-        <Text style={[social.body, { flex: 1 }]}>Moderators approve new members</Text>
-      </View>
+      </ListGroup>
       {error ? <Notice>{error}</Notice> : null}
       <Button
         title="Create channel"
@@ -324,7 +340,11 @@ function PostItem({
   };
   return (
     <Pressable
-      style={[social.card, post.announcement ? { borderColor: color.accent } : null]}
+      style={({ pressed }) => [
+        styles.post,
+        post.announcement ? styles.announcement : null,
+        pressed && styles.postPressed,
+      ]}
       accessibilityRole="button"
       accessibilityHint="Long press for actions"
       onLongPress={() => {
@@ -341,14 +361,21 @@ function PostItem({
         <Avatar
           url={post.author?.avatarUrl ?? null}
           name={post.author?.displayName ?? '?'}
-          size={28}
+          size={36}
         />
-        <Text style={[social.name, { flex: 1 }]}>
-          {post.author?.displayName ?? 'Former member'}
-        </Text>
-        {post.announcement ? <Text style={social.badge}>Announcement</Text> : null}
-        {post.pinnedAt ? <Text style={social.badge}>Pinned</Text> : null}
+        <View style={social.names}>
+          <Text style={styles.author} numberOfLines={1}>
+            {post.author?.displayName ?? 'Former member'}
+          </Text>
+          <Text style={styles.when}>{listTime(post.createdAt)}</Text>
+        </View>
       </View>
+      {post.announcement || post.pinnedAt ? (
+        <View style={styles.tags}>
+          {post.announcement ? <Tag label="Announcement" tone="accent" icon="megaphone" /> : null}
+          {post.pinnedAt ? <Tag label="Pinned" icon="pin" /> : null}
+        </View>
+      ) : null}
       {post.deletedAt ? <Text style={social.muted}>This post was deleted</Text> : null}
       {post.removed && !post.deletedAt ? (
         <Text style={social.muted}>Removed by a moderator</Text>
@@ -358,10 +385,19 @@ function PostItem({
       {!hidden && post.attachments.length ? (
         <Text style={social.muted}>{post.attachments.map((a) => a.name).join(', ')}</Text>
       ) : null}
-      <Text style={social.muted}>
-        {post.reactions.map((r) => `${REACTION_EMOJI[r.reaction]} ${String(r.count)}`).join('  ')}
-        {!post.replyToId ? `  ${String(post.replyCount)} replies` : ''}
-      </Text>
+      <View style={styles.postFooter}>
+        {post.reactions.map((r) => (
+          <Text key={r.reaction} style={[styles.reaction, r.mine ? styles.reactionMine : null]}>
+            {REACTION_EMOJI[r.reaction]} {r.count}
+          </Text>
+        ))}
+        {!post.replyToId ? (
+          <View style={styles.replies}>
+            <Icon name="chat" size={14} tint={color.textMuted} />
+            <Text style={styles.repliesText}>{post.replyCount} replies</Text>
+          </View>
+        ) : null}
+      </View>
     </Pressable>
   );
 }
@@ -382,9 +418,10 @@ function Composer({
   const [error, setError] = useState<string>();
   const admin = channel.membership?.role === 'OWNER' || channel.membership?.role === 'ADMIN';
   return (
-    <View style={{ gap: 8 }}>
+    <View style={styles.composer}>
       <TextInput
-        style={social.input}
+        style={[social.input, styles.composerInput]}
+        selectionColor={color.accent}
         multiline
         maxLength={CHANNEL_POST_MAX_LENGTH}
         placeholder={replyToId ? 'Write a reply…' : 'Write a post…'}
@@ -394,14 +431,12 @@ function Composer({
         onChangeText={setBody}
       />
       {admin && !replyToId ? (
-        <View style={social.row}>
-          <Switch
-            value={announcement}
-            onValueChange={setAnnouncement}
-            accessibilityLabel="Announcement"
-          />
-          <Text style={social.body}>Announcement (notifies members)</Text>
-        </View>
+        <SwitchRow
+          label="Announcement"
+          description="Notifies members"
+          value={announcement}
+          onValueChange={setAnnouncement}
+        />
       ) : null}
       {error ? <Notice>{error}</Notice> : null}
       <Button
@@ -489,11 +524,7 @@ export function ChannelScreen({ channelId }: { channelId: string }) {
   if (!channel) {
     return (
       <Screen title="Channel" onBack={nav.back}>
-        {error ? (
-          <Notice>{error}</Notice>
-        ) : (
-          <ActivityIndicator accessibilityLabel="Loading channel" />
-        )}
+        {error ? <Notice>{error}</Notice> : <Loading label="Loading channel" />}
       </Screen>
     );
   }
@@ -509,13 +540,25 @@ export function ChannelScreen({ channelId }: { channelId: string }) {
       subtitle={`@${channel.handle} · ${String(channel.memberCount)} members · Not end-to-end encrypted`}
       onBack={nav.back}
     >
+      <View style={styles.channelHead}>
+        <Avatar url={channel.avatarUrl} name={channel.name} size={56} />
+        <View style={styles.channelTags}>
+          {channel.visibility === 'PRIVATE' ? (
+            <Tag label="Private" icon="lock" />
+          ) : (
+            <Tag label="Public" icon="globe" />
+          )}
+          {member ? <Tag label="Member" tone="success" icon="check" /> : null}
+        </View>
+      </View>
       {channel.description ? <Text style={social.body}>{channel.description}</Text> : null}
       {error ? <Notice>{error}</Notice> : null}
       {channel.archived ? (
-        <Notice tone="success">This channel is archived and read-only.</Notice>
+        <Notice tone="info">This channel is archived and read-only.</Notice>
       ) : null}
       {!channel.membership ? (
         <Button
+          icon="plus"
           title={channel.joinPolicy === 'APPROVAL' ? 'Request to join' : 'Join'}
           onPress={() => {
             run(api.channels.join(channel.id));
@@ -523,18 +566,19 @@ export function ChannelScreen({ channelId }: { channelId: string }) {
         />
       ) : null}
       {channel.membership?.status === 'PENDING' ? (
-        <Text style={social.muted}>Your request is waiting for a moderator.</Text>
+        <Notice tone="info">Your request is waiting for a moderator.</Notice>
       ) : null}
       {member ? (
         <Button
           title={channel.canModerate ? 'Manage channel' : 'Channel settings'}
           variant="secondary"
+          icon="settings"
           onPress={() => {
             nav.push({ name: 'channel-manage', channelId: channel.id });
           }}
         />
       ) : null}
-      {pinned.length ? <Text style={social.label}>PINNED</Text> : null}
+      {pinned.length ? <SectionHeader title="Pinned" /> : null}
       {pinned.map((post) => (
         <PostItem
           key={`pin-${post.id}`}
@@ -550,7 +594,8 @@ export function ChannelScreen({ channelId }: { channelId: string }) {
           Admins write posts here; you can reply and react (long press a post).
         </Text>
       ) : null}
-      {posts.length === 0 ? <Text style={social.empty}>No posts yet.</Text> : null}
+      {pinned.length || posts.length ? <SectionHeader title="Posts" /> : null}
+      {posts.length === 0 ? <EmptyState icon="megaphone" title="No posts yet." /> : null}
       {posts.map((post) => (
         <PostItem
           key={post.id}
@@ -613,7 +658,7 @@ export function ChannelThreadScreen({ channelId, postId }: { channelId: string; 
           ) : null}
         </>
       ) : (
-        <ActivityIndicator accessibilityLabel="Loading discussion" />
+        <Loading label="Loading discussion" />
       )}
     </Screen>
   );
@@ -665,7 +710,7 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
   if (!channel) {
     return (
       <Screen title="Channel" onBack={nav.back}>
-        {error ? <Notice>{error}</Notice> : <ActivityIndicator accessibilityLabel="Loading" />}
+        {error ? <Notice>{error}</Notice> : <Loading label="Loading" />}
       </Screen>
     );
   }
@@ -688,36 +733,22 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
       onBack={nav.back}
     >
       {error ? <Notice>{error}</Notice> : null}
-      <Text style={social.label}>NOTIFICATIONS</Text>
-      <View style={social.tabs}>
-        {(['ALL', 'MENTIONS', 'NONE'] as const).map((level) => (
-          <Pressable
-            key={level}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: channel.membership?.notificationLevel === level }}
-            style={[
-              social.tab,
-              channel.membership?.notificationLevel === level && social.tabActive,
-            ]}
-            onPress={() => {
-              run(api.channels.setPreferences(channel.id, { level }));
-            }}
-          >
-            <Text
-              style={[
-                social.tabText,
-                channel.membership?.notificationLevel === level && social.tabTextActive,
-              ]}
-            >
-              {level === 'ALL' ? 'All' : level === 'MENTIONS' ? 'Mentions' : 'Off'}
-            </Text>
-          </Pressable>
-        ))}
-      </View>
+      <SectionHeader title="Notifications" />
+      <Tabs
+        options={[
+          { id: 'ALL', label: 'All' },
+          { id: 'MENTIONS', label: 'Mentions' },
+          { id: 'NONE', label: 'Off' },
+        ]}
+        value={channel.membership?.notificationLevel ?? 'ALL'}
+        onChange={(level) => {
+          run(api.channels.setPreferences(channel.id, { level }));
+        }}
+      />
 
       {canManageInviteLinks(role) && !channel.archived ? (
         <>
-          <Text style={social.label}>INVITATION LINK</Text>
+          <SectionHeader title="Invitation link" />
           {link ? (
             <>
               <LinkQrCode
@@ -726,6 +757,7 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
               />
               <Button
                 title="Share link"
+                icon="share"
                 onPress={() => {
                   void Share.share({
                     title: `Join ${channel.name} on OGC`,
@@ -738,6 +770,7 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
             <Button
               title="Create invitation link"
               variant="secondary"
+              icon="link"
               onPress={() => {
                 api.links
                   .create({ channelId: channel.id }, { expiresInHours: 7 * 24 })
@@ -750,9 +783,7 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
         </>
       ) : null}
 
-      <Text style={social.label}>
-        {channel.canModerate ? 'MEMBERS' : 'PEOPLE WHO RUN THIS CHANNEL'}
-      </Text>
+      <SectionHeader title={channel.canModerate ? 'Members' : 'People who run this channel'} />
       {members.map((m) => {
         const self = m.profile.ogcId === engine?.ogcId;
         const act = !self && canActOnMember(role, m.role, 'COMMUNITY_CHANNEL');
@@ -788,41 +819,43 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
               ]);
             }}
           >
-            <Avatar url={m.profile.avatarUrl} name={m.profile.displayName} size={32} />
-            <Text style={[social.name, { flex: 1 }]}>{m.profile.displayName}</Text>
-            <Text style={social.badge}>{m.role.toLowerCase()}</Text>
+            <Avatar url={m.profile.avatarUrl} name={m.profile.displayName} size={36} />
+            <Text style={[social.menuText, { flex: 1 }]} numberOfLines={1}>
+              {m.profile.displayName}
+            </Text>
+            <Tag label={m.role.toLowerCase()} tone={m.role === 'MEMBER' ? 'neutral' : 'accent'} />
           </Pressable>
         );
       })}
 
       {channel.canModerate ? (
         <>
-          <Text style={social.label}>JOIN REQUESTS</Text>
+          <SectionHeader title="Join requests" />
           {requests.length === 0 ? <Text style={social.muted}>No pending requests.</Text> : null}
           {requests.map((r) => (
             <View key={r.profile.ogcId} style={social.listItem}>
-              <Text style={[social.name, { flex: 1 }]}>{r.profile.displayName}</Text>
-              <Text
-                style={{ color: color.accent }}
-                accessibilityRole="button"
-                onPress={() => {
-                  run(api.channels.decideRequest(channel.id, r.profile.ogcId, true));
-                }}
-              >
-                Approve
+              <Avatar url={r.profile.avatarUrl} name={r.profile.displayName} size={36} />
+              <Text style={[social.menuText, { flex: 1 }]} numberOfLines={1}>
+                {r.profile.displayName}
               </Text>
-              <Text
-                style={{ color: color.textSecondary }}
-                accessibilityRole="button"
+              <Button
+                title="Reject"
+                variant="ghost"
+                compact
                 onPress={() => {
                   run(api.channels.decideRequest(channel.id, r.profile.ogcId, false));
                 }}
-              >
-                Reject
-              </Text>
+              />
+              <Button
+                title="Approve"
+                compact
+                onPress={() => {
+                  run(api.channels.decideRequest(channel.id, r.profile.ogcId, true));
+                }}
+              />
             </View>
           ))}
-          <Text style={social.label}>REPORTS</Text>
+          <SectionHeader title="Reports" />
           {reports.length === 0 ? <Text style={social.muted}>No open reports.</Text> : null}
           {reports.map((r) => (
             <View key={r.id} style={social.card}>
@@ -844,7 +877,7 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
               />
             </View>
           ))}
-          <Text style={social.label}>MODERATION HISTORY</Text>
+          <SectionHeader title="Moderation history" />
           {history.map((h) => (
             <Text key={h.id} style={social.muted}>
               {h.moderator?.displayName ?? 'A moderator'} ·{' '}
@@ -891,7 +924,8 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
       ) : (
         <Button
           title="Leave channel"
-          variant="ghost"
+          variant="danger"
+          icon="logout"
           onPress={() => {
             api.channels.leave(channel.id).then(
               () => {
@@ -907,6 +941,22 @@ export function ChannelManageScreen({ channelId }: { channelId: string }) {
     </Screen>
   );
 }
+
+const NOTIFICATION_ICON: Record<NotificationView['type'], IconName> = {
+  GROUP_INVITATION: 'inbox',
+  GROUP_MEMBER_ADDED: 'userCheck',
+  GROUP_MEMBER_REMOVED: 'community',
+  GROUP_ROLE_CHANGED: 'shield',
+  GROUP_DETAILS_CHANGED: 'edit',
+  MENTION: 'at',
+  CHANNEL_ANNOUNCEMENT: 'megaphone',
+  CHANNEL_ROLE_CHANGED: 'shield',
+  CHANNEL_JOIN_REQUEST: 'userPlus',
+  CHANNEL_REQUEST_APPROVED: 'check',
+  CHANNEL_MEMBER_REMOVED: 'hash',
+  MODERATION_RESULT: 'flag',
+  INVITATION_EXPIRED: 'clock',
+};
 
 function describe(n: NotificationView): string {
   const text = (value: unknown) => (typeof value === 'string' ? value : '');
@@ -972,30 +1022,114 @@ export function NotificationsScreen() {
   return (
     <Screen title="Notifications" onBack={nav.back}>
       {error ? <Notice>{error}</Notice> : null}
-      {!items && !error ? <ActivityIndicator accessibilityLabel="Loading notifications" /> : null}
-      {items?.length === 0 ? <Text style={social.empty}>You’re all caught up.</Text> : null}
-      {items?.map((n) => (
-        <Pressable
-          key={n.id}
-          style={social.listItem}
-          accessibilityRole="button"
-          onPress={() => {
-            const channelId = typeof n.data.channelId === 'string' ? n.data.channelId : undefined;
-            const conversationId =
-              typeof n.data.conversationId === 'string' ? n.data.conversationId : undefined;
-            if (n.type === 'GROUP_INVITATION') nav.push({ name: 'invitations' });
-            else if (channelId) nav.push({ name: 'channel', channelId });
-            else if (conversationId) nav.push({ name: 'conversation', conversationId });
-          }}
-        >
-          <View style={social.names}>
-            <Text style={[social.name, n.readAt ? null : { color: color.accent }]}>
-              {describe(n)}
-            </Text>
-            <Text style={social.ogcId}>{new Date(n.createdAt).toLocaleString()}</Text>
-          </View>
-        </Pressable>
-      ))}
+      {!items && !error ? (
+        <View style={styles.surface}>
+          <SkeletonRows count={4} label="Loading notifications" />
+        </View>
+      ) : null}
+      {items?.length === 0 ? (
+        <EmptyState
+          icon="bell"
+          title="You’re all caught up."
+          body="Invitations, mentions and channel announcements appear here."
+        />
+      ) : null}
+      {items?.length ? (
+        <ListGroup>
+          {items.map((n) => (
+            <Pressable
+              key={n.id}
+              style={({ pressed }) => [styles.notification, pressed && styles.postPressed]}
+              accessibilityRole="button"
+              accessibilityLabel={`${describe(n)}${n.readAt ? '' : ', new'}`}
+              onPress={() => {
+                const channelId =
+                  typeof n.data.channelId === 'string' ? n.data.channelId : undefined;
+                const conversationId =
+                  typeof n.data.conversationId === 'string' ? n.data.conversationId : undefined;
+                if (n.type === 'GROUP_INVITATION') nav.push({ name: 'invitations' });
+                else if (channelId) nav.push({ name: 'channel', channelId });
+                else if (conversationId) nav.push({ name: 'conversation', conversationId });
+              }}
+            >
+              <View style={[styles.notificationIcon, n.readAt ? null : styles.notificationIconNew]}>
+                <Icon
+                  name={NOTIFICATION_ICON[n.type]}
+                  size={18}
+                  tint={n.readAt ? color.textSecondary : color.accent}
+                />
+              </View>
+              <View style={social.names}>
+                <Text
+                  style={[styles.notificationText, n.readAt ? null : styles.notificationTextNew]}
+                >
+                  {describe(n)}
+                </Text>
+                <Text style={styles.when}>{listTime(n.createdAt)}</Text>
+              </View>
+              {n.readAt ? null : <View style={styles.unreadDot} />}
+            </Pressable>
+          ))}
+        </ListGroup>
+      ) : null}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  surface: {
+    backgroundColor: color.surface,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.lg,
+  },
+  channelHead: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+  channelTags: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+  post: {
+    gap: space[3],
+    padding: space[4],
+    backgroundColor: color.surface,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.lg,
+  },
+  announcement: { borderColor: color.accentBorder, backgroundColor: color.accentSubtle },
+  postPressed: { backgroundColor: color.surfaceRaised },
+  author: { color: color.textPrimary, fontSize: fontSize.md, fontWeight: fontWeight.semibold },
+  when: { color: color.textMuted, fontSize: fontSize.xs },
+  tags: { flexDirection: 'row', gap: space[2] },
+  postFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space[2] },
+  reaction: {
+    paddingHorizontal: space[2],
+    paddingVertical: 2,
+    color: color.textSecondary,
+    fontSize: fontSize.sm,
+    backgroundColor: color.surfaceRaised,
+    borderRadius: radius.full,
+    overflow: 'hidden',
+  },
+  reactionMine: { backgroundColor: color.accentSubtle, color: color.accentHighlight },
+  replies: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto' },
+  repliesText: { color: color.textMuted, fontSize: fontSize.sm },
+  composer: { gap: space[2] },
+  composerInput: { minHeight: 96 },
+  notification: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space[3],
+    paddingHorizontal: space[4],
+    paddingVertical: space[3],
+  },
+  notificationIcon: {
+    width: 38,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: color.surfaceRaised,
+    borderRadius: 19,
+  },
+  notificationIconNew: { backgroundColor: color.accentSubtle },
+  notificationText: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 21 },
+  notificationTextNew: { color: color.textPrimary, fontWeight: fontWeight.semibold },
+  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.accent },
+});

@@ -4,8 +4,9 @@
  *
  * Values come from `EXPO_PUBLIC_API_BASE_URL` / `EXPO_PUBLIC_WEB_APP_URL`,
  * which are compiled into the app and are public by design. Development
- * builds fall back to the developer's machine as seen from the emulator or
- * simulator; release builds have no fallback and must use HTTPS
+ * builds fall back to the developer's machine: the LAN address Metro served
+ * the bundle from (physical phones), otherwise as seen from the emulator or
+ * simulator. Release builds have no fallback and must use HTTPS
  * (docs/development/mobile.md).
  */
 export interface Endpoints {
@@ -32,6 +33,10 @@ export function isLocalHost(hostname: string): boolean {
   );
 }
 
+function isLoopback(hostname: string): boolean {
+  return hostname === 'localhost' || hostname.startsWith('127.') || hostname === '[::1]';
+}
+
 function parse(name: string, value: string, dev: boolean): string {
   let url: URL;
   try {
@@ -56,9 +61,21 @@ export function resolveEndpoints(input: {
   /** `__DEV__`: true for development builds and Expo Go. */
   dev: boolean;
   platform: string;
+  /**
+   * Host of the development server (Metro) this bundle was loaded from, if known. A physical
+   * phone loads the bundle from the computer's LAN address, so the API on that computer is
+   * reachable there too. Ignored for loopback and public hosts (e.g. tunnels).
+   */
+  devServerHost?: string | undefined;
 }): Endpoints {
   // The Android emulator reaches the host computer at 10.0.2.2; iOS simulators share its localhost.
-  const devHost = input.platform === 'android' ? '10.0.2.2' : 'localhost';
+  const metroHost = input.devServerHost;
+  const devHost =
+    metroHost && isLocalHost(metroHost) && !isLoopback(metroHost)
+      ? metroHost
+      : input.platform === 'android'
+        ? '10.0.2.2'
+        : 'localhost';
   const api =
     typeof input.apiBaseUrl === 'string' && input.apiBaseUrl.trim() !== ''
       ? parse('EXPO_PUBLIC_API_BASE_URL', input.apiBaseUrl.trim(), input.dev)

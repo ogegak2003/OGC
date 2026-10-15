@@ -18,9 +18,15 @@ export type ApiErrorCode =
   | 'VALIDATION_FAILED'
   | 'UNAUTHENTICATED'
   | 'INVALID_CREDENTIALS'
+  /** Password change: the current password is wrong. */
+  | 'INVALID_PASSWORD'
   | 'ACCOUNT_UNAVAILABLE'
   | 'EMAIL_NOT_VERIFIED'
   | 'INVALID_VERIFICATION_TOKEN'
+  /** Password reset: the link is unknown, used, expired or superseded (one answer for all). */
+  | 'INVALID_RESET_TOKEN'
+  /** No email provider is configured, so recovery emails cannot be sent. */
+  | 'EMAIL_UNAVAILABLE'
   | 'CSRF_REJECTED'
   | 'RATE_LIMITED'
   | 'NOT_FOUND'

@@ -6,9 +6,14 @@ import { listTime } from '../../messaging/format';
 import { previewText, useLastMessage } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
 import { Avatar } from '../Avatar';
+import { Icon } from '../Icon';
 import styles from './messaging.module.css';
 
-function ConversationRow({
+/**
+ * One conversation in a list. The preview is the latest message as decrypted on this
+ * device — or an honest placeholder when this device cannot read it.
+ */
+export function ConversationRow({
   conversation,
   active,
 }: {
@@ -29,8 +34,14 @@ function ConversationRow({
         aria-current={active ? 'page' : undefined}
       >
         <span className={styles.avatarWrap}>
-          <Avatar url={avatar.url} name={avatar.name} size={44} />
-          {online ? <span className={styles.onlineDot} aria-label="Online" role="img" /> : null}
+          <Avatar url={avatar.url} name={avatar.name} size={46} />
+          {group ? (
+            <span className={styles.kindBadge} aria-hidden="true">
+              <Icon name={group.kind === 'CHANNEL' ? 'megaphone' : 'community'} size={11} />
+            </span>
+          ) : online ? (
+            <span className={styles.onlineDot} aria-label="Online" role="img" />
+          ) : null}
         </span>
         <span className={styles.rowBody}>
           <span className={styles.rowTop}>
@@ -114,24 +125,39 @@ export function ConversationList({
   return (
     <section className={styles.sidebar} aria-label="Conversations">
       <div className={styles.sidebarHeader}>
-        <h2 className={styles.sidebarTitle}>Messages</h2>
+        <h2 className={styles.sidebarTitle}>Chats</h2>
         <span className={styles.headerActions}>
-          <button type="button" className={styles.secondaryPill} onClick={onNewGroup}>
-            New group
+          <button
+            type="button"
+            className={styles.iconButton}
+            onClick={onNewGroup}
+            aria-label="New group"
+            title="New group"
+          >
+            <Icon name="community" />
           </button>
-          <button type="button" className={styles.newButton} onClick={onNewConversation}>
-            New
+          <button
+            type="button"
+            className={styles.newButton}
+            onClick={onNewConversation}
+            aria-label="New conversation"
+            title="New conversation"
+          >
+            <Icon name="edit" size={18} />
+            <span>New</span>
           </button>
         </span>
       </div>
       <Link to="/invitations" className={styles.invitationsLink}>
+        <Icon name="inbox" size={16} />
         Group invitations
       </Link>
       <div className={styles.searchWrap}>
+        <Icon name="search" size={18} className={styles.searchIcon} />
         <input
           type="search"
           className={styles.search}
-          placeholder="Search"
+          placeholder="Search chats and messages"
           aria-label="Search conversations and messages on this device"
           value={query}
           onChange={(event) => {

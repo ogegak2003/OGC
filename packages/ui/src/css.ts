@@ -1,6 +1,6 @@
 import { color } from './tokens/color.js';
 import { elevation } from './tokens/elevation.js';
-import { radius, space } from './tokens/layout.js';
+import { radius, size, space } from './tokens/layout.js';
 import { duration, easing } from './tokens/motion.js';
 import { fontFamily, fontSize } from './tokens/typography.js';
 
@@ -26,6 +26,7 @@ export function toCssVariables(selector = ':root'): string {
     ...group('font-size', fontSize, 'px'),
     ...group('space', space, 'px'),
     ...group('radius', radius, 'px'),
+    ...group('size', size, 'px'),
     ...group('duration', duration, 'ms'),
     ...group('easing', easing),
     ...group('elevation', elevation),

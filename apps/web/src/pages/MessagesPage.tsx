@@ -8,6 +8,7 @@ import { CreateGroupDialog } from '../components/groups/CreateGroupDialog';
 import styles from '../components/messaging/messaging.module.css';
 import { Alert } from '../components/ui';
 import { useMessaging } from '../messaging/messaging-context';
+import { Icon } from '../components/Icon';
 
 /**
  * `/messages` and `/messages/:conversationId`: conversation list beside the
@@ -48,7 +49,7 @@ export function MessagesPage() {
             {conversationId ? (
               // Phones show this panel without the list: always offer the way back.
               <Link to="/messages" className={styles.back} aria-label="Back to conversations">
-                ‹
+                <Icon name="back" size={22} />
               </Link>
             ) : null}
             {status === 'error' ? (

@@ -1,0 +1,170 @@
+.intro {
+  max-width: 46rem;
+  margin: 0;
+  color: var(--ogc-color-text-secondary);
+  line-height: 1.55;
+}
+
+.intro a,
+.linkButton {
+  color: var(--ogc-color-accent-highlight);
+}
+
+.linkButton {
+  padding: 0;
+  font: inherit;
+  text-decoration: underline;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+.status {
+  min-height: 1.25rem;
+  margin: 0;
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-sm);
+}
+
+.card {
+  display: grid;
+  gap: var(--ogc-space-1);
+  max-width: 46rem;
+  padding: var(--ogc-space-5);
+  background: var(--ogc-color-surface);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-lg);
+}
+
+.heading {
+  margin: 0 0 var(--ogc-space-2);
+  padding: 0;
+  font-size: var(--ogc-font-size-lg);
+  font-weight: 600;
+}
+
+.row,
+.choice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ogc-space-4);
+  min-height: 3rem;
+  padding: var(--ogc-space-2) 0;
+  cursor: pointer;
+}
+
+.row + .row {
+  border-top: 1px solid var(--ogc-color-border);
+}
+
+.choice {
+  justify-content: flex-start;
+  align-items: flex-start;
+}
+
+.choice input {
+  margin-top: 0.3rem;
+  accent-color: var(--ogc-color-accent);
+}
+
+.text,
+.choice > span {
+  display: grid;
+  gap: 2px;
+}
+
+.label {
+  font-weight: 500;
+}
+
+.description {
+  margin: 0;
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-sm);
+  line-height: 1.45;
+}
+
+.fieldset {
+  display: grid;
+  gap: var(--ogc-space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.fieldset:disabled {
+  opacity: 0.55;
+}
+
+/* A switch drawn from a checkbox: the native control stays for keyboard and screen readers. */
+.switch {
+  flex: none;
+  position: relative;
+  width: 2.75rem;
+  height: 1.5rem;
+  margin: 0;
+  appearance: none;
+  background: var(--ogc-color-surface-hover);
+  border: 1px solid var(--ogc-color-border-strong);
+  border-radius: var(--ogc-radius-full);
+  cursor: pointer;
+  transition: background-color var(--ogc-duration-fast) var(--ogc-easing-standard);
+}
+
+.switch::after {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 1.15rem;
+  height: 1.15rem;
+  content: '';
+  background: var(--ogc-color-text-secondary);
+  border-radius: 50%;
+  transition: transform var(--ogc-duration-fast) var(--ogc-easing-standard);
+}
+
+.switch:checked {
+  background: var(--ogc-color-accent);
+  border-color: var(--ogc-color-accent);
+}
+
+.switch:checked::after {
+  background: var(--ogc-color-on-accent);
+  transform: translateX(1.2rem);
+}
+
+.switch:focus-visible {
+  outline: 2px solid var(--ogc-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.switch:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.times {
+  display: grid;
+  gap: var(--ogc-space-3);
+  padding-top: var(--ogc-space-2);
+}
+
+.time {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--ogc-space-3);
+  max-width: 18rem;
+}
+
+.time input {
+  min-height: 2.5rem;
+  padding: 0 var(--ogc-space-3);
+  color: var(--ogc-color-text-primary);
+  font: inherit;
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid var(--ogc-color-border-strong);
+  border-radius: var(--ogc-radius-md);
+  color-scheme: dark;
+}

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { duration, fileSize, playableAudio, safeFileName } from '../../messaging/format';
 import { useMessaging } from '../../messaging/messaging-context';
 import styles from './messaging.module.css';
+import { Icon } from '../Icon';
 
 type Decrypted = { ok: true; url: string; mime: string } | { ok: false };
 
@@ -66,7 +67,7 @@ function FileAttachment({ descriptor }: { descriptor: AttachmentDescriptor }) {
   return (
     <div className={styles.file}>
       <span className={styles.fileIcon} aria-hidden="true">
-        ⎙
+        <Icon name="file" size={18} />
       </span>
       <span className={styles.fileMeta}>
         <span className={styles.fileName}>{name}</span>
@@ -147,7 +148,7 @@ function VoiceAttachment({ descriptor }: { descriptor: AttachmentDescriptor }) {
           else element.pause();
         }}
       >
-        {playing ? '❚❚' : '▶'}
+        <Icon name={playing ? 'pause' : 'play'} size={16} strokeWidth={2.25} />
       </button>
       <input
         type="range"

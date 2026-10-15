@@ -3,6 +3,8 @@
 Security design and controls for Phase 1 identity and authentication. Architecture:
 [identity-and-authentication.md](../architecture/identity-and-authentication.md).
 
+Phase 8 review: [security-review.md](security-review.md).
+
 ## Passwords
 
 | Aspect        | Decision                                                                                                  |
@@ -35,6 +37,36 @@ once an outbound-request policy is agreed.
 | Token theft on mobile      | Refresh token in Keychain/Keystore via `expo-secure-store`, `WHEN_UNLOCKED_THIS_DEVICE_ONLY` (not backed up or migrated); access token in memory; **no AsyncStorage**                                   |
 | Tokens in logs             | Auth headers and cookies redacted; request bodies and query strings never logged; verified by a test that scans trace-level log output                                                                  |
 
+## Devices, sign-out and password change (Phase 8)
+
+| Endpoint                            | Behaviour                                                                                                                                                    |
+| ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `GET /auth/sessions`                | The account's active sessions (platform, device name, created / last active / expiry, `current`). No tokens, hashes or IP addresses                          |
+| `DELETE /auth/sessions/:id`         | Signs out one own session (e.g. a lost phone). Someone else's session gets the same `404` as an unknown ID; reason `USER_REVOKED` (`LOGOUT` for the current) |
+| `POST /auth/sessions/revoke-others` | Ends every other session of the account; the current one stays                                                                                               |
+| `POST /auth/password`               | Requires the current password; new password must meet the policy and differ; on success every other session ends (`PASSWORD_CHANGED`)                        |
+
+Revocation is immediate: the session's next API request is `401`, its refresh token is
+dead, its sockets are disconnected, and its device's MLS key and push token are removed
+(`session.revoked` listeners), so a signed-out device cannot read new messages or receive
+notifications. A wrong current password on `/auth/password` counts toward the same lockout
+counter as sign-in (`PASSWORD_CHANGE_FAILED` audited) and the endpoint is rate-limited
+(5 per 15 minutes); cookie-authenticated calls need the CSRF header like every other change.
+Web: _Devices & security_ page; mobile: _Security and devices_ screen. Tests:
+`apps/api/test/session-management.test.ts`.
+
+## Password recovery and suspension (Phase 9)
+
+- **Password reset by email:** `POST /auth/password/forgot` always gets the same answer, and
+  `POST /auth/password/reset` takes a single-use hashed token and ends every session. Details,
+  and what recovery does not restore: [account-recovery.md](account-recovery.md).
+- **Change and reset notices:** a confirmation email is sent after every password change and
+  reset.
+- **Suspension:** `POST /admin/accounts/:ogcId/suspend` and `/reinstate` are `ADMIN` only and
+  audited with actor and reason. Suspension revokes every session at once. Open sockets also
+  re-check their session and account status every `REALTIME_SESSION_CHECK_MS` (30 s), so a
+  status changed directly in the database takes effect too.
+
 ## Account enumeration
 
 | Surface             | Control                                                                                                                                  |
@@ -50,15 +82,17 @@ difference relative to the Argon2 cost; rate limits bound how fast it could be p
 
 ## Brute force and abuse
 
-| Control             | Setting                                                                                |
-| ------------------- | -------------------------------------------------------------------------------------- |
-| Per-IP rate limits  | register 10/h · login 10/min · refresh 60/min · verify 20/h · resend 5/h               |
-| Per-account lockout | 10 consecutive failures → 15-minute lock; same generic error; `ACCOUNT_LOCKED` audited |
-| Verification emails | At most one per account per minute                                                     |
-| Client IP           | From `X-Forwarded-For` only when `TRUST_PROXY_HOPS` is configured                      |
+| Control             | Setting                                                                                                      |
+| ------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Per-IP rate limits  | register 10/h · login 10/min · refresh 60/min · verify 20/h · resend 5/h · forgot 5/15 min · reset 10/15 min |
+| Per-account lockout | 10 consecutive failures → 15-minute lock; same generic error; `ACCOUNT_LOCKED` audited                       |
+| Verification emails | At most one per account per minute                                                                           |
+| Client IP           | From `X-Forwarded-For` only when `TRUST_PROXY_HOPS` is configured                                            |
 
-Known limitations: the throttler store is in-memory (per API instance) — a shared store
-(Redis) is required before running more than one instance. Per-account lockout can be
+Rate-limit counters are shared through Redis (`RedisThrottlerStorage`) when `REDIS_URL` is
+set — which production configuration requires — and in-memory per instance otherwise.
+
+Known limitations: per-account lockout can be
 triggered by an attacker who knows an email (temporary denial of service); it is short and
 does not reveal anything. Progressive delays and CAPTCHA/proof-of-work on suspicious
 traffic are candidates for Phase 10.
@@ -77,7 +111,9 @@ Recorded in the append-only `audit_events` table: `USER_REGISTERED`,
 `REGISTRATION_EMAIL_IN_USE`, `LOGIN_SUCCEEDED`, `LOGIN_FAILED` (reason: `unknown_account`,
 `invalid_password`, `locked`, `account_unavailable`), `ACCOUNT_LOCKED`, `SESSION_CREATED`,
 `SESSION_REFRESHED`, `SESSION_REVOKED` (reason), `REFRESH_TOKEN_REUSE_DETECTED`,
-`EMAIL_VERIFICATION_SENT`, `EMAIL_VERIFIED`, `EMAIL_VERIFICATION_FAILED`.
+`EMAIL_VERIFICATION_SENT`, `EMAIL_VERIFIED`, `EMAIL_VERIFICATION_FAILED`, `PASSWORD_CHANGED`,
+`PASSWORD_CHANGE_FAILED`, `PASSWORD_RESET_REQUESTED` (outcome), `PASSWORD_RESET_COMPLETED`,
+`PASSWORD_RESET_FAILED` (reason), `ACCOUNT_SUSPENDED`, `ACCOUNT_REINSTATED`, `RETENTION_PURGED`.
 
 Each event stores type, user and session IDs, IP address, truncated user agent, and
 non-sensitive metadata. Never credentials, tokens, or token hashes — verified by test.

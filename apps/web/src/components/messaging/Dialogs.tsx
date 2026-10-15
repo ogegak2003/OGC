@@ -157,14 +157,33 @@ export function SafetyNumberDialog({
   conversation,
   onClose,
   member,
+  onVerified,
 }: {
   conversation: ConversationView;
   onClose: () => void;
   member?: { ogcId: string; displayName: string };
+  /** Direct conversations: the person confirmed the numbers match. */
+  onVerified?: () => void;
 }) {
   const { engine } = useMessaging();
   const [groups, setGroups] = useState<string[]>();
   const [error, setError] = useState<string>();
+  const [saving, setSaving] = useState(false);
+
+  const markVerified = () => {
+    if (!engine) return;
+    setSaving(true);
+    engine.markPeerVerified(conversation.id).then(
+      () => {
+        onVerified?.();
+        onClose();
+      },
+      (cause: unknown) => {
+        setSaving(false);
+        setError(cause instanceof Error ? cause.message : 'Could not save');
+      },
+    );
+  };
 
   useEffect(() => {
     if (!engine) return;
@@ -199,6 +218,11 @@ export function SafetyNumberDialog({
         </p>
       ) : !error ? (
         <Spinner label="Computing safety number" />
+      ) : null}
+      {groups && !member && conversation.peer ? (
+        <button type="button" className={styles.newButton} disabled={saving} onClick={markVerified}>
+          Numbers match — mark as verified
+        </button>
       ) : null}
     </Modal>
   );

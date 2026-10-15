@@ -8,7 +8,9 @@ import {
 } from 'expo-audio';
 import { File } from 'expo-file-system';
 import { useEffect, useRef, useState } from 'react';
+import { color } from '@ogc/ui';
 import { Text, View } from 'react-native';
+import { IconButton } from '../../components/ui';
 import { m } from './styles';
 
 export interface RecordedVoice {
@@ -86,30 +88,22 @@ export function VoiceRecorder({
 
   if (!recording) {
     return (
-      <Text
-        style={m.icon}
-        accessibilityRole="button"
-        accessibilityLabel="Record a voice message"
+      <IconButton
+        icon="mic"
+        label="Record a voice message"
+        tint={color.textSecondary}
         onPress={() => void start()}
-      >
-        🎙
-      </Text>
+      />
     );
   }
   return (
     <View style={m.recording} accessibilityLabel="Recording voice message">
       <View style={m.recDot} />
-      <Text style={m.metaText}>{duration(elapsed)}</Text>
-      <Text
-        style={[m.contextLabel, { marginLeft: 'auto' }]}
-        accessibilityRole="button"
-        onPress={() => void finish(false)}
-      >
+      <Text style={m.recTime}>{duration(elapsed)}</Text>
+      <Text style={m.recCancel} accessibilityRole="button" onPress={() => void finish(false)}>
         Cancel
       </Text>
-      <Text style={m.send} accessibilityRole="button" onPress={() => void finish(true)}>
-        Stop
-      </Text>
+      <IconButton icon="stop" label="Stop" filled onPress={() => void finish(true)} />
     </View>
   );
 }

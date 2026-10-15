@@ -57,14 +57,17 @@
 
 .sidebarTitle {
   margin: 0;
-  font-size: var(--ogc-font-size-lg);
-  font-weight: 600;
-  letter-spacing: -0.01em;
+  font-size: var(--ogc-font-size-xl);
+  font-weight: 700;
+  letter-spacing: -0.015em;
 }
 
 .newButton {
-  min-height: 2.25rem;
-  padding: 0 var(--ogc-space-4);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-2);
+  min-height: 2.5rem;
+  padding: 0 var(--ogc-space-4) 0 var(--ogc-space-3);
   color: var(--ogc-color-on-accent);
   font: inherit;
   font-size: var(--ogc-font-size-sm);
@@ -80,19 +83,32 @@
 }
 
 .searchWrap {
+  position: relative;
   padding: var(--ogc-space-2) var(--ogc-space-4) var(--ogc-space-3);
+}
+
+.searchIcon {
+  position: absolute;
+  top: calc(var(--ogc-space-2) + 0.75rem);
+  left: calc(var(--ogc-space-4) + 0.75rem);
+  color: var(--ogc-color-text-muted);
+  pointer-events: none;
 }
 
 .search {
   width: 100%;
-  min-height: 2.5rem;
+  min-height: 2.75rem;
   padding: 0 var(--ogc-space-3);
   color: var(--ogc-color-text-primary);
   font: inherit;
   font-size: var(--ogc-font-size-sm);
-  background: var(--ogc-color-background);
-  border: 1px solid var(--ogc-color-border);
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid transparent;
   border-radius: var(--ogc-radius-md);
+}
+
+.searchWrap .search {
+  padding-left: 2.5rem;
 }
 
 .search:focus {
@@ -127,7 +143,7 @@
   font: inherit;
   font-weight: 600;
   background: none;
-  border: 1px solid rgb(212 170 79 / 0.45);
+  border: 1px solid rgb(216 173 78 / 0.45);
   border-radius: var(--ogc-radius-full);
   cursor: pointer;
 }
@@ -154,8 +170,22 @@
 }
 
 .rowActive {
+  background: var(--ogc-color-accent-subtle);
+  box-shadow: inset 3px 0 0 var(--ogc-color-accent);
+}
+
+.kindBadge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  color: var(--ogc-color-accent);
   background: var(--ogc-color-surface-raised);
-  box-shadow: inset 2px 0 0 var(--ogc-color-accent);
+  border: 2px solid var(--ogc-color-surface);
+  border-radius: var(--ogc-radius-full);
 }
 
 .avatarWrap {
@@ -398,22 +428,22 @@
 
 .bubble {
   display: grid;
-  gap: var(--ogc-space-2);
+  gap: var(--ogc-space-1);
   min-width: 5rem;
-  padding: var(--ogc-space-2) var(--ogc-space-3);
-  border: 1px solid var(--ogc-color-border);
-  border-radius: var(--ogc-radius-md);
+  padding: var(--ogc-space-2) var(--ogc-space-3) 0.4rem;
+  border: 1px solid transparent;
+  border-radius: 1.1rem;
 }
 
 .theirs .bubble {
   background: var(--ogc-color-surface-raised);
-  border-top-left-radius: var(--ogc-radius-sm);
+  border-bottom-left-radius: 0.35rem;
 }
 
 .mine .bubble {
-  background: rgb(212 170 79 / 0.09);
-  border-color: rgb(212 170 79 / 0.28);
-  border-top-right-radius: var(--ogc-radius-sm);
+  background: #2a2214;
+  border-color: var(--ogc-color-accent-border);
+  border-bottom-right-radius: 0.35rem;
 }
 
 .text {
@@ -427,6 +457,11 @@
   color: var(--ogc-color-text-muted);
   font-size: var(--ogc-font-size-sm);
   font-style: italic;
+}
+
+.placeholderIcon {
+  margin-right: var(--ogc-space-1);
+  vertical-align: -2px;
 }
 
 .forwarded {
@@ -496,8 +531,8 @@
 }
 
 .reactionMine {
-  border-color: rgb(212 170 79 / 0.6);
-  background: rgb(212 170 79 / 0.12);
+  border-color: rgb(216 173 78 / 0.6);
+  background: rgb(216 173 78 / 0.12);
 }
 
 .failedActions {
@@ -699,6 +734,7 @@
   gap: var(--ogc-space-2);
   padding: var(--ogc-space-3) var(--ogc-space-4)
     calc(var(--ogc-space-3) + env(safe-area-inset-bottom));
+  background: var(--ogc-color-surface);
   border-top: 1px solid var(--ogc-color-border);
 }
 
@@ -710,17 +746,18 @@
 
 .input {
   flex: 1;
+  min-width: 0;
   min-height: 2.75rem;
   max-height: 10rem;
-  padding: 0.65rem var(--ogc-space-3);
+  padding: 0.65rem var(--ogc-space-4);
   color: var(--ogc-color-text-primary);
   font: inherit;
   line-height: 1.4;
   resize: none;
   field-sizing: content;
-  background: var(--ogc-color-background);
-  border: 1px solid var(--ogc-color-border);
-  border-radius: var(--ogc-radius-md);
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid var(--ogc-color-border-strong);
+  border-radius: 1.375rem;
 }
 
 .input:focus {
@@ -745,9 +782,8 @@
     gap: var(--ogc-space-1);
   }
 
-  .sendButton {
-    min-width: 0;
-    padding: 0 var(--ogc-space-3);
+  .iconButton {
+    width: 2.5rem;
   }
 }
 
@@ -778,10 +814,12 @@
 }
 
 .sendButton {
+  display: inline-grid;
   flex: none;
-  min-width: 4.5rem;
+  place-items: center;
+  width: 2.75rem;
   height: 2.75rem;
-  padding: 0 var(--ogc-space-4);
+  padding: 0;
   color: var(--ogc-color-on-accent);
   font: inherit;
   font-weight: 600;
@@ -888,6 +926,10 @@
 }
 
 .e2eeNote {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--ogc-space-1);
   margin: 0;
   color: var(--ogc-color-text-muted);
   font-size: var(--ogc-font-size-xs);
@@ -1056,7 +1098,7 @@
   font-weight: 600;
   letter-spacing: 0.04em;
   vertical-align: middle;
-  border: 1px solid rgb(212 170 79 / 0.45);
+  border: 1px solid rgb(216 173 78 / 0.45);
   border-radius: var(--ogc-radius-full);
 }
 
@@ -1315,7 +1357,7 @@
 }
 
 .cardUnread {
-  border-color: rgb(212 170 79 / 0.6);
+  border-color: rgb(216 173 78 / 0.6);
 }
 
 .cardBody {
@@ -1366,7 +1408,7 @@
 }
 
 .announcement {
-  border-color: rgb(212 170 79 / 0.6);
+  border-color: rgb(216 173 78 / 0.6);
   box-shadow: inset 3px 0 0 var(--ogc-color-accent);
 }
 
@@ -1425,8 +1467,12 @@
 }
 
 .invitationsLink {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-2);
   margin: 0 var(--ogc-space-4);
   color: var(--ogc-color-accent);
   font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
   text-decoration: none;
 }

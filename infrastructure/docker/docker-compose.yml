@@ -32,6 +32,8 @@ services:
   redis:
     image: redis:8.4.7-alpine
     restart: unless-stopped
+    # The official image only drops root when started directly; we start it through sh -c.
+    user: redis
     command:
       - sh
       - -c
@@ -48,7 +50,7 @@ services:
       retries: 10
     read_only: true
     tmpfs:
-      - /data
+      - /data:uid=999,gid=1000
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]
@@ -87,12 +89,27 @@ services:
       # Browsers reach the API same-origin via the web container's /api proxy, so no CORS.
       CORS_ORIGINS: ''
       DATABASE_URL: postgresql://${POSTGRES_USER:-ogc}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-ogc}?schema=public
+      # Database and Redis are reachable only on this Compose network (no TLS needed there).
+      DATABASE_TLS: private-network
+      REDIS_TLS: private-network
       # Production-like stack without an email provider: verification emails are not sent.
       WEB_APP_URL: https://ogc.localhost
       EMAIL_TRANSPORT: disabled
       REDIS_URL: redis://:${REDIS_PASSWORD}@redis:6379
+      # Calls: optional STUN/TURN (docs/development/calls.md). Empty = same-network calls only.
+      WEBRTC_STUN_URLS: ${WEBRTC_STUN_URLS:-}
+      WEBRTC_TURN_URLS: ${WEBRTC_TURN_URLS:-}
+      WEBRTC_TURN_SECRET: ${WEBRTC_TURN_SECRET:-}
     ports:
       - '127.0.0.1:${API_PORT:-3000}:3000'
+    restart: unless-stopped
+    stop_grace_period: 30s
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:3000/api/v1/health/ready']
+      interval: 10s
+      timeout: 5s
+      start_period: 20s
+      retries: 6
     read_only: true
     security_opt:
       - no-new-privileges:true
@@ -107,6 +124,12 @@ services:
       - api
     ports:
       - '127.0.0.1:${WEB_PORT:-8080}:8080'
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'wget', '-q', '-O', '/dev/null', 'http://127.0.0.1:8080/']
+      interval: 10s
+      timeout: 5s
+      retries: 6
     read_only: true
     tmpfs:
       - /tmp

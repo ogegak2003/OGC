@@ -1,5 +1,17 @@
+import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { type Endpoints, resolveEndpoints } from './endpoints';
+
+/** Host (no port) of the Metro server in development, e.g. `192.168.0.11`. */
+function devServerHost(): string | undefined {
+  const hostUri = __DEV__ ? Constants.expoConfig?.hostUri : undefined;
+  if (!hostUri) return undefined;
+  try {
+    return new URL(`http://${hostUri}`).hostname;
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * The endpoints of this build, resolved once at start-up. `EXPO_PUBLIC_*`
@@ -14,6 +26,7 @@ function load():
         webAppUrl: process.env.EXPO_PUBLIC_WEB_APP_URL,
         dev: __DEV__,
         platform: Platform.OS,
+        devServerHost: devServerHost(),
       }),
     };
   } catch (error) {

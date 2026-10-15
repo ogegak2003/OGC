@@ -14,6 +14,8 @@ export const REDACTED_PATHS = [
   'req.headers["x-api-key"]',
   'res.headers["set-cookie"]',
   '*.password',
+  '*.newPassword',
+  '*.currentPassword',
   '*.token',
   '*.accessToken',
   '*.refreshToken',

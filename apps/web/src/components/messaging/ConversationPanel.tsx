@@ -1,19 +1,33 @@
 import {
   type LocalMessage,
+  type PeerKeyStatus,
   type TimelineEvent,
+  callDescription,
   conversationAvatar,
   conversationTitle,
   describeEvent,
   mentionsIn,
 } from '@ogc/messaging';
-import type { ConversationView, GroupMemberView } from '@ogc/types';
+import type { CallView, ConversationView, GroupMemberView } from '@ogc/types';
 import { formatOgcIdForDisplay } from '@ogc/validation';
 import { Fragment, lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router';
 import { api } from '../../lib/api';
 import { groupsApi } from '../../lib/community-api';
-import { attachmentKind, dayLabel, safeFileName, safeMime, sameDay } from '../../messaging/format';
-import { useConversationMessages, useTimeline } from '../../messaging/hooks';
+import {
+  attachmentKind,
+  dayLabel,
+  messageTime,
+  safeFileName,
+  safeMime,
+  sameDay,
+} from '../../messaging/format';
+import {
+  useCall,
+  useCallHistory,
+  useConversationMessages,
+  useTimeline,
+} from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
 import { Avatar } from '../Avatar';
 import { Alert, Spinner } from '../ui';
@@ -21,6 +35,8 @@ import { type ComposerSubmit, Composer } from './Composer';
 import { ForwardDialog, ReportMessageDialog, SafetyNumberDialog } from './Dialogs';
 import { type MessageActions, MessageBubble } from './MessageBubble';
 import styles from './messaging.module.css';
+import { Icon } from '../Icon';
+import callStyles from '../calls/calls.module.css';
 
 const GroupInfoPanel = lazy(() =>
   import('../groups/GroupInfoPanel').then((m) => ({ default: m.GroupInfoPanel })),
@@ -38,17 +54,22 @@ function errorMessage(error: unknown): string {
 
 type TimelineItem =
   | { kind: 'message'; at: string; message: LocalMessage }
-  | { kind: 'event'; at: string; event: TimelineEvent };
+  | { kind: 'event'; at: string; event: TimelineEvent }
+  | { kind: 'call'; at: string; call: CallView };
 
 export function ConversationPanel({ conversation }: { conversation: ConversationView }) {
-  const { engine, typing, presence, connection, setTyping, watchPresence } = useMessaging();
+  const { engine, typing, presence, connection, setTyping, watchPresence, calls } = useMessaging();
   const messages = useConversationMessages(conversation.id);
   const events = useTimeline(conversation.id);
+  const call = useCall();
+  const callHistory = useCallHistory(conversation.id, conversation.peer !== null);
   const [replyTo, setReplyTo] = useState<LocalMessage | null>(null);
   const [editing, setEditing] = useState<LocalMessage | null>(null);
   const [forwarding, setForwarding] = useState<LocalMessage | null>(null);
   const [reporting, setReporting] = useState<LocalMessage | null>(null);
   const [verifying, setVerifying] = useState(false);
+  const [keyStatus, setKeyStatus] = useState<PeerKeyStatus | null>(null);
+  const [keyCheck, setKeyCheck] = useState(0);
   const [showInfo, setShowInfo] = useState(false);
   const [error, setError] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState<LocalMessage | null>(null);
@@ -64,6 +85,23 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
   useEffect(() => {
     if (peer) watchPresence([peer.ogcId]);
   }, [peer, watchPresence]);
+
+  // Direct conversations: warn when the other person has a device key this device never saw.
+  const peerOgcId = peer?.ogcId;
+  useEffect(() => {
+    if (!engine || !peerOgcId) return;
+    let active = true;
+    engine.peerKeyStatus(conversation.id).then(
+      (value) => {
+        if (active) setKeyStatus(value);
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [engine, peerOgcId, conversation.id, conversation.version, keyCheck]);
+  const verified = peer !== null && keyStatus?.state === 'verified';
 
   // Groups: the member directory names senders and timeline events (refreshed on changes).
   useEffect(() => {
@@ -87,7 +125,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
     void engine.markRead(conversation.id).catch(() => undefined);
   }, [engine, conversation.id, newestSeq]);
 
-  const count = (messages?.length ?? 0) + events.length;
+  const count = (messages?.length ?? 0) + events.length + callHistory.length;
   useEffect(() => {
     bottom.current?.scrollIntoView({ block: 'end' });
   }, [count, conversation.id]);
@@ -117,9 +155,10 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
         message,
       })),
       ...events.map((event) => ({ kind: 'event' as const, at: event.createdAt, event })),
+      ...callHistory.map((entry) => ({ kind: 'call' as const, at: entry.createdAt, call: entry })),
     ];
     return list.sort((a, b) => a.at.localeCompare(b.at));
-  }, [messages, events]);
+  }, [messages, events, callHistory]);
 
   const run = (task: Promise<unknown>) => {
     setError(undefined);
@@ -224,8 +263,23 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
     : group
       ? `${String(group.memberCount)} ${group.memberCount === 1 ? 'member' : 'members'} · End-to-end encrypted`
       : peer && presence[peer.ogcId] === 'ONLINE'
-        ? 'Online'
-        : 'End-to-end encrypted';
+        ? verified
+          ? 'Online · Verified'
+          : 'Online'
+        : verified
+          ? 'End-to-end encrypted · Verified'
+          : 'End-to-end encrypted';
+
+  // Why the call buttons are disabled, if they are (shown as their tooltip).
+  const callUnavailable = !calls
+    ? 'Calls are starting…'
+    : connection !== 'online'
+      ? 'You’re offline'
+      : !call.supported
+        ? 'Calls need a secure (HTTPS) connection and a browser with WebRTC'
+        : call.phase !== 'idle' && call.phase !== 'ended'
+          ? 'You’re already in a call'
+          : undefined;
 
   const headerInner = (
     <>
@@ -253,7 +307,7 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
     >
       <header className={styles.panelHeader}>
         <Link to="/messages" className={styles.back} aria-label="Back to conversations">
-          ‹
+          <Icon name="back" size={22} />
         </Link>
         {peer ? (
           <Link to={`/id/${peer.ogcId}`} className={styles.peer}>
@@ -270,6 +324,28 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
             {headerInner}
           </button>
         )}
+        {peer && !blocked ? (
+          <div className={callStyles.headerActions}>
+            {(['AUDIO', 'VIDEO'] as const).map((media) => {
+              const label = `${media === 'VIDEO' ? 'Video' : 'Voice'} call ${title}`;
+              return (
+                <button
+                  key={media}
+                  type="button"
+                  className={callStyles.headerCall}
+                  aria-label={label}
+                  title={callUnavailable ?? label}
+                  disabled={callUnavailable !== undefined}
+                  onClick={() => {
+                    void calls?.start(conversation.id, media, peer);
+                  }}
+                >
+                  <Icon name={media === 'VIDEO' ? 'video' : 'phone'} size={20} />
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         {group ? (
           <button
             type="button"
@@ -297,6 +373,34 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
         <p className={styles.banner} role="status">
           Offline — reconnecting. Messages you send are queued on this device.
         </p>
+      ) : null}
+      {peer && keyStatus?.state === 'changed' ? (
+        <div className={styles.banner} role="alert">
+          {peer.displayName}’s security keys changed — they may have signed in on a new device. To
+          be sure nobody else is reading, compare safety numbers again.{' '}
+          <button
+            type="button"
+            className={styles.linkButton}
+            onClick={() => {
+              setVerifying(true);
+            }}
+          >
+            Verify
+          </button>{' '}
+          <button
+            type="button"
+            className={styles.linkButton}
+            onClick={() => {
+              run(
+                (engine?.acknowledgePeerKeys(conversation.id) ?? Promise.resolve()).then(() => {
+                  setKeyCheck((n) => n + 1);
+                }),
+              );
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
       ) : null}
       {blocked && peer ? (
         <div className={styles.banner} role="status">
@@ -347,6 +451,25 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
               {dayLabel(item.at)}
             </p>
           ) : null;
+          if (item.kind === 'call') {
+            const missed =
+              item.call.direction === 'INCOMING' &&
+              (item.call.outcome === 'MISSED' ||
+                item.call.outcome === 'CANCELLED' ||
+                item.call.outcome === 'BUSY');
+            return (
+              <Fragment key={`c-${item.call.id}`}>
+                {separator}
+                <p
+                  className={[callStyles.callRow, missed ? callStyles.callRowMissed : ''].join(' ')}
+                >
+                  <Icon name={item.call.media === 'VIDEO' ? 'video' : 'phone'} size={16} />
+                  <span>{callDescription(item.call)}</span>
+                  <span className={callStyles.callRowTime}>{messageTime(item.call.createdAt)}</span>
+                </p>
+              </Fragment>
+            );
+          }
           if (item.kind === 'event') {
             return (
               <Fragment key={`e-${item.event.id}`}>
@@ -429,6 +552,9 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
           conversation={conversation}
           onClose={() => {
             setVerifying(false);
+          }}
+          onVerified={() => {
+            setKeyCheck((n) => n + 1);
           }}
         />
       ) : null}

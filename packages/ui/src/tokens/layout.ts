@@ -15,8 +15,8 @@ export const space = {
 
 export const radius = {
   none: 0,
-  sm: 6,
-  md: 10,
+  sm: 8,
+  md: 12,
   lg: 16,
   xl: 24,
   full: 9999,
@@ -25,4 +25,20 @@ export const radius = {
 export const borderWidth = {
   hairline: 1,
   thick: 2,
+} as const;
+
+/** Minimum touch / pointer target and common component sizes, in px. */
+export const size = {
+  touch: 44,
+  control: 48,
+  tabBar: 64,
+  appBar: 56,
+  avatarSm: 32,
+  avatarMd: 44,
+  avatarLg: 64,
+  icon: 22,
+  /** Readable width for forms and single-column pages. */
+  formWidth: 440,
+  contentWidth: 1080,
+  sidebarWidth: 264,
 } as const;

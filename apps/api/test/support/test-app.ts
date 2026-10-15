@@ -25,8 +25,12 @@ export const PASSWORD = 'correct horse battery staple';
 /** Captures outgoing email instead of delivering it. */
 export class MemoryEmailSender extends EmailSender {
   readonly sent: EmailMessage[] = [];
+  /** Tests flip these to simulate an unconfigured or failing provider. */
+  available = true;
+  failing = false;
 
   send(message: EmailMessage): Promise<void> {
+    if (this.failing) return Promise.reject(new Error('Email delivery failed (ECONNECTION)'));
     this.sent.push(message);
     return Promise.resolve();
   }

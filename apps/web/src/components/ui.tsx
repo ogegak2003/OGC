@@ -5,11 +5,14 @@ import {
   useId,
   useState,
 } from 'react';
+import { Icon, type IconName } from './Icon';
 import styles from './ui.module.css';
 
 type ButtonProps = ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: 'primary' | 'secondary' | 'ghost';
+  variant?: 'primary' | 'secondary' | 'ghost' | 'danger';
   busy?: boolean;
+  /** Leading icon from the shared OGC set. */
+  icon?: IconName;
 };
 
 export function Button({
@@ -18,6 +21,7 @@ export function Button({
   className,
   children,
   disabled,
+  icon,
   ...rest
 }: ButtonProps) {
   return (
@@ -28,7 +32,11 @@ export function Button({
       disabled={disabled === true || busy}
       aria-busy={busy || undefined}
     >
-      {busy ? <span className={styles.buttonSpinner} aria-hidden="true" /> : null}
+      {busy ? (
+        <span className={styles.buttonSpinner} aria-hidden="true" />
+      ) : icon ? (
+        <Icon name={icon} size={18} />
+      ) : null}
       <span>{children}</span>
     </button>
   );
@@ -111,7 +119,12 @@ export function Alert({
       className={[styles.alert, styles[`alert-${tone}`]].join(' ')}
       role={tone === 'error' ? 'alert' : 'status'}
     >
-      {children}
+      <Icon
+        name={tone === 'success' ? 'check' : tone === 'info' ? 'info' : 'alert'}
+        size={18}
+        className={styles.alertIcon}
+      />
+      <div className={styles.alertBody}>{children}</div>
     </div>
   );
 }
@@ -122,5 +135,24 @@ export function Spinner({ label }: { label: string }) {
       <span className={styles.spinner} aria-hidden="true" />
       <span className={styles.visuallyHidden}>{label}</span>
     </div>
+  );
+}
+
+/** A placeholder block that gently pulses while content loads (static with reduced motion). */
+export function Skeleton({
+  width = '100%',
+  height = '0.875rem',
+  round = false,
+}: {
+  width?: string;
+  height?: string;
+  round?: boolean;
+}) {
+  return (
+    <span
+      className={[styles.skeleton, round ? styles.skeletonRound : ''].join(' ')}
+      style={{ width, height }}
+      aria-hidden="true"
+    />
   );
 }

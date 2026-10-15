@@ -122,7 +122,7 @@ describe('mobile groups and channels', () => {
         messaging={fakeMessaging(engine).dependencies}
       />,
     );
-    await fireEvent.press(await screen.findByRole('button', { name: /^Messages/ }));
+    await fireEvent.press(await screen.findByRole('tab', { name: /^Chats/ }));
     await fireEvent.press(await screen.findByRole('button', { name: /Rowing club, group/ }));
     expect(await screen.findByText('Boat at 6')).toBeOnTheScreen();
     expect(await screen.findByText('Grace Hopper')).toBeOnTheScreen();
@@ -140,7 +140,7 @@ describe('mobile groups and channels', () => {
         messaging={fakeMessaging(engine).dependencies}
       />,
     );
-    await fireEvent.press(await screen.findByRole('button', { name: /^Messages/ }));
+    await fireEvent.press(await screen.findByRole('tab', { name: /^Chats/ }));
     await fireEvent.press(await screen.findByRole('button', { name: /Rowing club, channel/ }));
     expect(await screen.findByText('Only admins can post here.')).toBeOnTheScreen();
   });
@@ -181,7 +181,7 @@ describe('mobile groups and channels', () => {
         messaging={fakeMessaging(new FakeEngine([])).dependencies}
       />,
     );
-    await fireEvent.press(await screen.findByRole('button', { name: 'Community channels' }));
+    await fireEvent.press(await screen.findByRole('tab', { name: 'Communities' }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Night Sky' }));
     expect(await screen.findByText(/Not end-to-end encrypted/)).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole('button', { name: 'Join' }));
@@ -211,6 +211,7 @@ describe('mobile groups and channels', () => {
         messaging={fakeMessaging(new FakeEngine([])).dependencies}
       />,
     );
+    await fireEvent.press(await screen.findByRole('tab', { name: 'Communities' }));
     await fireEvent.press(await screen.findByRole('button', { name: 'Join with a link' }));
     await fireEvent.changeText(
       screen.getByLabelText('Invitation link'),

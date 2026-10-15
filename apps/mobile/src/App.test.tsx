@@ -72,7 +72,7 @@ function setup(routes: Record<string, () => Response>, baseUrl = '') {
 }
 
 async function signIn() {
-  await fireEvent.press(await screen.findByText('I already have one'));
+  await fireEvent.press(await screen.findByText('Sign In'));
   await fireEvent.changeText(screen.getByLabelText('Email'), 'ada@example.test');
   await fireEvent.changeText(screen.getByLabelText('Password'), 'correct horse battery staple');
   await fireEvent.press(screen.getByText('Sign in'));
@@ -85,8 +85,8 @@ beforeEach(() => {
 describe('mobile app', () => {
   it('welcomes signed-out users', async () => {
     await render(<App client={setup({}).client} />);
-    expect(await screen.findByText('Create your OGC ID')).toBeOnTheScreen();
-    expect(screen.getByText('I already have one')).toBeOnTheScreen();
+    expect(await screen.findByText('Create Account')).toBeOnTheScreen();
+    expect(screen.getByText('Sign In')).toBeOnTheScreen();
   });
 
   it('signs in and shows the OGC ID prominently', async () => {
@@ -105,7 +105,7 @@ describe('mobile app', () => {
         ),
     });
     await render(<App client={client} />);
-    await fireEvent.press(await screen.findByText('I already have one'));
+    await fireEvent.press(await screen.findByText('Sign In'));
     await fireEvent.changeText(screen.getByLabelText('Email'), 'ada@example.test');
     await fireEvent.changeText(screen.getByLabelText('Password'), 'wrong');
     await fireEvent.press(screen.getByText('Sign in'));
@@ -116,7 +116,7 @@ describe('mobile app', () => {
 
   it('validates registration input before calling the API', async () => {
     await render(<App client={setup({}).client} />);
-    await fireEvent.press(await screen.findByText('Create your OGC ID'));
+    await fireEvent.press(await screen.findByText('Create Account'));
     await fireEvent.changeText(screen.getByLabelText('Password'), 'short');
     await fireEvent.press(screen.getByText('Create account'));
     expect(await screen.findByText('Use at least 12 characters')).toBeOnTheScreen();
@@ -127,7 +127,7 @@ describe('identity sharing', () => {
   it('renders a QR code that encodes only the public identity link', async () => {
     await render(<App client={setup(signedIn).client} />);
     await signIn();
-    await fireEvent.press(await screen.findByText('Show my QR code'));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Show my QR code' }));
     const qr = await screen.findByTestId('ogc-qr');
     expect(qr.props.accessibilityLabel).toBe('QR code for OGC306841127');
     expect(qr.props.accessibilityHint).toBe('ogc://id/OGC306841127');
@@ -164,7 +164,7 @@ describe('discovery and contacts', () => {
     });
     await render(<App client={client} />);
     await signIn();
-    await fireEvent.press(await screen.findByText('Discover people'));
+    await fireEvent.press(await screen.findByText('Find by OGC ID'));
     await fireEvent.changeText(screen.getByLabelText('OGC ID'), 'ogc 482 731 905');
     await fireEvent.press(screen.getByText('Find'));
     await fireEvent.press(await screen.findByText('Add contact'));
@@ -197,13 +197,13 @@ describe('discovery and contacts', () => {
     });
     await render(<App client={client} />);
     await signIn();
-    await fireEvent.press(await screen.findByText('Contacts'));
+    await fireEvent.press(await screen.findByRole('tab', { name: 'Contacts' }));
     expect(
       await screen.findByText('No contacts yet. Find people by their OGC ID.'),
     ).toBeOnTheScreen();
     await fireEvent.press(screen.getByRole('tab', { name: 'Requests' }));
     await fireEvent.press(await screen.findByText('Accept'));
-    await fireEvent.press(screen.getByRole('tab', { name: 'Contacts' }));
+    await fireEvent.press(screen.getByRole('tab', { name: 'My contacts' }));
     expect(await screen.findByText('Grace Hopper')).toBeOnTheScreen();
   });
 

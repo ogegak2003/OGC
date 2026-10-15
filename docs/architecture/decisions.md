@@ -648,3 +648,149 @@ the ciphertext); the server never parses message text.
 **Consequences.** Retries and multiple devices never duplicate a notification. Announcement
 fan-out is bounded (10 000 members per announcement); larger audiences rely on realtime and
 unread counts.
+
+## ADR-037: One-to-one calls: WebRTC media, realtime signaling
+
+**Status:** Accepted (calls phase)
+
+**Decision.** Calls use WebRTC for media (browser WebRTC on the web; `react-native-webrtc`
+124.0.8 with `@config-plugins/react-native-webrtc` 15.0.2 and `expo-dev-client` on mobile) and
+the existing authenticated Socket.IO connection for signaling — no new service. Call state lives
+in PostgreSQL (`calls`) and changes only through conditional updates; an advisory lock per
+account serialises call creation (one open call per account). The callee accepts on one device,
+which is bound to the call; signaling is relayed only between the two bound devices. The caller
+always offers and the callee always answers. The offer is sent only after acceptance, so no
+network addresses are exchanged for unanswered calls. ICE servers come from configuration; TURN
+credentials are short-lived per-call HMAC credentials (TURN REST API). A shared `CallEngine`
+(`@ogc/messaging`) drives both apps. History stores metadata only.
+
+**Alternatives considered.** An SFU/media server (needed for group calls, but adds
+infrastructure and decrypts media for one-to-one); a separate signaling service (duplicates
+authentication and blocking rules); keeping call state in memory or Redis only (would not
+survive instance restarts and would make duplicate acceptance across instances harder);
+`react-native-webrtc` 155.0.0 (published the day of the decision, inside the release-age
+window of the dependency policy).
+
+**Consequences.** Calls need a native build on mobile (not Expo Go). Media is protected by
+DTLS-SRTP but its keys are not bound to MLS identities, so calls are not described as end-to-end
+encrypted like messages. Peer-to-peer media reveals IP addresses to the other participant unless
+relay-only is configured. `react-native-webrtc` is not certified for the New Architecture
+upstream; it must be verified on devices before release.
+
+## ADR-038: Push notifications: durable PostgreSQL queue, generic content
+
+**Status:** Accepted (Phase 7)
+
+**Decision.** Pushes go through a durable queue in PostgreSQL (`push_deliveries`): one row per
+notification per device, unique per `(device, event)` for idempotency, claimed by every API
+instance with `FOR UPDATE SKIP LOCKED`, retried with capped exponential backoff on temporary
+provider errors, expired when stale, confirmed with Expo receipts, and deleted after a
+retention period. Dead tokens (`DeviceNotRegistered`) are removed. Content is a fixed generic
+text; the title is "OGC" unless the recipient opts into sender names. Account-wide settings
+(categories, preview, sound, vibration, quiet hours with an IANA time zone) live on the server.
+The mobile app uses `expo-notifications` 57.0.22 (development/release builds only).
+
+**Alternatives considered.** BullMQ on the existing Redis (a new dependency and a second
+durable store; Redis is otherwise used for ephemeral state only); sending directly from the
+request (no retries, lost on restart); message previews decrypted by the server (would break
+end-to-end encryption).
+
+**Consequences.** No new infrastructure; exactly-once queuing, at-least-once sending. Push
+volume is bounded by PostgreSQL write throughput (fine for current scale; the queue sits behind
+one service if it must move). Full previews would need on-device decryption in notification
+extensions. Delivery remains best-effort; messages never depend on it.
+
+## ADR-039: Session management, password change and key-change warnings
+
+**Status:** Accepted (Phase 8 — security and privacy hardening)
+
+**Decision.** Accounts can list their active sessions and sign out one other session or all
+others; changing the password (which requires the current one) ends every other session.
+Every revocation goes through the existing `session.revoked` event, so the device's sockets,
+MLS key and push token go with it. Clients warn when a direct contact gains a device signature
+key this device has never accepted (trust on first use, stored in the sealed local store), clear
+any "verified" mark on change, and let the person record a verified safety number. Production
+`Permissions-Policy` allows camera and microphone for the app's own origin only.
+
+**Alternatives considered.** Key transparency or a server-held key log (a protocol change and
+new trust in the server); warning on every key-set change including removals (noisy, since
+removed keys cannot read new messages); tracking group members (deferred: membership changes
+are frequent and the warning text needs product work).
+
+**Consequences.** A lost or stolen device can be cut off from any other signed-in device.
+Key-change detection depends on the device's own history: a substitution before the first
+sight is not detected automatically, and the warning cannot distinguish an attack from a new
+device. Account recovery (password reset) is still missing and is a separate decision.
+
+## ADR-040: Password recovery, retention, suspension and backups
+
+**Status:** Accepted (Phase 9 — account recovery and production readiness)
+
+**Decision.**
+
+- **Password recovery.** Reset is by email:
+  - a 256-bit, `ogc_pr_`-prefixed, single-use token, stored as a SHA-256 hash and valid for
+    30 minutes;
+  - consumed by compare-and-swap;
+  - the same answer for every address, with the email sent in the background;
+  - every session ends on reset.
+- **Email provider.** SMTP through `nodemailer`, with TLS required in production. With no
+  provider, recovery answers "unavailable" rather than pretending to send. A reset never touches
+  encryption keys beyond the normal sign-out path, and recovery does not restore encrypted
+  history.
+- **Retention.** Operational cleanup is one bounded, idempotent, advisory-locked job. It
+  honours preservation holds. Audit deletion is allowed only by an opt-in transaction and
+  never under 365 days, which the database trigger enforces.
+- **Suspension.** It is staff-only (`ADMIN`) and revokes sessions immediately. Open sockets
+  re-check their session and account status every 30 seconds, which also catches changes made
+  directly in the database.
+- **Backups.** Logical `pg_dump` backups encrypted to an OpenPGP public key. Restores go only
+  into a new database.
+
+**Alternatives considered.**
+
+- A provider-specific HTTP email API: vendor lock-in, and every provider offers SMTP.
+- Emailing addresses without an account: it informs owners, but turns OGC into a mail cannon.
+- Making the audit log fully deletable: it weakens tamper resistance.
+- Restoring in place: one typo destroys data.
+- Server-held key backup for recovery: it breaks end-to-end encryption, and needs its own
+  design.
+
+**Consequences.** People who lose their password keep their account but not their encrypted
+history on devices that sign out. Production needs an SMTP provider, scheduled backups with an
+offline key, and a legal review of retention periods.
+
+## ADR-041: Single-host production deployment with a TLS edge
+
+**Status:** Accepted (Phase 10 — deployment readiness)
+
+**Decision.**
+
+- **Deployment.** The first deployable shape is one Linux host running
+  `docker-compose.prod.yml`:
+  - an unprivileged nginx **edge** terminates TLS (certificates from certbot on the host,
+    mounted read-only), redirects HTTP, sets request IDs and forwarded headers, and routes
+    `/api` and WebSockets to the API and everything else to the static web container;
+  - PostgreSQL and Redis sit on an `internal` network with no published ports;
+  - migrations run in a one-shot job that gates API startup;
+  - the API's readiness (database, migrations, Redis, draining) gates the edge.
+- **Configuration guardrails.** Production configuration refuses weak or placeholder secrets.
+  It also requires TLS to PostgreSQL and Redis, unless `DATABASE_TLS`/`REDIS_TLS=private-network`
+  explicitly declares the single-host internal network.
+- **Docker builds.** Package downloads go into a cached layer keyed on the lockfile.
+
+**Alternatives considered.**
+
+- Caddy or Traefik with built-in ACME: a new component; nginx is already in use and reviewed.
+- Kubernetes: unnecessary operational weight at this scale.
+- The API running migrations on startup: races between replicas, and partial schemas taking
+  traffic.
+- TLS between containers on one host: no confidentiality gain on an internal bridge network.
+  The exception is explicit and must be removed when the database moves off-host.
+
+**Consequences.**
+
+- One host is a single point of failure. Backups and restore drills are the recovery path
+  until managed or replicated services are adopted.
+- Certificate renewal depends on the documented certbot hook.
+- Scaling the API needs an edge reload.

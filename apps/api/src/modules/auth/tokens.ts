@@ -9,6 +9,7 @@ import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
  *   access:        ogc_at_<secret>
  *   refresh:       ogc_rt_<sessionId>_<secret>
  *   verification:  <secret>
+ *   password reset: ogc_pr_<secret>
  */
 const SECRET_BYTES = 32;
 const SECRET = '[A-Za-z0-9_-]{43}';

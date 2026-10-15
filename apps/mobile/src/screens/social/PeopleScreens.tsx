@@ -5,13 +5,26 @@ import type {
   ProfileSummary,
   PublicProfile,
 } from '@ogc/types';
+import { color, radius, space } from '@ogc/ui';
 import { formatOgcIdForDisplay, ogcIdInputSchema } from '@ogc/validation';
-import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, View } from 'react-native';
+import { type ReactNode, useCallback, useState } from 'react';
+import { StyleSheet, Text, View } from 'react-native';
 import { ApiError } from '../../api/client';
 import { useAuth } from '../../auth/AuthProvider';
-import { Avatar } from '../../components/identity';
-import { Button, Field, Notice } from '../../components/ui';
+import { Avatar, OgcIdText } from '../../components/identity';
+import {
+  Button,
+  EmptyState,
+  Field,
+  IconButton,
+  ListGroup,
+  ListRow,
+  Loading,
+  Notice,
+  SkeletonRows,
+  Tabs,
+  Tag,
+} from '../../components/ui';
 import { errorMessage } from '../../lib/errors';
 import { useResource } from '../../lib/use-resource';
 import { useNavigation } from '../../navigation';
@@ -25,6 +38,18 @@ const RELATIONSHIP_LABEL: Record<PublicProfile['relationship'], string | null> =
   INCOMING_REQUEST: 'Wants to connect with you',
   CONTACT: 'Contact',
   BLOCKED: 'Blocked',
+};
+
+const RELATIONSHIP_TONE: Record<
+  PublicProfile['relationship'],
+  'neutral' | 'accent' | 'success' | 'danger'
+> = {
+  SELF: 'accent',
+  NONE: 'neutral',
+  OUTGOING_REQUEST: 'neutral',
+  INCOMING_REQUEST: 'accent',
+  CONTACT: 'success',
+  BLOCKED: 'danger',
 };
 
 /** A profile with the actions its relationship allows; re-reads from the server after each action. */
@@ -51,93 +76,107 @@ function ProfileCard({ profile, onChanged }: { profile: PublicProfile; onChanged
 
   const label = RELATIONSHIP_LABEL[relationship];
   return (
-    <View style={social.card}>
-      <View style={social.row}>
-        <Avatar url={profile.avatarUrl} name={profile.displayName} size={64} />
-        <View style={social.names}>
-          <Text style={social.name}>{profile.displayName}</Text>
-          <Text style={social.ogcId}>{formatOgcIdForDisplay(ogcId)}</Text>
+    <View style={[social.card, styles.profileCard]}>
+      <Avatar url={profile.avatarUrl} name={profile.displayName} size={88} />
+      <View style={styles.identity}>
+        <Text style={[social.name, styles.center]}>{profile.displayName}</Text>
+        <OgcIdText ogcId={ogcId} />
+      </View>
+      {label ? <Tag label={label} tone={RELATIONSHIP_TONE[relationship]} /> : null}
+      {profile.bio ? <Text style={[social.body, styles.center]}>{profile.bio}</Text> : null}
+      {error ? <Notice>{error}</Notice> : null}
+      <View style={styles.actions}>
+        {profile.canSendContactRequest ? (
+          <Button
+            title="Add contact"
+            icon="userPlus"
+            busy={busy === 'add'}
+            onPress={() => void run('add', () => client.sendContactRequest(ogcId))}
+          />
+        ) : null}
+        {relationship === 'NONE' && !profile.canSendContactRequest ? (
+          <Text style={[social.muted, styles.center]}>
+            This person is not accepting contact requests.
+          </Text>
+        ) : null}
+        {relationship === 'INCOMING_REQUEST' && pendingRequestId ? (
+          <>
+            <Button
+              title="Accept"
+              busy={busy === 'accept'}
+              onPress={() => void run('accept', () => client.acceptRequest(pendingRequestId))}
+            />
+            <Button
+              title="Decline"
+              variant="secondary"
+              busy={busy === 'decline'}
+              onPress={() => void run('decline', () => client.declineRequest(pendingRequestId))}
+            />
+          </>
+        ) : null}
+        {relationship === 'OUTGOING_REQUEST' && pendingRequestId ? (
+          <Button
+            title="Cancel request"
+            variant="secondary"
+            busy={busy === 'cancel'}
+            onPress={() => void run('cancel', () => client.cancelRequest(pendingRequestId))}
+          />
+        ) : null}
+        {relationship === 'CONTACT' ? (
+          <Button
+            title="Remove contact"
+            variant="secondary"
+            busy={busy === 'remove'}
+            onPress={() => void run('remove', () => client.removeContact(ogcId))}
+          />
+        ) : null}
+        {relationship === 'BLOCKED' ? (
+          <Button
+            title="Unblock"
+            variant="secondary"
+            busy={busy === 'unblock'}
+            onPress={() => void run('unblock', () => client.unblock(ogcId))}
+          />
+        ) : null}
+        <View style={styles.safety}>
+          {relationship !== 'SELF' && relationship !== 'BLOCKED' ? (
+            confirmBlock ? (
+              <Button
+                title="Confirm block"
+                variant="danger"
+                icon="ban"
+                compact
+                style={styles.flex}
+                busy={busy === 'block'}
+                onPress={() => void run('block', () => client.block(ogcId))}
+              />
+            ) : (
+              <Button
+                title="Block"
+                variant="ghost"
+                icon="ban"
+                compact
+                style={styles.flex}
+                onPress={() => {
+                  setConfirmBlock(true);
+                }}
+              />
+            )
+          ) : null}
+          {relationship !== 'SELF' ? (
+            <Button
+              title="Report"
+              variant="ghost"
+              icon="flag"
+              compact
+              style={styles.flex}
+              onPress={() => {
+                nav.push({ name: 'report', ogcId });
+              }}
+            />
+          ) : null}
         </View>
       </View>
-      {label ? <Text style={social.badge}>{label}</Text> : null}
-      {profile.bio ? <Text style={social.body}>{profile.bio}</Text> : null}
-      {error ? <Notice>{error}</Notice> : null}
-      {profile.canSendContactRequest ? (
-        <Button
-          title="Add contact"
-          busy={busy === 'add'}
-          onPress={() => void run('add', () => client.sendContactRequest(ogcId))}
-        />
-      ) : null}
-      {relationship === 'NONE' && !profile.canSendContactRequest ? (
-        <Text style={social.muted}>This person is not accepting contact requests.</Text>
-      ) : null}
-      {relationship === 'INCOMING_REQUEST' && pendingRequestId ? (
-        <>
-          <Button
-            title="Accept"
-            busy={busy === 'accept'}
-            onPress={() => void run('accept', () => client.acceptRequest(pendingRequestId))}
-          />
-          <Button
-            title="Decline"
-            variant="secondary"
-            busy={busy === 'decline'}
-            onPress={() => void run('decline', () => client.declineRequest(pendingRequestId))}
-          />
-        </>
-      ) : null}
-      {relationship === 'OUTGOING_REQUEST' && pendingRequestId ? (
-        <Button
-          title="Cancel request"
-          variant="secondary"
-          busy={busy === 'cancel'}
-          onPress={() => void run('cancel', () => client.cancelRequest(pendingRequestId))}
-        />
-      ) : null}
-      {relationship === 'CONTACT' ? (
-        <Button
-          title="Remove contact"
-          variant="secondary"
-          busy={busy === 'remove'}
-          onPress={() => void run('remove', () => client.removeContact(ogcId))}
-        />
-      ) : null}
-      {relationship === 'BLOCKED' ? (
-        <Button
-          title="Unblock"
-          variant="secondary"
-          busy={busy === 'unblock'}
-          onPress={() => void run('unblock', () => client.unblock(ogcId))}
-        />
-      ) : null}
-      {relationship !== 'SELF' && relationship !== 'BLOCKED' ? (
-        confirmBlock ? (
-          <Button
-            title="Confirm block"
-            variant="ghost"
-            busy={busy === 'block'}
-            onPress={() => void run('block', () => client.block(ogcId))}
-          />
-        ) : (
-          <Button
-            title="Block"
-            variant="ghost"
-            onPress={() => {
-              setConfirmBlock(true);
-            }}
-          />
-        )
-      ) : null}
-      {relationship !== 'SELF' ? (
-        <Button
-          title="Report"
-          variant="ghost"
-          onPress={() => {
-            nav.push({ name: 'report', ogcId });
-          }}
-        />
-      ) : null}
     </View>
   );
 }
@@ -175,20 +214,27 @@ export function DiscoverScreen() {
   }
 
   return (
-    <Screen title="Discover" onBack={nav.back}>
+    <Screen
+      title="Discover"
+      subtitle="Find someone by their exact OGC ID. Nobody can be found by phone number or email."
+      onBack={nav.canGoBack ? nav.back : undefined}
+    >
       <Field
         label="OGC ID"
+        icon="search"
         placeholder="OGC 482 731 905"
         value={input}
         onChangeText={setInput}
         autoCapitalize="characters"
         autoCorrect={false}
+        returnKeyType="search"
+        onSubmitEditing={submit}
         error={inputError}
       />
       <Button title="Find" busy={busy} onPress={submit} />
       {error ? <Notice>{error}</Notice> : null}
       {result === 'not-found' ? (
-        <Text style={social.empty}>No OGC account was found for that ID.</Text>
+        <EmptyState icon="user" title="No OGC account was found for that ID." />
       ) : null}
       {result && result !== 'not-found' ? (
         <ProfileCard profile={result} onChanged={() => void lookup(result.ogcId)} />
@@ -205,38 +251,36 @@ export function PublicProfileScreen({ ogcId }: { ogcId: string }) {
   const { state, reload } = useResource(load);
   return (
     <Screen title="OGC profile" onBack={nav.canGoBack ? nav.back : undefined}>
-      {state.status === 'loading' ? <ActivityIndicator accessibilityLabel="Loading" /> : null}
+      {state.status === 'loading' ? <Loading label="Loading" /> : null}
       {state.status === 'error' ? (
-        <Text style={social.empty}>
-          {state.error instanceof ApiError && state.error.status === 404
-            ? 'This OGC profile is not available.'
-            : errorMessage(state.error)}
-        </Text>
+        <EmptyState
+          icon="user"
+          title={
+            state.error instanceof ApiError && state.error.status === 404
+              ? 'This OGC profile is not available.'
+              : errorMessage(state.error)
+          }
+        />
       ) : null}
       {state.status === 'ready' ? <ProfileCard profile={state.data} onChanged={reload} /> : null}
     </Screen>
   );
 }
 
-function PersonRow({ profile, children }: { profile: ProfileSummary; children?: React.ReactNode }) {
+function PersonRow({ profile, children }: { profile: ProfileSummary; children?: ReactNode }) {
   const nav = useNavigation();
   return (
-    <View style={social.listItem}>
-      <Pressable
-        style={[social.row, { flex: 1 }]}
-        accessibilityRole="button"
-        onPress={() => {
-          nav.push({ name: 'public-profile', ogcId: profile.ogcId });
-        }}
-      >
-        <Avatar url={profile.avatarUrl} name={profile.displayName} size={44} />
-        <View style={social.names}>
-          <Text style={social.menuText}>{profile.displayName}</Text>
-          <Text style={social.ogcId}>{formatOgcIdForDisplay(profile.ogcId)}</Text>
-        </View>
-      </Pressable>
-      {children}
-    </View>
+    <ListRow
+      title={profile.displayName}
+      subtitle={formatOgcIdForDisplay(profile.ogcId)}
+      leading={<Avatar url={profile.avatarUrl} name={profile.displayName} size={44} />}
+      trailing={children}
+      chevron={!children}
+      accessibilityLabel={profile.displayName}
+      onPress={() => {
+        nav.push({ name: 'public-profile', ogcId: profile.ogcId });
+      }}
+    />
   );
 }
 
@@ -269,58 +313,78 @@ export function ContactsScreen() {
   }
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'contacts', label: 'Contacts' },
+    { id: 'contacts', label: 'My contacts' },
     { id: 'incoming', label: 'Requests' },
     { id: 'outgoing', label: 'Sent' },
   ];
 
   return (
-    <Screen title="Contacts" onBack={nav.back}>
-      <View style={social.tabs} accessibilityRole="tablist">
-        {tabs.map((t) => (
-          <Pressable
-            key={t.id}
-            accessibilityRole="tab"
-            accessibilityState={{ selected: tab === t.id }}
-            style={[social.tab, tab === t.id && social.tabActive]}
-            onPress={() => {
-              setTab(t.id);
-            }}
-          >
-            <Text style={[social.tabText, tab === t.id && social.tabTextActive]}>{t.label}</Text>
-          </Pressable>
-        ))}
-      </View>
+    <Screen
+      title="Contacts"
+      onBack={nav.canGoBack ? nav.back : undefined}
+      actions={
+        <IconButton
+          icon="userPlus"
+          label="Add a contact"
+          tint={color.accent}
+          onPress={() => {
+            nav.push({ name: 'discover' });
+          }}
+        />
+      }
+    >
+      <Tabs options={tabs} value={tab} onChange={setTab} />
       {error ? <Notice>{error}</Notice> : null}
-      {state.status === 'loading' ? <ActivityIndicator accessibilityLabel="Loading" /> : null}
-      {state.status === 'error' ? <Notice>{errorMessage(state.error)}</Notice> : null}
-      {state.status === 'ready' && state.data.items.length === 0 ? (
-        <Text style={social.empty}>
-          {tab === 'contacts'
-            ? 'No contacts yet. Find people by their OGC ID.'
-            : 'Nothing pending.'}
-        </Text>
+      {state.status === 'loading' ? (
+        <View style={styles.surface}>
+          <SkeletonRows count={3} label="Loading" />
+        </View>
       ) : null}
-      {state.status === 'ready'
-        ? state.data.items.map((item) =>
+      {state.status === 'error' ? (
+        <Notice action={{ label: 'Retry', onPress: reload }}>{errorMessage(state.error)}</Notice>
+      ) : null}
+      {state.status === 'ready' && state.data.items.length === 0 ? (
+        tab === 'contacts' ? (
+          <EmptyState
+            icon="contacts"
+            title="No contacts yet. Find people by their OGC ID."
+            body="Ask someone for their OGC ID or QR code. Nobody is added without accepting."
+            action={{
+              label: 'Find someone',
+              icon: 'userPlus',
+              onPress: () => {
+                nav.push({ name: 'discover' });
+              },
+            }}
+          />
+        ) : (
+          <EmptyState icon="inbox" title="Nothing pending." />
+        )
+      ) : null}
+      {state.status === 'ready' && state.data.items.length > 0 ? (
+        <ListGroup>
+          {state.data.items.map((item) =>
             'id' in item ? (
               <PersonRow key={item.id} profile={item.profile}>
                 {tab === 'incoming' ? (
-                  <View style={{ gap: 6 }}>
-                    <Button
-                      title="Accept"
-                      onPress={() => void act(() => client.acceptRequest(item.id))}
-                    />
+                  <View style={styles.requestActions}>
                     <Button
                       title="Decline"
                       variant="ghost"
+                      compact
                       onPress={() => void act(() => client.declineRequest(item.id))}
+                    />
+                    <Button
+                      title="Accept"
+                      compact
+                      onPress={() => void act(() => client.acceptRequest(item.id))}
                     />
                   </View>
                 ) : (
                   <Button
                     title="Cancel"
                     variant="ghost"
+                    compact
                     onPress={() => void act(() => client.cancelRequest(item.id))}
                   />
                 )}
@@ -328,8 +392,25 @@ export function ContactsScreen() {
             ) : (
               <PersonRow key={item.profile.ogcId} profile={item.profile} />
             ),
-          )
-        : null}
+          )}
+        </ListGroup>
+      ) : null}
     </Screen>
   );
 }
+
+const styles = StyleSheet.create({
+  flex: { flex: 1 },
+  profileCard: { alignItems: 'center' },
+  identity: { alignItems: 'center', gap: space[1] },
+  center: { textAlign: 'center' },
+  actions: { alignSelf: 'stretch', gap: space[3] },
+  safety: { flexDirection: 'row', gap: space[2] },
+  requestActions: { flexDirection: 'row', gap: space[1] },
+  surface: {
+    backgroundColor: color.surface,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.lg,
+  },
+});

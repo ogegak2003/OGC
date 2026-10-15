@@ -6,9 +6,18 @@ import {
   reportUserRequestSchema,
 } from '@ogc/validation';
 import { useCallback, useState } from 'react';
-import { ActivityIndicator, Pressable, Text, TextInput, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 import { useAuth } from '../../auth/AuthProvider';
-import { Button, Notice } from '../../components/ui';
+import { Avatar } from '../../components/identity';
+import {
+  Button,
+  EmptyState,
+  Field,
+  ListGroup,
+  ListRow,
+  Loading,
+  Notice,
+} from '../../components/ui';
 import { errorMessage } from '../../lib/errors';
 import { useResource } from '../../lib/use-resource';
 import { useNavigation } from '../../navigation';
@@ -30,11 +39,17 @@ function Choice({
     <Pressable
       accessibilityRole="radio"
       accessibilityState={{ checked: selected }}
+      accessibilityLabel={label}
       style={[social.option, selected && social.optionSelected]}
       onPress={onSelect}
     >
-      <Text style={social.menuText}>{label}</Text>
-      <Text style={social.muted}>{description}</Text>
+      <View style={[social.radio, selected && social.radioOn]}>
+        {selected ? <View style={social.radioDot} /> : null}
+      </View>
+      <View style={social.optionBody}>
+        <Text style={social.menuText}>{label}</Text>
+        {description ? <Text style={social.muted}>{description}</Text> : null}
+      </View>
     </Pressable>
   );
 }
@@ -122,9 +137,13 @@ export function PrivacyScreen() {
   const load = useCallback(() => client.profile(), [client]);
   const { state } = useResource(load);
   return (
-    <Screen title="Privacy" onBack={nav.back}>
+    <Screen
+      title="Privacy"
+      subtitle="Your email and phone number are never shown. You choose what else people see."
+      onBack={nav.back}
+    >
       {state.status === 'ready' ? <PrivacyForm initial={state.data.privacy} /> : null}
-      {state.status === 'loading' ? <ActivityIndicator accessibilityLabel="Loading" /> : null}
+      {state.status === 'loading' ? <Loading label="Loading" /> : null}
       {state.status === 'error' ? <Notice>{errorMessage(state.error)}</Notice> : null}
     </Screen>
   );
@@ -152,25 +171,31 @@ export function BlockedScreen() {
         Blocked people cannot find you or send you requests. They are not told.
       </Text>
       {error ? <Notice>{error}</Notice> : null}
-      {state.status === 'loading' ? <ActivityIndicator accessibilityLabel="Loading" /> : null}
+      {state.status === 'loading' ? <Loading label="Loading" /> : null}
+      {state.status === 'error' ? <Notice>{errorMessage(state.error)}</Notice> : null}
       {state.status === 'ready' && state.data.items.length === 0 ? (
-        <Text style={social.empty}>You have not blocked anyone.</Text>
+        <EmptyState icon="ban" title="You have not blocked anyone." />
       ) : null}
-      {state.status === 'ready'
-        ? state.data.items.map((b) => (
-            <View key={b.profile.ogcId} style={social.listItem}>
-              <View style={social.names}>
-                <Text style={social.menuText}>{b.profile.displayName}</Text>
-                <Text style={social.ogcId}>{formatOgcIdForDisplay(b.profile.ogcId)}</Text>
-              </View>
-              <Button
-                title="Unblock"
-                variant="secondary"
-                onPress={() => void unblock(b.profile.ogcId)}
-              />
-            </View>
-          ))
-        : null}
+      {state.status === 'ready' && state.data.items.length > 0 ? (
+        <ListGroup>
+          {state.data.items.map((b) => (
+            <ListRow
+              key={b.profile.ogcId}
+              title={b.profile.displayName}
+              subtitle={formatOgcIdForDisplay(b.profile.ogcId)}
+              leading={<Avatar url={b.profile.avatarUrl} name={b.profile.displayName} size={40} />}
+              trailing={
+                <Button
+                  title="Unblock"
+                  variant="secondary"
+                  compact
+                  onPress={() => void unblock(b.profile.ogcId)}
+                />
+              }
+            />
+          ))}
+        </ListGroup>
+      ) : null}
     </Screen>
   );
 }
@@ -238,10 +263,9 @@ export function ReportScreen({ ogcId }: { ogcId: string }) {
               }}
             />
           ))}
-          <TextInput
-            accessibilityLabel="Details (optional)"
-            placeholder="Details (optional)"
-            style={social.input}
+          <Field
+            label="Details (optional)"
+            placeholder="What happened?"
             multiline
             value={description}
             maxLength={REPORT_DESCRIPTION_MAX_LENGTH}

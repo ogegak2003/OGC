@@ -1,5 +1,13 @@
-import { type LocalMessage, type TimelineEvent, previewText } from '@ogc/messaging';
-import { useEffect, useState } from 'react';
+import {
+  type CallState,
+  IDLE_CALL_STATE,
+  type LocalMessage,
+  type TimelineEvent,
+  previewText,
+} from '@ogc/messaging';
+import type { CallView } from '@ogc/types';
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
+import { api } from '../lib/api';
 import { useMessaging } from './messaging-context';
 
 /** The locally stored (decrypted) messages of a conversation, kept in sync with the engine. */
@@ -48,3 +56,67 @@ export function useLastMessage(conversationId: string): LocalMessage | undefined
 }
 
 export { previewText };
+
+/** The current call on this device (idle when calls are not available yet). */
+export function useCall(): CallState {
+  const { calls } = useMessaging();
+  return useSyncExternalStore(
+    useCallback((listener: () => void) => calls?.subscribe(listener) ?? (() => undefined), [calls]),
+    () => calls?.current ?? IDLE_CALL_STATE,
+  );
+}
+
+/** A conversation's calls (oldest first), refreshed whenever a call ends. */
+export function useCallHistory(conversationId: string, enabled: boolean): CallView[] {
+  const { callsRevision } = useMessaging();
+  const [calls, setCalls] = useState<CallView[]>([]);
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    api.calls(conversationId, controller.signal).then(
+      (page) => {
+        setCalls([...page.items].reverse());
+      },
+      () => undefined,
+    );
+    return () => {
+      controller.abort();
+    };
+  }, [conversationId, enabled, callsRevision]);
+  return enabled ? calls : [];
+}
+
+/** The account's recent calls (newest first), refreshed whenever a call ends. */
+export function useRecentCalls(): { calls: CallView[] | undefined; failed: boolean } {
+  const { callsRevision, status } = useMessaging();
+  const [calls, setCalls] = useState<CallView[]>();
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    if (status !== 'ready') return;
+    const controller = new AbortController();
+    api.calls(undefined, controller.signal).then(
+      (page) => {
+        setCalls(page.items);
+        setFailed(false);
+      },
+      () => {
+        if (!controller.signal.aborted) setFailed(true);
+      },
+    );
+    return () => {
+      controller.abort();
+    };
+  }, [callsRevision, status]);
+  return { calls, failed };
+}
+
+/** Why calls cannot be started right now (undefined when they can), for disabled buttons. */
+export function useCallUnavailable(): string | undefined {
+  const { calls, connection } = useMessaging();
+  const call = useCall();
+  if (!calls) return 'Calls are starting…';
+  if (connection !== 'online') return 'You’re offline';
+  if (!call.supported) return 'Calls need a secure (HTTPS) connection and a browser with WebRTC';
+  if (call.phase !== 'idle' && call.phase !== 'ended') return 'You’re already in a call';
+  return undefined;
+}

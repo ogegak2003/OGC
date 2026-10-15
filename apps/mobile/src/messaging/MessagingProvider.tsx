@@ -1,4 +1,4 @@
-import type { ConnectionState } from '@ogc/messaging';
+import { CallEngine, type ConnectionState } from '@ogc/messaging';
 import type { ConversationView, OgcId, PresenceState, ServerToClientEvents } from '@ogc/types';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AppState } from 'react-native';
@@ -47,6 +47,9 @@ export function MessagingProvider({
   const [notificationsUnread, setNotificationsUnread] = useState(0);
   const [invitationsRevision, setInvitationsRevision] = useState(0);
   const [channelRevision, setChannelRevision] = useState<Record<string, number>>({});
+  const [attempt, setAttempt] = useState(0);
+  const [calls, setCalls] = useState<CallEngine>();
+  const [callsRevision, setCallsRevision] = useState(0);
   const realtime = useRef<RealtimeLink | undefined>(undefined);
   const lastAccount = useRef<string | undefined>(undefined);
 
@@ -67,11 +70,17 @@ export function MessagingProvider({
     let unsubscribe: (() => void) | undefined;
     let link: RealtimeLink | undefined;
     let instance: MessagingEngine | undefined;
+    let callEngine: CallEngine | undefined;
+    let unsubscribeCalls: (() => void) | undefined;
 
     const onEvent = <E extends keyof ServerToClientEvents>(
       event: E,
       payload: Parameters<ServerToClientEvents[E]>[0],
     ): void => {
+      if (event.startsWith('call.')) {
+        callEngine?.handleEvent(event, payload);
+        return;
+      }
       if (event === 'message.typing') {
         const update = payload as Parameters<ServerToClientEvents['message.typing']>[0];
         const existing = timers.get(update.conversationId);
@@ -126,12 +135,23 @@ export function MessagingProvider({
         setConversations(engine.conversations());
         setSession({ ogcId, status: 'ready', engine, error: undefined });
         link = dependencies.createRealtime(client, { onState: setConnection }, onEvent, () => {
+          // A call shown here may have ended while offline, or one may be ringing now.
+          void callEngine?.resync();
           void engine
             .refreshConversations()
             .then(() => engine.syncAll())
             .catch(() => undefined);
         });
         realtime.current = link;
+        callEngine = new CallEngine(link, dependencies.createCallMedia?.());
+        let previousPhase = callEngine.current.phase;
+        unsubscribeCalls = callEngine.subscribe((callState) => {
+          if (callState.phase === 'ended' && previousPhase !== 'ended') {
+            setCallsRevision((n) => n + 1);
+          }
+          previousPhase = callState.phase;
+        });
+        setCalls(callEngine);
         link.connect();
         await engine.refreshConversations();
       } catch (cause) {
@@ -146,22 +166,36 @@ export function MessagingProvider({
     };
     void start();
 
-    // Back in the foreground: catch up and send anything queued while away.
+    // Background: close the realtime connection (unless a call is in progress), so the server
+    // treats this device as away and sends push notifications instead of in-app events.
+    // Foreground: reconnect, catch up and send anything queued while away.
     const appState = AppState.addEventListener('change', (next) => {
+      if (next === 'background') {
+        const phase = callEngine?.current.phase;
+        if (phase === undefined || phase === 'idle' || phase === 'ended') link?.disconnect();
+        return;
+      }
+      if (next === 'active') link?.connect();
       if (next === 'active' && instance) {
         void instance.syncAll().catch(() => undefined);
       }
+      // Restore the call screen: the call may have ended (or started ringing) meanwhile.
+      if (next === 'active') void callEngine?.resync();
     });
 
     return () => {
       cancelled = true;
       appState.remove();
       unsubscribe?.();
+      unsubscribeCalls?.();
+      // Hangs up and releases the camera and microphone (sign-out, account change).
+      callEngine?.dispose();
+      setCalls(undefined);
       link?.disconnect();
       realtime.current = undefined;
       for (const timer of timers.values()) clearTimeout(timer);
     };
-  }, [ogcId, client, dependencies]);
+  }, [ogcId, client, dependencies, attempt]);
 
   const current = session?.ogcId === ogcId ? session : undefined;
   const engine = current?.engine;
@@ -178,6 +212,12 @@ export function MessagingProvider({
         return next;
       });
     });
+  }, []);
+
+  // Start again after a failed start (e.g. the device was offline).
+  const retry = useCallback(() => {
+    setSession(undefined);
+    setAttempt((n) => n + 1);
   }, []);
 
   const value = useMemo<MessagingContextValue>(() => {
@@ -198,8 +238,13 @@ export function MessagingProvider({
       channelRevision,
       setTyping,
       watchPresence,
+      calls: ogcId ? calls : undefined,
+      callsRevision,
+      retry,
     };
   }, [
+    calls,
+    callsRevision,
     ogcId,
     current,
     engine,
@@ -213,6 +258,7 @@ export function MessagingProvider({
     channelRevision,
     setTyping,
     watchPresence,
+    retry,
   ]);
 
   return <MessagingContext value={value}>{children}</MessagingContext>;

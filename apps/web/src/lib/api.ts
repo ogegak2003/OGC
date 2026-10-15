@@ -4,6 +4,9 @@ import {
   type ApiErrorCode,
   type AuthResponse,
   CLIENT_HEADER,
+  type DeviceSessionView,
+  type ForgotPasswordResponse,
+  type ResetPasswordResponse,
   type HealthResponse,
   type RegisterResponse,
   type VerifyEmailResponse,
@@ -11,15 +14,20 @@ import {
 } from '@ogc/types';
 import type {
   BlockView,
+  CallPage,
   ContactRequestResult,
   ContactRequestView,
   ContactView,
+  NotificationSettingsView,
   OwnProfile,
   Page,
   PublicProfile,
 } from '@ogc/types';
 import type {
+  ChangePasswordRequest,
+  ResetPasswordRequest,
   LoginRequest,
+  NotificationSettingsUpdate,
   RegisterRequest,
   ReportUserRequest,
   UpdateProfileRequest,
@@ -143,6 +151,34 @@ export const api = {
   resendVerification: () =>
     send<{ message: string }>('/v1/auth/verify-email/resend', { method: 'POST' }),
 
+  // ---------- Password recovery ----------
+  forgotPassword: (email: string) =>
+    send<ForgotPasswordResponse>('/v1/auth/password/forgot', {
+      method: 'POST',
+      body: { email },
+      retryOnUnauthorized: false,
+    }),
+  resetPassword: (body: ResetPasswordRequest) =>
+    send<ResetPasswordResponse>('/v1/auth/password/reset', {
+      method: 'POST',
+      body,
+      retryOnUnauthorized: false,
+    }),
+
+  // ---------- Devices and password ----------
+  sessions: (signal?: AbortSignal) => send<DeviceSessionView[]>('/v1/auth/sessions', { signal }),
+  revokeSession: (id: string) =>
+    send<undefined>(`/v1/auth/sessions/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  revokeOtherSessions: () =>
+    send<{ ended: number }>('/v1/auth/sessions/revoke-others', { method: 'POST' }),
+  changePassword: (body: ChangePasswordRequest) =>
+    send<{ otherSessionsEnded: number }>('/v1/auth/password', {
+      method: 'POST',
+      body,
+      // A wrong current password is a 400, but never retry a password submission.
+      retryOnUnauthorized: false,
+    }),
+
   // ---------- Profile ----------
   profile: (signal?: AbortSignal) => send<OwnProfile>('/v1/profile', { signal }),
   updateProfile: (body: UpdateProfileRequest) =>
@@ -191,6 +227,20 @@ export const api = {
     send<undefined>(`/v1/blocks/${encodeURIComponent(ogcId)}`, { method: 'DELETE' }),
   reportUser: (body: ReportUserRequest) =>
     send<{ received: true }>('/v1/reports/users', { method: 'POST', body }),
+
+  // ---------- Notification settings ----------
+  notificationSettings: (signal?: AbortSignal) =>
+    send<NotificationSettingsView>('/v1/notifications/settings', { signal }),
+  updateNotificationSettings: (body: NotificationSettingsUpdate) =>
+    send<NotificationSettingsView>('/v1/notifications/settings', { method: 'PUT', body }),
+
+  // ---------- Calls ----------
+  /** Call history (metadata only), newest first; optionally one conversation's calls. */
+  calls: (conversationId?: string, signal?: AbortSignal) =>
+    send<CallPage>(
+      `/v1/calls?limit=50${conversationId ? `&conversationId=${encodeURIComponent(conversationId)}` : ''}`,
+      { signal },
+    ),
 };
 
 function pageQuery(cursor: string | undefined): string {

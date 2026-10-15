@@ -1,10 +1,12 @@
 import {
   type LocalMessage,
   type MessageDisplayStatus,
+  type PeerKeyStatus,
   type TimelineEvent,
   attachmentKind,
   conversationAvatar,
   conversationTitle,
+  callDescription,
   describeEvent,
   mentionsIn,
   messageStatus,
@@ -13,6 +15,7 @@ import {
   safeMime,
 } from '@ogc/messaging';
 import {
+  type CallView,
   type ConversationView,
   type GroupMemberView,
   REACTION_EMOJI,
@@ -24,7 +27,7 @@ import {
   MESSAGE_TEXT_MAX_LENGTH,
   formatOgcIdForDisplay,
 } from '@ogc/validation';
-import { color } from '@ogc/ui';
+import { color, space } from '@ogc/ui';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
@@ -40,23 +43,33 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthProvider';
+import { Icon, type IconName } from '../../components/Icon';
 import { Avatar } from '../../components/identity';
+import { IconButton } from '../../components/ui';
 import { dayLabel, messageTime, sameDay } from '../../lib/time';
+import { useKeyboardVisible } from '../../lib/use-keyboard';
 import { communityApi } from '../../api/community';
-import { useConversationMessages, useTimeline } from '../../messaging/hooks';
+import {
+  useCall,
+  useCallHistory,
+  useConversationMessages,
+  useTimeline,
+} from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
+import { AppBar } from '../Screen';
 import { AttachmentView } from './Attachments';
 import { m } from './styles';
 import { type RecordedVoice, VoiceRecorder } from './VoiceRecorder';
 
-const STATUS: Record<MessageDisplayStatus, { icon: string; label: string }> = {
-  PENDING: { icon: '◷', label: 'Sending' },
-  SENT: { icon: '✓', label: 'Sent' },
-  DELIVERED: { icon: '✓✓', label: 'Delivered' },
-  READ: { icon: '✓✓', label: 'Read' },
-  FAILED: { icon: '!', label: 'Not sent' },
+const STATUS: Record<MessageDisplayStatus, { icon: IconName; label: string; tint: string }> = {
+  PENDING: { icon: 'clock', label: 'Sending', tint: color.textMuted },
+  SENT: { icon: 'check', label: 'Sent', tint: color.textMuted },
+  DELIVERED: { icon: 'checkDouble', label: 'Delivered', tint: color.textMuted },
+  READ: { icon: 'checkDouble', label: 'Read', tint: color.accent },
+  FAILED: { icon: 'alert', label: 'Not sent', tint: color.danger },
 };
 
 const EMOJI = [
@@ -78,8 +91,21 @@ const EMOJI = [
   '🤝',
 ];
 
+/** Messages from one sender within this window are drawn as one visual group. */
+const GROUP_WINDOW_MS = 5 * 60_000;
+
 /** A row of the conversation: a message or a group timeline event. */
-type Entry = { kind: 'message'; message: LocalMessage } | { kind: 'event'; event: TimelineEvent };
+type Entry =
+  | { kind: 'message'; message: LocalMessage }
+  | { kind: 'event'; event: TimelineEvent }
+  | { kind: 'call'; call: CallView };
+
+/** When a timeline row happened (sort key and day separators). */
+function entryTime(entry: Entry): string {
+  if (entry.kind === 'message') return entry.message.createdAt;
+  if (entry.kind === 'event') return entry.event.createdAt;
+  return entry.call.createdAt;
+}
 
 interface PendingAttachment {
   id: string;
@@ -87,6 +113,13 @@ interface PendingAttachment {
   mime: string;
   size: number;
   uri: string;
+}
+
+interface SheetAction {
+  label: string;
+  icon: IconName;
+  danger?: boolean;
+  run: () => void;
 }
 
 function errorText(error: unknown): string {
@@ -100,13 +133,18 @@ function errorText(error: unknown): string {
 }
 
 function Placeholder({ message }: { message: LocalMessage }) {
-  const text =
-    message.state === 'deleted'
-      ? 'This message was deleted'
-      : message.state === 'unavailable'
-        ? '🔒 Sent before this device joined the conversation, so it can’t be decrypted here.'
-        : 'This message couldn’t be decrypted or verified.';
-  return <Text style={m.placeholder}>{text}</Text>;
+  const deleted = message.state === 'deleted';
+  const text = deleted
+    ? 'This message was deleted'
+    : message.state === 'unavailable'
+      ? 'Sent before this device joined the conversation, so it can’t be decrypted here.'
+      : 'This message couldn’t be decrypted or verified.';
+  return (
+    <View style={m.placeholderRow}>
+      <Icon name={deleted ? 'trash' : 'lock'} size={14} tint={color.textMuted} />
+      <Text style={m.placeholder}>{text}</Text>
+    </View>
+  );
 }
 
 function MessageRow({
@@ -117,6 +155,8 @@ function MessageRow({
   onActions,
   onReact,
   senderName,
+  startsGroup,
+  endsGroup,
 }: {
   message: LocalMessage;
   conversation: ConversationView;
@@ -124,8 +164,10 @@ function MessageRow({
   replyTarget: LocalMessage | null | undefined;
   onActions: (message: LocalMessage) => void;
   onReact: (message: LocalMessage, reaction: ReactionType, add: boolean) => void;
-  /** Groups: who sent it. */
+  /** Groups: who sent it (shown on the first message of a run). */
   senderName?: string | undefined;
+  startsGroup: boolean;
+  endsGroup: boolean;
 }) {
   const status = messageStatus(message, conversation);
   const readable = message.state === 'ok' && message.payload !== null;
@@ -135,8 +177,12 @@ function MessageRow({
     grouped.set(r.reaction, { count: entry.count + 1, mine: entry.mine || r.ogcId === myOgcId });
   }
   return (
-    <View style={message.mine ? m.messageMine : m.messageTheirs}>
-      {senderName && !message.mine ? <Text style={m.label}>{senderName}</Text> : null}
+    <View
+      style={[message.mine ? m.messageMine : m.messageTheirs, startsGroup ? m.spaced : m.grouped]}
+    >
+      {senderName && !message.mine && startsGroup ? (
+        <Text style={m.sender}>{senderName}</Text>
+      ) : null}
       <Pressable
         onLongPress={() => {
           onActions(message);
@@ -147,13 +193,25 @@ function MessageRow({
         onAccessibilityAction={() => {
           onActions(message);
         }}
-        style={[m.bubble, message.mine ? m.bubbleMine : m.bubbleTheirs]}
+        style={({ pressed }) => [
+          m.bubble,
+          message.mine ? m.bubbleMine : m.bubbleTheirs,
+          endsGroup && (message.mine ? m.bubbleMineTail : m.bubbleTheirsTail),
+          pressed && m.bubblePressed,
+        ]}
       >
-        {message.forwarded ? <Text style={m.label}>Forwarded</Text> : null}
+        {message.forwarded ? (
+          <View style={m.labelRow}>
+            <Icon name="forward" size={12} tint={color.textMuted} />
+            <Text style={m.label}>Forwarded</Text>
+          </View>
+        ) : null}
         {message.replyToId ? (
-          <Text style={m.quote} numberOfLines={1}>
-            {replyTarget ? previewText(replyTarget) : 'Original message unavailable'}
-          </Text>
+          <View style={m.quote}>
+            <Text style={m.quoteText} numberOfLines={2}>
+              {replyTarget ? previewText(replyTarget) : 'Original message unavailable'}
+            </Text>
+          </View>
         ) : null}
         {readable ? (
           <>
@@ -166,15 +224,17 @@ function MessageRow({
           <Placeholder message={message} />
         )}
         <View style={m.meta}>
-          {message.editedAt ? <Text style={m.metaText}>edited ·</Text> : null}
+          {message.editedAt ? <Text style={m.metaText}>edited</Text> : null}
           <Text style={m.metaText}>{messageTime(message.createdAt)}</Text>
           {status ? (
-            <Text
-              style={status === 'READ' ? m.read : status === 'FAILED' ? m.failed : m.metaText}
-              accessibilityLabel={STATUS[status].label}
-            >
-              {STATUS[status].icon}
-            </Text>
+            <View accessible accessibilityLabel={STATUS[status].label}>
+              <Icon
+                name={STATUS[status].icon}
+                size={14}
+                tint={STATUS[status].tint}
+                strokeWidth={2}
+              />
+            </View>
           ) : null}
         </View>
       </Pressable>
@@ -203,9 +263,12 @@ function MessageRow({
 /** One conversation: messages, actions (long press), and an end-to-end encrypted composer. */
 export function ConversationScreen({ conversationId }: { conversationId: string }) {
   const nav = useNavigation();
+  const insets = useSafeAreaInsets();
+  const keyboardOpen = useKeyboardVisible();
   const { client } = useAuth();
-  const { engine, conversations, typing, presence, connection, setTyping, watchPresence } =
+  const { engine, conversations, typing, presence, connection, setTyping, watchPresence, calls } =
     useMessaging();
+  const call = useCall();
   const conversation = conversations.find((c) => c.id === conversationId);
   const messages = useConversationMessages(conversationId);
   const [text, setText] = useState('');
@@ -222,6 +285,7 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
   const peerOgcId = conversation?.peer?.ogcId;
   const group = conversation?.group ?? null;
   const events = useTimeline(conversationId);
+  const callHistory = useCallHistory(conversationId, Boolean(conversation?.peer));
   const [members, setMembers] = useState<GroupMemberView[]>([]);
 
   // Groups: the member directory names senders and timeline events.
@@ -245,6 +309,23 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
   useEffect(() => {
     if (peerOgcId) watchPresence([peerOgcId]);
   }, [peerOgcId, watchPresence]);
+
+  // Direct conversations: warn when the other person has a device key this device never saw.
+  const [keyStatus, setKeyStatus] = useState<PeerKeyStatus | null>(null);
+  const [keyCheck, setKeyCheck] = useState(0);
+  useEffect(() => {
+    if (!engine || !peerOgcId) return;
+    let active = true;
+    engine.peerKeyStatus(conversationId).then(
+      (value) => {
+        if (active) setKeyStatus(value);
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [engine, peerOgcId, conversationId, version, keyCheck]);
 
   useEffect(() => {
     if (!engine) return;
@@ -272,26 +353,15 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     const list: Entry[] = [
       ...(messages ?? []).map((message) => ({ kind: 'message' as const, message })),
       ...events.map((event) => ({ kind: 'event' as const, event })),
+      ...callHistory.map((entry) => ({ kind: 'call' as const, call: entry })),
     ];
-    const at = (item: Entry) =>
-      item.kind === 'message' ? item.message.createdAt : item.event.createdAt;
-    return list.sort((a, b) => at(a).localeCompare(at(b)));
-  }, [messages, events]);
+    return list.sort((a, b) => entryTime(a).localeCompare(entryTime(b)));
+  }, [messages, events, callHistory]);
 
   if (!conversation) {
     return (
       <View style={m.root}>
-        <View style={m.header}>
-          <Text
-            style={m.back}
-            accessibilityRole="button"
-            accessibilityLabel="Back"
-            onPress={nav.back}
-          >
-            ‹
-          </Text>
-          <Text style={m.title}>Conversation</Text>
-        </View>
+        <AppBar title="Conversation" onBack={nav.back} />
         <Text style={m.note}>This conversation isn’t available.</Text>
       </View>
     );
@@ -440,8 +510,12 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     : group
       ? `${String(group.memberCount)} members · End-to-end encrypted`
       : peer && presence[peer.ogcId] === 'ONLINE'
-        ? 'Online'
-        : 'End-to-end encrypted';
+        ? keyStatus?.state === 'verified'
+          ? 'Online · Verified'
+          : 'Online'
+        : keyStatus?.state === 'verified'
+          ? 'End-to-end encrypted · Verified'
+          : 'End-to-end encrypted';
   const blocked = conversation.blockedByMe;
   const readOnly = group !== null && !group.canPost;
   const moderator = group !== null && group.myRole !== 'MEMBER' && !group.archived;
@@ -449,17 +523,58 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
   const canSubmit =
     !blocked && (text.trim().length > 0 || attachments.length > 0 || voice !== null);
 
+  const at = (entry: Entry | undefined) => (entry ? entryTime(entry) : '');
+  /** Same sender, same day, within the grouping window. */
+  const continues = (a: Entry | undefined, b: Entry | undefined) =>
+    a?.kind === 'message' &&
+    b?.kind === 'message' &&
+    a.message.senderOgcId === b.message.senderOgcId &&
+    a.message.mine === b.message.mine &&
+    sameDay(a.message.createdAt, b.message.createdAt) &&
+    Math.abs(Date.parse(b.message.createdAt) - Date.parse(a.message.createdAt)) < GROUP_WINDOW_MS;
+  const callBusy = call.phase !== 'idle' && call.phase !== 'ended';
+  const composerBottom = keyboardOpen ? space[2] : Math.max(insets.bottom, space[2]);
+
   return (
     <KeyboardAvoidingView style={m.root} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={m.header}>
-        <Text
-          style={m.back}
-          accessibilityRole="button"
-          accessibilityLabel="Back"
-          onPress={nav.back}
-        >
-          ‹
-        </Text>
+      <AppBar
+        onBack={nav.back}
+        actions={
+          group ? (
+            <IconButton
+              icon="info"
+              label="Info"
+              onPress={() => {
+                nav.push({ name: 'group-info', conversationId });
+              }}
+            />
+          ) : (
+            <View style={m.headerActions}>
+              {conversation.peer && !conversation.blockedByMe
+                ? (['AUDIO', 'VIDEO'] as const).map((media) => (
+                    <IconButton
+                      key={media}
+                      icon={media === 'VIDEO' ? 'video' : 'phone'}
+                      label={`${media === 'VIDEO' ? 'Video' : 'Voice'} call ${title}`}
+                      disabled={!calls || connection !== 'online' || callBusy}
+                      onPress={() => {
+                        if (conversation.peer)
+                          void calls?.start(conversationId, media, conversation.peer);
+                      }}
+                    />
+                  ))
+                : null}
+              <IconButton
+                icon="shieldCheck"
+                label="Verify"
+                onPress={() => {
+                  nav.push({ name: 'safety-number', conversationId });
+                }}
+              />
+            </View>
+          )
+        }
+      >
         <Pressable
           style={m.peer}
           accessibilityRole="button"
@@ -469,35 +584,69 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
             else nav.push({ name: 'group-info', conversationId });
           }}
         >
-          <Avatar url={avatar.url} name={avatar.name} size={36} />
-          <View style={{ flex: 1 }}>
+          <Avatar url={avatar.url} name={avatar.name} size={38} />
+          <View style={m.peerText}>
             <Text style={m.peerName} numberOfLines={1}>
               {title}
             </Text>
-            <Text style={typing[conversationId] ? m.rowTyping : m.peerStatus}>{status}</Text>
+            <View style={m.peerStatusRow}>
+              {typing[conversationId] ? null : status === 'Online' ? (
+                <View style={[m.recDot, { width: 7, height: 7, backgroundColor: color.success }]} />
+              ) : (
+                <Icon name="lock" size={11} tint={color.textMuted} />
+              )}
+              <Text style={typing[conversationId] ? m.rowTyping : m.peerStatus} numberOfLines={1}>
+                {status}
+              </Text>
+            </View>
           </View>
         </Pressable>
-        <Text
-          style={m.outlinePill}
-          accessibilityRole="button"
-          onPress={() => {
-            if (group) nav.push({ name: 'group-info', conversationId });
-            else nav.push({ name: 'safety-number', conversationId });
-          }}
-        >
-          {group ? 'Info' : 'Verify'}
-        </Text>
-      </View>
+      </AppBar>
       {connection === 'offline' ? (
-        <Text style={m.banner} accessibilityRole="alert">
-          Offline — reconnecting. Messages are queued on this device.
-        </Text>
+        <View style={m.banner} accessibilityRole="alert">
+          <Icon name="offline" size={16} tint={color.warning} />
+          <Text style={m.bannerText}>
+            Offline — reconnecting. Messages are queued on this device.
+          </Text>
+        </View>
+      ) : null}
+      {peer && keyStatus?.state === 'changed' ? (
+        <View style={m.banner} accessibilityRole="alert">
+          <Icon name="shieldCheck" size={16} tint={color.warning} />
+          <Text style={m.bannerText}>
+            {peer.displayName}’s security keys changed — they may have signed in on a new device.
+            Compare safety numbers again to be sure.
+          </Text>
+          <Text
+            style={m.bannerAction}
+            accessibilityRole="button"
+            onPress={() => {
+              nav.push({ name: 'safety-number', conversationId });
+            }}
+          >
+            Verify
+          </Text>
+          <Text
+            style={m.bannerAction}
+            accessibilityRole="button"
+            onPress={() => {
+              run(
+                (engine?.acknowledgePeerKeys(conversationId) ?? Promise.resolve()).then(() => {
+                  setKeyCheck((n) => n + 1);
+                }),
+              );
+            }}
+          >
+            Dismiss
+          </Text>
+        </View>
       ) : null}
       {blocked && peer ? (
-        <Text style={m.banner}>
-          You blocked {peer.displayName}.{' '}
+        <View style={m.banner}>
+          <Icon name="ban" size={16} tint={color.danger} />
+          <Text style={m.bannerText}>You blocked {peer.displayName}.</Text>
           <Text
-            style={{ color: color.accent }}
+            style={m.bannerAction}
             accessibilityRole="button"
             onPress={() => {
               run(client.unblock(peer.ogcId).then(() => engine?.refreshConversations()));
@@ -505,54 +654,84 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
           >
             Unblock
           </Text>
-        </Text>
+        </View>
       ) : null}
       {group?.archived ? (
-        <Text style={m.banner}>
-          This {group.kind === 'CHANNEL' ? 'channel' : 'group'} is archived and read-only.
-        </Text>
+        <View style={m.banner}>
+          <Icon name="inbox" size={16} tint={color.textSecondary} />
+          <Text style={m.bannerText}>
+            This {group.kind === 'CHANNEL' ? 'channel' : 'group'} is archived and read-only.
+          </Text>
+        </View>
       ) : null}
 
       <FlatList
         ref={list}
         data={items}
         keyExtractor={(item) =>
-          item.kind === 'message' ? item.message.clientMessageId : `e-${item.event.id}`
+          item.kind === 'message'
+            ? item.message.clientMessageId
+            : item.kind === 'event'
+              ? `e-${item.event.id}`
+              : `c-${item.call.id}`
         }
         contentContainerStyle={m.list}
         accessibilityLabel="Messages"
+        keyboardShouldPersistTaps="handled"
         onContentSizeChange={() => list.current?.scrollToEnd({ animated: false })}
         ListEmptyComponent={
           messages ? (
-            <View style={m.empty}>
-              <Text style={m.emptyTitle}>
+            <View style={{ alignItems: 'center', gap: space[3], padding: space[8] }}>
+              <Avatar url={avatar.url} name={avatar.name} size={72} />
+              <Text style={[m.peerName, { fontSize: 20 }]}>
                 {group ? `Welcome to ${title}` : `Say hello to ${title}`}
               </Text>
-              <Text style={[m.note, { textAlign: 'center' }]}>
-                {group
-                  ? 'Messages are end-to-end encrypted for the members’ devices — not readable by OGC.'
-                  : 'Messages are end-to-end encrypted. Only your and their devices can read them — not OGC.'}
-              </Text>
+              <View style={m.privacyNote}>
+                <Icon name="lock" size={14} tint={color.accent} />
+                <Text style={[m.privacyNoteText, { textAlign: 'center' }]}>
+                  {group
+                    ? 'Messages are end-to-end encrypted for the members’ devices — not readable by OGC.'
+                    : 'Messages are end-to-end encrypted. Only your and their devices can read them — not OGC.'}
+                </Text>
+              </View>
             </View>
           ) : null
         }
         renderItem={({ item: entry, index }) => {
           const previousEntry = items[index - 1];
-          const at = entry.kind === 'message' ? entry.message.createdAt : entry.event.createdAt;
-          const previousAt = previousEntry
-            ? previousEntry.kind === 'message'
-              ? previousEntry.message.createdAt
-              : previousEntry.event.createdAt
-            : undefined;
-          const day =
-            !previousAt || !sameDay(previousAt, at) ? (
-              <Text style={m.day}>{dayLabel(at)}</Text>
-            ) : null;
+          const nextEntry = items[index + 1];
+          const when = at(entry);
+          const previousAt = at(previousEntry);
+          const newDay = !previousAt || !sameDay(previousAt, when);
+          const day = newDay ? <Text style={m.day}>{dayLabel(when)}</Text> : null;
+          if (entry.kind === 'call') {
+            const missed =
+              entry.call.direction === 'INCOMING' &&
+              (entry.call.outcome === 'MISSED' ||
+                entry.call.outcome === 'CANCELLED' ||
+                entry.call.outcome === 'BUSY');
+            return (
+              <>
+                {day}
+                <View style={m.callRow} accessible accessibilityLabel={callDescription(entry.call)}>
+                  <Icon
+                    name={entry.call.media === 'VIDEO' ? 'video' : 'phone'}
+                    size={15}
+                    tint={missed ? color.danger : color.textSecondary}
+                  />
+                  <Text style={[m.callRowText, missed && m.callRowMissed]}>
+                    {callDescription(entry.call)}
+                  </Text>
+                  <Text style={m.callRowTime}>{messageTime(entry.call.createdAt)}</Text>
+                </View>
+              </>
+            );
+          }
           if (entry.kind === 'event') {
             return (
               <>
                 {day}
-                <Text style={m.day}>
+                <Text style={m.event}>
                   {describeEvent(entry.event, nameOf, group?.kind ?? 'GROUP')}
                 </Text>
               </>
@@ -568,6 +747,8 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
                 conversation={conversation}
                 myOgcId={engine?.ogcId ?? ''}
                 replyTarget={item.replyToId ? (byId.get(item.replyToId) ?? null) : undefined}
+                startsGroup={newDay || !continues(previousEntry, entry)}
+                endsGroup={!continues(entry, nextEntry)}
                 onActions={setActionsFor}
                 onReact={(message, reaction, add) => {
                   if (engine && message.id)
@@ -580,71 +761,91 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
       />
 
       {error ? (
-        <Text style={[m.banner, { color: color.danger }]} accessibilityRole="alert">
-          {error}
-        </Text>
+        <View style={[m.banner, { backgroundColor: color.dangerSubtle }]} accessibilityRole="alert">
+          <Icon name="alert" size={16} tint={color.danger} />
+          <Text style={m.bannerText}>{error}</Text>
+        </View>
       ) : null}
 
       {readOnly ? (
-        <Text style={m.e2ee}>
-          {group.archived
-            ? 'Nobody can post in an archived group.'
-            : group.postPolicy === 'MODERATORS'
-              ? 'Only moderators and admins can post here.'
-              : 'Only admins can post here.'}
-        </Text>
+        <View style={[m.readOnly, { paddingBottom: composerBottom + space[2] }]}>
+          <Icon name="lock" size={16} tint={color.textMuted} />
+          <Text style={m.readOnlyText}>
+            {group.archived
+              ? 'Nobody can post in an archived group.'
+              : group.postPolicy === 'MODERATORS'
+                ? 'Only moderators and admins can post here.'
+                : 'Only admins can post here.'}
+          </Text>
+        </View>
       ) : null}
-      <View style={[m.composer, readOnly ? { display: 'none' } : null]}>
+      <View
+        style={[
+          m.composer,
+          { paddingBottom: composerBottom },
+          readOnly ? { display: 'none' } : null,
+        ]}
+      >
         {(editing ?? replyTo) ? (
           <View style={m.context}>
-            <Text style={m.contextLabel}>{editing ? 'Editing' : 'Replying to'}</Text>
-            <Text style={m.contextText} numberOfLines={1}>
-              {previewText(editing ?? replyTo ?? undefined)}
-            </Text>
-            <Text
-              style={m.icon}
-              accessibilityRole="button"
-              accessibilityLabel={editing ? 'Cancel edit' : 'Cancel reply'}
+            <Icon name={editing ? 'edit' : 'reply'} size={16} tint={color.accent} />
+            <View style={m.contextBody}>
+              <Text style={m.contextLabel}>{editing ? 'Editing' : 'Replying to'}</Text>
+              <Text style={m.contextText} numberOfLines={1}>
+                {previewText(editing ?? replyTo ?? undefined)}
+              </Text>
+            </View>
+            <IconButton
+              icon="close"
+              label={editing ? 'Cancel edit' : 'Cancel reply'}
+              tint={color.textMuted}
+              size={18}
               onPress={() => {
                 if (editing) setText('');
                 setEditing(null);
                 setReplyTo(null);
               }}
-            >
-              ✕
-            </Text>
+            />
           </View>
         ) : null}
-        {attachments.map((attachment) => (
-          <View key={attachment.id} style={m.chip}>
-            <Text style={m.chipText} numberOfLines={1}>
-              {safeFileName(attachment.name)}
-            </Text>
-            <Text
-              style={m.icon}
-              accessibilityRole="button"
-              accessibilityLabel={`Remove ${safeFileName(attachment.name)}`}
-              onPress={() => {
-                setAttachments((current) => current.filter((a) => a.id !== attachment.id));
-              }}
-            >
-              ✕
-            </Text>
-          </View>
-        ))}
-        {voice ? (
-          <View style={m.chip}>
-            <Text style={m.chipText}>Voice message ready</Text>
-            <Text
-              style={m.icon}
-              accessibilityRole="button"
-              accessibilityLabel="Discard voice message"
-              onPress={() => {
-                setVoice(null);
-              }}
-            >
-              ✕
-            </Text>
+        {attachments.length > 0 || voice ? (
+          <View style={m.chips}>
+            {attachments.map((attachment) => (
+              <View key={attachment.id} style={m.chip}>
+                <Icon
+                  name={attachmentKind(attachment.mime) === 'IMAGE' ? 'image' : 'file'}
+                  size={14}
+                  tint={color.accent}
+                />
+                <Text style={m.chipText} numberOfLines={1}>
+                  {safeFileName(attachment.name)}
+                </Text>
+                <IconButton
+                  icon="close"
+                  label={`Remove ${safeFileName(attachment.name)}`}
+                  tint={color.textMuted}
+                  size={16}
+                  onPress={() => {
+                    setAttachments((current) => current.filter((a) => a.id !== attachment.id));
+                  }}
+                />
+              </View>
+            ))}
+            {voice ? (
+              <View style={m.chip}>
+                <Icon name="mic" size={14} tint={color.accent} />
+                <Text style={m.chipText}>Voice message ready</Text>
+                <IconButton
+                  icon="close"
+                  label="Discard voice message"
+                  tint={color.textMuted}
+                  size={16}
+                  onPress={() => {
+                    setVoice(null);
+                  }}
+                />
+              </View>
+            ) : null}
           </View>
         ) : null}
         {emojiOpen ? (
@@ -667,10 +868,10 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
         ) : null}
         <View style={m.composeRow}>
           {!editing && !blocked ? (
-            <Text
-              style={m.icon}
-              accessibilityRole="button"
-              accessibilityLabel="Attach"
+            <IconButton
+              icon="paperclip"
+              label="Attach"
+              tint={color.textSecondary}
               onPress={() => {
                 Alert.alert('Attach', undefined, [
                   { text: 'Photo', onPress: () => void pickPhoto() },
@@ -678,52 +879,56 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
                   { text: 'Cancel', style: 'cancel' },
                 ]);
               }}
-            >
-              ＋
-            </Text>
+            />
           ) : null}
-          <Text
-            style={m.icon}
-            accessibilityRole="button"
-            accessibilityLabel="Emoji"
-            onPress={() => {
-              setEmojiOpen((open) => !open);
-            }}
-          >
-            ☺
-          </Text>
-          <TextInput
-            style={m.input}
-            multiline
-            maxLength={MESSAGE_TEXT_MAX_LENGTH}
-            editable={!blocked}
-            placeholder={blocked ? 'You can’t send messages here' : 'Encrypted message'}
-            placeholderTextColor={color.textDisabled}
-            accessibilityLabel="Message"
-            value={text}
-            onChangeText={changeText}
-          />
+          <View style={m.inputWrap}>
+            <TextInput
+              style={m.input}
+              multiline
+              maxLength={MESSAGE_TEXT_MAX_LENGTH}
+              editable={!blocked}
+              placeholder={blocked ? 'You can’t send messages here' : 'Encrypted message'}
+              placeholderTextColor={color.textDisabled}
+              selectionColor={color.accent}
+              accessibilityLabel="Message"
+              value={text}
+              onChangeText={changeText}
+            />
+            <IconButton
+              icon="smile"
+              label="Emoji"
+              tint={emojiOpen ? color.accent : color.textMuted}
+              size={20}
+              onPress={() => {
+                setEmojiOpen((open) => !open);
+              }}
+            />
+          </View>
           {!editing && !canSubmit && !blocked ? (
             <VoiceRecorder onRecorded={setVoice} onError={setError} />
           ) : (
-            <Text
-              style={[m.send, !canSubmit || busy ? { opacity: 0.5 } : null]}
-              accessibilityRole="button"
-              accessibilityLabel={editing ? 'Save edit' : 'Send'}
-              accessibilityState={{ disabled: !canSubmit || busy }}
+            <IconButton
+              icon={editing ? 'check' : 'send'}
+              label={editing ? 'Save edit' : 'Send'}
+              filled
+              disabled={!canSubmit || busy}
+              size={20}
               onPress={() => void submit()}
-            >
-              {editing ? 'Save' : 'Send'}
-            </Text>
+            />
           )}
         </View>
-        <Text style={m.e2ee}>🔒 End-to-end encrypted</Text>
+        <View style={m.e2ee}>
+          <Icon name="lock" size={11} tint={color.textMuted} />
+          <Text style={m.e2eeText}>End-to-end encrypted</Text>
+        </View>
       </View>
 
       <Modal
         visible={target !== null}
         transparent
         animationType="fade"
+        statusBarTranslucent
+        navigationBarTranslucent
         onRequestClose={() => {
           setActionsFor(null);
         }}
@@ -736,7 +941,11 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
           }}
         >
           {target ? (
-            <View style={m.sheet} accessibilityViewIsModal>
+            <View
+              style={[m.sheet, { paddingBottom: Math.max(insets.bottom, space[4]) }]}
+              accessibilityViewIsModal
+            >
+              <View style={m.sheetHandle} />
               {target.id && target.state !== 'deleted' && target.state !== 'failed' ? (
                 <View style={m.picks}>
                   {REACTION_TYPES.map((reaction) => (
@@ -760,17 +969,24 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
                 </View>
               ) : null}
               {sheetActions(target).map((action) => (
-                <Text
+                <Pressable
                   key={action.label}
-                  style={[m.sheetItem, action.danger ? m.danger : null]}
+                  style={({ pressed }) => [m.sheetItem, pressed && m.sheetItemPressed]}
                   accessibilityRole="button"
                   onPress={() => {
                     setActionsFor(null);
                     action.run();
                   }}
                 >
-                  {action.label}
-                </Text>
+                  <Icon
+                    name={action.icon}
+                    size={20}
+                    tint={action.danger ? color.danger : color.textSecondary}
+                  />
+                  <Text style={[m.sheetItemText, action.danger ? m.danger : null]}>
+                    {action.label}
+                  </Text>
+                </Pressable>
               ))}
             </View>
           ) : null}
@@ -779,14 +995,13 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     </KeyboardAvoidingView>
   );
 
-  function sheetActions(
-    message: LocalMessage,
-  ): { label: string; danger?: boolean; run: () => void }[] {
+  function sheetActions(message: LocalMessage): SheetAction[] {
     if (!engine) return [];
-    const actions: { label: string; danger?: boolean; run: () => void }[] = [];
+    const actions: SheetAction[] = [];
     if (message.state === 'failed') {
       actions.push({
         label: 'Discard',
+        icon: 'trash',
         run: () => {
           run(engine.discardFailed(conversationId, message.clientMessageId));
         },
@@ -798,6 +1013,7 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     const readable = message.state === 'ok' && message.payload !== null;
     actions.push({
       label: 'Reply',
+      icon: 'reply',
       run: () => {
         setEditing(null);
         setReplyTo(message);
@@ -806,6 +1022,7 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     if (message.mine && readable && message.payload?.text) {
       actions.push({
         label: 'Edit',
+        icon: 'edit',
         run: () => {
           setReplyTo(null);
           setEditing(message);
@@ -816,6 +1033,7 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     if (readable) {
       actions.push({
         label: 'Forward',
+        icon: 'forward',
         run: () => {
           nav.push({ name: 'forward', conversationId, messageId: id });
         },
@@ -823,6 +1041,7 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     }
     actions.push({
       label: 'Delete for me',
+      icon: 'trash',
       run: () => {
         run(engine.deleteForMe(conversationId, id));
       },
@@ -830,6 +1049,7 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     if (!message.mine) {
       actions.push({
         label: 'Report',
+        icon: 'flag',
         run: () => {
           nav.push({ name: 'report-message', conversationId, messageId: id });
         },
@@ -838,6 +1058,7 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     if (!message.mine && moderator) {
       actions.push({
         label: 'Remove for everyone',
+        icon: 'ban',
         danger: true,
         run: () => {
           Alert.alert(
@@ -860,6 +1081,7 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     if (message.mine) {
       actions.push({
         label: 'Delete for everyone',
+        icon: 'trash',
         danger: true,
         run: () => {
           Alert.alert(
