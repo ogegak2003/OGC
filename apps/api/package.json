@@ -35,7 +35,7 @@
     "cookie-parser": "1.4.7",
     "express": "5.2.1",
     "helmet": "8.3.0",
-    "ioredis": "5.11.1",
+    "ioredis": "6.0.0",
     "nestjs-pino": "5.3.1",
     "nodemailer": "10.1.0",
     "pino": "10.4.0",
