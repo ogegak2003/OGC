@@ -10,9 +10,16 @@ export const browserDependencies: MessagingDependencies = {
     const { store, sealer } = await IdbKeyValueStore.open(ogcId);
     return new MessagingClient(webTransport, new SealedStore(store, sealer), ogcId);
   },
-  // Same origin: the session cookie authenticates the socket (the server checks the Origin).
+  // Same origin: the session cookie authenticates the socket, and the server requires an
+  // allowlisted Origin for that. WebSocket only: browsers always send Origin on a WebSocket
+  // handshake, but omit it on the same-origin long-polling GET Socket.IO would otherwise start
+  // with, so every polling handshake was refused.
   createRealtime: (options, onEvent, onReconnect) =>
-    new RealtimeConnection({ origin: '', ...options }, onEvent, onReconnect),
+    new RealtimeConnection(
+      { origin: '', transports: ['websocket'], ...options },
+      onEvent,
+      onReconnect,
+    ),
   destroyLocalData: (ogcId) => IdbKeyValueStore.destroy(ogcId),
   createCallMedia: browserCallMedia,
 };
