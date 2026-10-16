@@ -46,7 +46,7 @@ describe('My OGC', () => {
     Object.defineProperty(navigator, 'share', { value: undefined, configurable: true });
     Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true });
     renderApp('/home');
-    fireEvent.click(await screen.findByRole('button', { name: 'Share my OGC' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Share' }));
     await waitFor(() => {
       expect(writeText).toHaveBeenCalledTimes(1);
     });
@@ -317,6 +317,10 @@ describe('privacy and safety', () => {
     });
     renderApp('/settings/blocked');
     fireEvent.click(await screen.findByRole('button', { name: 'Unblock' }));
+    // Unblocking is confirmed first, and says what it does.
+    const dialog = await screen.findByRole('dialog', { name: 'Unblock Pest?' });
+    expect(within(dialog).getByText(/not added back as a contact/)).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Unblock' }));
     expect(await screen.findByText('You have not blocked anyone.')).toBeTruthy();
   });
 

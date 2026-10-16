@@ -1,0 +1,77 @@
+.devices {
+  display: grid;
+  gap: var(--ogc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.device,
+.deviceCurrent {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  padding: var(--ogc-space-3) var(--ogc-space-4);
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-md);
+}
+
+.deviceCurrent {
+  border-color: var(--ogc-color-accent-border);
+}
+
+.deviceIcon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--ogc-color-accent);
+  background: var(--ogc-color-accent-subtle);
+  border-radius: var(--ogc-radius-md);
+}
+
+.deviceText {
+  display: grid;
+  flex: 1 1 14rem;
+  gap: 2px;
+  min-width: 0;
+}
+
+.deviceName {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.here {
+  color: var(--ogc-color-accent);
+  font-weight: 600;
+}
+
+.deviceMeta {
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+}
+
+.form {
+  display: grid;
+  gap: var(--ogc-space-4);
+  max-width: 28rem;
+}
+
+.note {
+  display: flex;
+  gap: var(--ogc-space-3);
+  margin: 0;
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
+  line-height: 1.6;
+}
+
+.note svg {
+  flex: none;
+  margin-top: 2px;
+  color: var(--ogc-color-accent);
+}

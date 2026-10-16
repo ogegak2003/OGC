@@ -1,11 +1,13 @@
 import { callDescription, conversationTitle, isMissedCall } from '@ogc/messaging';
 import { formatOgcIdForDisplay } from '@ogc/validation';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router';
 import { AppShell } from '../components/AppShell';
 import { Avatar } from '../components/Avatar';
 import { CallButtons } from '../components/calls/CallButtons';
 import { Icon } from '../components/Icon';
+import { EmptyState, PageIntro, SegmentedTabs } from '../components/kit';
+import { tabId, tabPanelId } from '../components/kit-ids';
 import { Alert, Skeleton } from '../components/ui';
 import { listTime } from '../messaging/format';
 import { useRecentCalls } from '../messaging/hooks';
@@ -21,6 +23,9 @@ export function CallsPage() {
     [conversations],
   );
   const byId = useMemo(() => new Map(conversations.map((c) => [c.id, c])), [conversations]);
+  const [filter, setFilter] = useState<'all' | 'missed'>('all');
+  const missedCount = calls?.filter(isMissedCall).length ?? 0;
+  const shown = filter === 'missed' ? calls?.filter(isMissedCall) : calls;
 
   useEffect(() => {
     const ogcIds = callable.flatMap((c) => (c.peer ? [c.peer.ogcId] : []));
@@ -29,14 +34,34 @@ export function CallsPage() {
 
   return (
     <AppShell title="Calls">
-      <p className={styles.intro}>
-        One-to-one voice and video calls with the people you chat with.
-      </p>
+      <PageIntro>
+        One-to-one voice and video calls with the people you chat with. Incoming calls ring while
+        OGC is open in this browser.
+      </PageIntro>
 
       <section className={styles.section} aria-labelledby="recent-calls">
-        <h2 id="recent-calls" className={styles.heading}>
-          Recent calls
-        </h2>
+        <div className={styles.sectionHeader}>
+          <h2 id="recent-calls" className={styles.heading}>
+            Recent calls
+          </h2>
+          {calls?.length ? (
+            <SegmentedTabs
+              label="Filter calls"
+              prefix="calls"
+              value={filter}
+              onChange={setFilter}
+              options={[
+                { id: 'all', label: 'All' },
+                {
+                  id: 'missed',
+                  label: 'Missed',
+                  count: missedCount || undefined,
+                  countLabel: 'missed',
+                },
+              ]}
+            />
+          ) : null}
+        </div>
         {failed ? (
           <Alert>Your call history could not be loaded.</Alert>
         ) : calls === undefined ? (
@@ -49,13 +74,19 @@ export function CallsPage() {
             ))}
           </div>
         ) : calls.length === 0 ? (
-          <div className={[styles.surface, styles.empty].join(' ')}>
-            <Icon name="phone" size={24} />
-            <p>No calls yet. Start one below or from a chat.</p>
-          </div>
+          <EmptyState icon="phone" title="No calls yet">
+            Start one below or from a chat.
+          </EmptyState>
+        ) : shown?.length === 0 ? (
+          <EmptyState icon="phone" title="No missed calls" />
         ) : (
-          <ul className={styles.surface}>
-            {calls.map((call) => {
+          <ul
+            className={styles.surface}
+            id={tabPanelId('calls', filter)}
+            aria-labelledby={tabId('calls', filter)}
+            role="tabpanel"
+          >
+            {shown?.map((call) => {
               const conversation = byId.get(call.conversationId);
               const name = call.peer.displayName || formatOgcIdForDisplay(call.peer.ogcId);
               return (
@@ -95,13 +126,10 @@ export function CallsPage() {
             </div>
           </div>
         ) : callable.length === 0 ? (
-          <div className={[styles.surface, styles.empty].join(' ')}>
-            <Icon name="contacts" size={24} />
-            <p>
-              Calls are with people you chat with. <Link to="/discover">Find someone</Link> by their
-              OGC ID and start a conversation first.
-            </p>
-          </div>
+          <EmptyState icon="contacts" title="Nobody to call yet">
+            Calls are with people you chat with. <Link to="/discover">Find someone</Link> by their
+            OGC ID and start a conversation first.
+          </EmptyState>
         ) : (
           <ul className={styles.surface}>
             {callable.map((conversation) => {

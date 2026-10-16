@@ -3,27 +3,21 @@ import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { AppShell } from '../components/AppShell';
 import { CreateChannelDialog } from '../components/channels/CreateChannelDialog';
+import { CardGrid, ChannelCard, GroupCard } from '../components/community/CommunityCards';
+import community from '../components/community/community.module.css';
 import { CreateGroupDialog } from '../components/groups/CreateGroupDialog';
 import { Icon } from '../components/Icon';
-import { ConversationRow } from '../components/messaging/ConversationList';
-import messaging from '../components/messaging/messaging.module.css';
+import { EmptyState } from '../components/kit';
 import { Alert, Button, Skeleton } from '../components/ui';
 import { channelsApi } from '../lib/community-api';
 import { useMessaging } from '../messaging/messaging-context';
-import { ChannelRow } from './ChannelsPage';
 import styles from './CommunitiesPage.module.css';
 
-function LoadingRows({ label }: { label: string }) {
+function LoadingCards({ label }: { label: string }) {
   return (
-    <div className={styles.surface} role="status" aria-label={label}>
+    <div className={community.grid} role="status" aria-label={label}>
       {[0, 1].map((key) => (
-        <div key={key} className={styles.skeletonRow}>
-          <Skeleton width="2.75rem" height="2.75rem" round />
-          <span className={styles.skeletonLines}>
-            <Skeleton width="35%" />
-            <Skeleton width="60%" height="0.75rem" />
-          </span>
-        </div>
+        <Skeleton key={key} height="6.5rem" />
       ))}
     </div>
   );
@@ -53,106 +47,131 @@ export function CommunitiesPage() {
 
   return (
     <AppShell title="Communities">
-      <p className={styles.lead}>Private groups and open channels.</p>
-      <div className={styles.actions}>
-        <button
-          type="button"
-          className={styles.action}
-          onClick={() => {
-            setDialog('group');
-          }}
-        >
-          <Icon name="community" />
-          New group
-        </button>
-        <button
-          type="button"
-          className={styles.action}
-          onClick={() => {
-            setDialog('channel');
-          }}
-        >
-          <Icon name="megaphone" />
-          New channel
-        </button>
-        <Link to="/invitations" className={styles.action}>
-          <Icon name="inbox" />
-          Invitations
-        </Link>
-        <Link to="/join" className={styles.action}>
-          <Icon name="link" />
-          Join with a link
-        </Link>
-      </div>
-
-      <section className={styles.section} aria-labelledby="groups-heading">
-        <h2 id="groups-heading" className={styles.sectionTitle}>
-          Groups
-        </h2>
-        {status !== 'ready' && status !== 'error' ? (
-          <LoadingRows label="Loading groups" />
-        ) : groups.length === 0 ? (
-          <div className={[styles.surface, styles.empty].join(' ')}>
-            <span className={styles.emptyIcon}>
-              <Icon name="community" size={24} />
+      <div className={community.page}>
+        <div className={community.kinds}>
+          <div className={community.kind}>
+            <span className={[community.kindIcon, community.kindIconGroup].join(' ')}>
+              <Icon name="lock" size={20} />
             </span>
-            <p className={styles.emptyTitle}>No groups yet</p>
-            <p className={styles.muted}>
-              Groups are end-to-end encrypted for their members’ devices.
-            </p>
-            <Button
-              variant="secondary"
-              icon="plus"
-              onClick={() => {
-                setDialog('group');
-              }}
-            >
-              Create a group
-            </Button>
+            <span className={community.kindText}>
+              <span className={community.kindTitle}>Groups are private</span>
+              <span className={community.kindDetail}>
+                Invite-only conversations, end-to-end encrypted for members’ devices. OGC cannot
+                read them.
+              </span>
+            </span>
           </div>
-        ) : (
-          <ul className={[styles.surface, styles.rows].join(' ')}>
-            {groups.map((conversation) => (
-              <ConversationRow key={conversation.id} conversation={conversation} active={false} />
-            ))}
-          </ul>
-        )}
-      </section>
+          <div className={community.kind}>
+            <span className={[community.kindIcon, community.kindIconChannel].join(' ')}>
+              <Icon name="megaphone" size={20} />
+            </span>
+            <span className={community.kindText}>
+              <span className={community.kindTitle}>Channels are communities</span>
+              <span className={community.kindDetail}>
+                Open, moderated feeds for larger audiences. Not end-to-end encrypted: OGC can read
+                posts for moderation and search.
+              </span>
+            </span>
+          </div>
+        </div>
 
-      <section className={styles.section} aria-labelledby="channels-heading">
-        <div className={styles.sectionHeader}>
-          <h2 id="channels-heading" className={styles.sectionTitle}>
-            Channels
-          </h2>
-          <Link to="/channels" className={styles.sectionLink}>
-            Explore channels
+        <div className={styles.actions}>
+          <button
+            type="button"
+            className={styles.action}
+            onClick={() => {
+              setDialog('group');
+            }}
+          >
+            <Icon name="community" />
+            New group
+          </button>
+          <button
+            type="button"
+            className={styles.action}
+            onClick={() => {
+              setDialog('channel');
+            }}
+          >
+            <Icon name="megaphone" />
+            New channel
+          </button>
+          <Link to="/invitations" className={styles.action}>
+            <Icon name="inbox" />
+            Invitations
+          </Link>
+          <Link to="/join" className={styles.action}>
+            <Icon name="link" />
+            Join with a link
           </Link>
         </div>
-        <p className={styles.note}>
-          <Icon name="globe" size={14} />
-          Channels are not end-to-end encrypted: OGC can read posts for moderation and search.
-        </p>
-        {error ? <Alert>{error}</Alert> : null}
-        {!channels && !error ? <LoadingRows label="Loading channels" /> : null}
-        {channels?.length === 0 ? (
-          <div className={[styles.surface, styles.empty].join(' ')}>
-            <span className={styles.emptyIcon}>
-              <Icon name="hash" size={24} />
-            </span>
-            <p className={styles.emptyTitle}>No channels yet</p>
-            <p className={styles.muted}>
-              Follow channels for announcements and discussions from larger communities.
-            </p>
+
+        <section className={community.section} aria-labelledby="groups-heading">
+          <h2 id="groups-heading" className={styles.sectionTitle}>
+            Groups
+          </h2>
+          {status !== 'ready' && status !== 'error' ? (
+            <LoadingCards label="Loading groups" />
+          ) : groups.length === 0 ? (
+            <EmptyState
+              icon="lock"
+              title="No groups yet"
+              action={
+                <Button
+                  variant="secondary"
+                  icon="plus"
+                  onClick={() => {
+                    setDialog('group');
+                  }}
+                >
+                  Create a group
+                </Button>
+              }
+            >
+              Groups are end-to-end encrypted for their members’ devices.
+            </EmptyState>
+          ) : (
+            <CardGrid label="Your groups">
+              {groups.map((conversation) => (
+                <GroupCard key={conversation.id} conversation={conversation} />
+              ))}
+            </CardGrid>
+          )}
+        </section>
+
+        <section className={community.section} aria-labelledby="channels-heading">
+          <div className={styles.sectionHeader}>
+            <h2 id="channels-heading" className={styles.sectionTitle}>
+              Channels
+            </h2>
+            <Link to="/channels" className={styles.sectionLink}>
+              Explore channels
+            </Link>
           </div>
-        ) : null}
-        {channels?.length ? (
-          <ul className={messaging.cardList}>
-            {channels.map((channel) => (
-              <ChannelRow key={channel.id} channel={channel} />
-            ))}
-          </ul>
-        ) : null}
-      </section>
+          {error ? <Alert>{error}</Alert> : null}
+          {!channels && !error ? <LoadingCards label="Loading channels" /> : null}
+          {channels?.length === 0 ? (
+            <EmptyState
+              icon="megaphone"
+              title="No channels yet"
+              action={
+                <Link to="/channels" className={styles.sectionLink}>
+                  Discover channels
+                </Link>
+              }
+            >
+              Follow channels for announcements and discussions from larger communities.
+            </EmptyState>
+          ) : null}
+          {channels?.length ? (
+            <CardGrid label="Your channels">
+              {channels.map((channel) => (
+                <ChannelCard key={channel.id} channel={channel} />
+              ))}
+            </CardGrid>
+          ) : null}
+        </section>
+      </div>
 
       {dialog === 'group' ? (
         <CreateGroupDialog

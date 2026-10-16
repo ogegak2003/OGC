@@ -2,12 +2,14 @@ import type { DeviceSessionView } from '@ogc/types';
 import { changePasswordRequestSchema } from '@ogc/validation';
 import { type SyntheticEvent, useCallback, useState } from 'react';
 import { AppShell } from '../components/AppShell';
-import { Icon } from '../components/Icon';
-import styles from '../components/social.module.css';
-import { Alert, Button, PasswordField, Spinner } from '../components/ui';
+import { Icon, type IconName } from '../components/Icon';
+import { ConfirmDialog, PageIntro, Section, SettingRow } from '../components/kit';
+import kit from '../components/kit.module.css';
+import { Alert, Button, PasswordField, Skeleton } from '../components/ui';
 import { api } from '../lib/api';
 import { errorMessage, fieldErrors } from '../lib/form';
 import { useResource } from '../lib/use-resource';
+import styles from './SecurityPage.module.css';
 
 const PLATFORM: Record<DeviceSessionView['platform'], string> = {
   WEB: 'Web browser',
@@ -16,71 +18,89 @@ const PLATFORM: Record<DeviceSessionView['platform'], string> = {
   DESKTOP: 'Desktop app',
 };
 
+const PLATFORM_ICON: Record<DeviceSessionView['platform'], IconName> = {
+  WEB: 'compass',
+  IOS: 'device',
+  ANDROID: 'device',
+  DESKTOP: 'sidebar',
+};
+
 const when = (iso: string) =>
   new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+
+type Pending = { kind: 'one'; session: DeviceSessionView; name: string } | { kind: 'others' };
 
 function DeviceList() {
   const load = useCallback((signal: AbortSignal) => api.sessions(signal), []);
   const { state, reload } = useResource(load);
   const [notice, setNotice] = useState<{ tone: 'error' | 'success'; text: string }>();
-  const [busy, setBusy] = useState<string>();
+  const [pending, setPending] = useState<Pending>();
+  const [busy, setBusy] = useState(false);
 
-  async function act(key: string, task: () => Promise<string>) {
+  async function confirm(action: Pending) {
     setNotice(undefined);
-    setBusy(key);
+    setBusy(true);
     try {
-      setNotice({ tone: 'success', text: await task() });
+      if (action.kind === 'one') {
+        await api.revokeSession(action.session.id);
+        setNotice({ tone: 'success', text: `${action.name} was signed out.` });
+      } else {
+        const { ended } = await api.revokeOtherSessions();
+        setNotice({
+          tone: 'success',
+          text: `Signed out ${String(ended)} other ${ended === 1 ? 'device' : 'devices'}.`,
+        });
+      }
+      setPending(undefined);
       reload();
     } catch (e) {
+      setPending(undefined);
       setNotice({ tone: 'error', text: errorMessage(e) });
     } finally {
-      setBusy(undefined);
+      setBusy(false);
     }
   }
 
   const others = state.status === 'ready' ? state.data.filter((s) => !s.current).length : 0;
   return (
-    <section aria-labelledby="devices-heading">
-      <h2 id="devices-heading" className={styles.legend}>
-        Signed-in devices
-      </h2>
-      <p className={styles.muted}>
-        Sign out a device you no longer use or have lost. It loses access immediately, and its
-        encryption keys and notifications are removed.
-      </p>
+    <Section
+      title="Signed-in devices"
+      description="Sign out a device you no longer use or have lost. It loses access immediately, and its encryption keys and notifications are removed."
+    >
       {notice ? <Alert tone={notice.tone}>{notice.text}</Alert> : null}
-      {state.status === 'loading' ? <Spinner label="Loading devices" /> : null}
+      {state.status === 'loading' ? (
+        <div className={styles.devices} role="status" aria-label="Loading devices">
+          <Skeleton height="4rem" />
+          <Skeleton height="4rem" />
+        </div>
+      ) : null}
       {state.status === 'error' ? <Alert>{errorMessage(state.error)}</Alert> : null}
       {state.status === 'ready' ? (
-        <ul className={styles.list} aria-label="Signed-in devices">
+        <ul className={styles.devices} aria-label="Signed-in devices">
           {state.data.map((s) => {
             const name = s.deviceName ?? PLATFORM[s.platform];
             return (
-              <li key={s.id} className={styles.listItem}>
-                <span className={styles.identityRow}>
-                  <Icon name="device" size={24} />
-                  <span className={styles.names}>
-                    <span className={styles.displayNameSmall}>
-                      {name}
-                      {s.current ? ' · This device' : ''}
-                    </span>
-                    <span className={styles.muted}>
-                      {PLATFORM[s.platform]} · Last active {when(s.lastUsedAt)} · Signed in{' '}
-                      {when(s.createdAt)}
-                    </span>
+              <li key={s.id} className={s.current ? styles.deviceCurrent : styles.device}>
+                <span className={styles.deviceIcon} aria-hidden="true">
+                  <Icon name={PLATFORM_ICON[s.platform]} size={20} />
+                </span>
+                <span className={styles.deviceText}>
+                  <span className={styles.deviceName}>
+                    {name}
+                    {s.current ? <span className={styles.here}> · This device</span> : null}
+                  </span>
+                  <span className={styles.deviceMeta}>
+                    {PLATFORM[s.platform]} · Last active {when(s.lastUsedAt)} · Signed in{' '}
+                    {when(s.createdAt)}
                   </span>
                 </span>
                 {s.current ? null : (
                   <Button
                     variant="secondary"
-                    busy={busy === s.id}
                     aria-label={`Sign out ${name}`}
-                    onClick={() =>
-                      void act(s.id, async () => {
-                        await api.revokeSession(s.id);
-                        return `${name} was signed out.`;
-                      })
-                    }
+                    onClick={() => {
+                      setPending({ kind: 'one', session: s, name });
+                    }}
                   >
                     Sign out
                   </Button>
@@ -91,20 +111,38 @@ function DeviceList() {
         </ul>
       ) : null}
       {others > 0 ? (
-        <Button
-          variant="danger"
-          busy={busy === 'others'}
-          onClick={() =>
-            void act('others', async () => {
-              const { ended } = await api.revokeOtherSessions();
-              return `Signed out ${String(ended)} other ${ended === 1 ? 'device' : 'devices'}.`;
-            })
-          }
-        >
-          Sign out all other devices
-        </Button>
+        <div>
+          <Button
+            variant="danger"
+            icon="logout"
+            onClick={() => {
+              setPending({ kind: 'others' });
+            }}
+          >
+            Sign out all other devices
+          </Button>
+        </div>
       ) : null}
-    </section>
+      {pending ? (
+        <ConfirmDialog
+          title={
+            pending.kind === 'one' ? `Sign out ${pending.name}?` : 'Sign out all other devices?'
+          }
+          confirmLabel={pending.kind === 'one' ? 'Sign out device' : 'Sign out others'}
+          busy={busy}
+          onCancel={() => {
+            setPending(undefined);
+          }}
+          onConfirm={() => void confirm(pending)}
+        >
+          <p>
+            {pending.kind === 'one'
+              ? 'It loses access immediately. Its encryption keys and notifications are removed, so it can’t read new messages.'
+              : `${String(others)} ${others === 1 ? 'device loses' : 'devices lose'} access immediately. This device stays signed in.`}
+          </p>
+        </ConfirmDialog>
+      ) : null}
+    </Section>
   );
 }
 
@@ -144,15 +182,11 @@ function ChangePasswordForm() {
   }
 
   return (
-    <section aria-labelledby="password-heading">
-      <h2 id="password-heading" className={styles.legend}>
-        Change password
-      </h2>
-      <p className={styles.muted}>
-        Every other device is signed out when you change your password. Use at least 12 characters;
-        a few unrelated words work well.
-      </p>
-      <form onSubmit={(e) => void submit(e)} noValidate>
+    <Section
+      title="Change password"
+      description="Every other device is signed out when you change your password. Use at least 12 characters; a few unrelated words work well."
+    >
+      <form className={styles.form} onSubmit={(e) => void submit(e)} noValidate>
         {notice ? <Alert tone={notice.tone}>{notice.text}</Alert> : null}
         <PasswordField
           label="Current password"
@@ -172,20 +206,54 @@ function ChangePasswordForm() {
             setNewPassword(e.target.value);
           }}
         />
-        <Button type="submit" busy={busy}>
-          Change password
-        </Button>
+        <div>
+          <Button type="submit" busy={busy}>
+            Change password
+          </Button>
+        </div>
       </form>
-    </section>
+    </Section>
   );
 }
 
-/** Devices & security: signed-in devices (sessions) and password change. */
+/** Devices & security: signed-in devices (sessions), password change, recovery and encryption. */
 export function SecurityPage() {
   return (
     <AppShell title="Devices & security">
-      <DeviceList />
-      <ChangePasswordForm />
+      <div className={kit.sectionBody}>
+        <PageIntro>
+          Manage where you are signed in and how your account is protected. OGC never shows your
+          password, keys or sign-in tokens.
+        </PageIntro>
+        <DeviceList />
+        <ChangePasswordForm />
+        <Section title="Account recovery">
+          <p className={styles.note}>
+            <Icon name="mail" size={18} />
+            <span>
+              Forgot your password? Choose “Forgot password” on the sign-in page and OGC emails a
+              single-use reset link to your account’s email address. Resetting signs out every
+              device.
+            </span>
+          </p>
+        </Section>
+        <Section title="Encryption and safety numbers">
+          <p className={styles.note}>
+            <Icon name="shieldCheck" size={18} />
+            <span>
+              Direct and group messages are end-to-end encrypted. To check you are talking to the
+              right person, compare safety numbers in a conversation’s details. If someone’s
+              security keys change, OGC warns you in that conversation.
+            </span>
+          </p>
+          <SettingRow
+            icon="chat"
+            title="Open your conversations"
+            detail="Safety numbers are in each conversation’s details."
+            to="/messages"
+          />
+        </Section>
+      </div>
     </AppShell>
   );
 }

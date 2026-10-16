@@ -46,6 +46,10 @@ describe('devices and security', () => {
     // The current device cannot be signed out from the list (use Sign out instead).
     expect(within(list).getAllByRole('button')).toHaveLength(1);
     fireEvent.click(within(list).getByRole('button', { name: 'Sign out Pixel 9' }));
+    // Signing a device out is confirmed first.
+    const dialog = await screen.findByRole('dialog', { name: 'Sign out Pixel 9?' });
+    expect(revoke).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out device' }));
     expect(await screen.findByText('Pixel 9 was signed out.')).toBeTruthy();
     expect(revoke).toHaveBeenCalledTimes(1);
     await waitFor(() => {
@@ -63,6 +67,10 @@ describe('devices and security', () => {
     });
     renderApp('/settings/security');
     fireEvent.click(await screen.findByRole('button', { name: 'Sign out all other devices' }));
+    const dialog = await screen.findByRole('dialog', { name: 'Sign out all other devices?' });
+    expect(within(dialog).getByText(/2 devices lose access immediately/)).toBeTruthy();
+    expect(revokeOthers).not.toHaveBeenCalled();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Sign out others' }));
     expect(await screen.findByText('Signed out 2 other devices.')).toBeTruthy();
     expect(revokeOthers).toHaveBeenCalledTimes(1);
   });
@@ -127,5 +135,24 @@ describe('devices and security', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Change password' }));
     expect(await screen.findByText('Your current password is not correct.')).toBeTruthy();
+  });
+});
+
+describe('settings hub', () => {
+  it('links to every settings page and never shows the email address', async () => {
+    mockApi(signedInRoutes());
+    renderApp('/settings');
+    const main = await screen.findByRole('main');
+    for (const [name, href] of [
+      [/^Profile/, '/profile/edit'],
+      [/^Devices & security/, '/settings/security'],
+      [/^Appearance/, '/settings/appearance'],
+      [/^Notifications/, '/settings/notifications'],
+      [/^Privacy/, '/settings/privacy'],
+      [/^Blocked people/, '/settings/blocked'],
+    ] as const) {
+      expect(within(main).getByRole('link', { name }).getAttribute('href')).toBe(href);
+    }
+    expect(screen.queryByText(/ada@example\.test/)).toBeNull();
   });
 });

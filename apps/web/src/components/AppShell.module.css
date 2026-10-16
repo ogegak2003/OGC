@@ -11,10 +11,7 @@
 
   min-height: 100dvh;
   padding-bottom: calc(var(--tab-bar) + env(safe-area-inset-bottom));
-  background:
-    radial-gradient(60rem 26rem at 60% -12%, rgb(216 173 78 / 0.07), transparent 70%),
-    radial-gradient(50rem 30rem at 110% 10%, rgb(70 130 230 / 0.05), transparent 70%),
-    var(--ogc-color-background);
+  background: var(--ogc-color-background);
 }
 
 .column {
@@ -40,8 +37,67 @@
 @media (min-width: 1024px) {
   .shell {
     display: grid;
-    grid-template-columns: 17rem minmax(0, 1fr);
+    grid-template-columns: 16rem minmax(0, 1fr);
     padding-bottom: 0;
+    transition: grid-template-columns var(--ogc-duration-normal) var(--ogc-easing-standard);
+  }
+
+  .collapsed {
+    grid-template-columns: 4.75rem minmax(0, 1fr);
+  }
+
+  .collapsed .sidebar {
+    padding-inline: var(--ogc-space-3);
+  }
+
+  .collapsed .sideHead {
+    flex-direction: column;
+    gap: var(--ogc-space-3);
+  }
+
+  .collapsed .navLabel,
+  .collapsed .accountText,
+  .collapsed .signOut {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+
+  .collapsed .sideHeading {
+    height: 1px;
+    margin: var(--ogc-space-3) var(--ogc-space-2);
+    overflow: hidden;
+    color: transparent;
+    background: var(--ogc-color-border);
+  }
+
+  .collapsed .sideLink {
+    justify-content: center;
+    padding: 0;
+  }
+
+  .collapsed .sideLink .badge {
+    position: absolute;
+    top: 0.15rem;
+    right: 0.15rem;
+    margin: 0;
+  }
+
+  .collapsed .account {
+    display: grid;
+    gap: var(--ogc-space-3);
+    margin-top: auto;
+    padding: var(--ogc-space-3);
+    background: var(--ogc-color-surface-raised);
+    border: 1px solid var(--ogc-color-border);
+    border-radius: var(--ogc-radius-lg);
+  }
+
+  .accountRow {
+    justify-content: center;
   }
 
   .sidebar {
@@ -51,10 +107,10 @@
     flex-direction: column;
     gap: var(--ogc-space-6);
     height: 100dvh;
-    padding: var(--ogc-space-6) var(--ogc-space-4) var(--ogc-space-4);
+    padding: var(--ogc-space-5) var(--ogc-space-4) var(--ogc-space-4);
     overflow-y: auto;
-    background:
-      linear-gradient(180deg, rgb(216 173 78 / 0.05), transparent 30%), var(--ogc-color-surface);
+    overflow-x: hidden;
+    background: var(--ogc-color-surface);
     border-right: 1px solid var(--ogc-color-border);
   }
 
@@ -68,7 +124,7 @@
     gap: var(--ogc-space-6);
     height: var(--desk-bar);
     padding: 0 var(--ogc-space-8);
-    background: rgb(11 11 13 / 0.82);
+    background: color-mix(in srgb, var(--ogc-color-background) 82%, transparent);
     border-bottom: 1px solid var(--ogc-color-border);
     backdrop-filter: blur(14px);
   }
@@ -80,21 +136,37 @@
   }
 }
 
-.sideBrand {
-  display: grid;
-  justify-items: start;
+.sideHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--ogc-space-2);
-  padding: 0 var(--ogc-space-3);
+  padding: 0 var(--ogc-space-1) 0 var(--ogc-space-3);
+}
+
+.sideBrand {
+  display: inline-flex;
+  align-items: center;
+  min-height: 2.75rem;
   text-decoration: none;
 }
 
-.tagline {
-  max-width: 13rem;
-  color: var(--ogc-color-text-secondary);
-  font-size: 0.625rem;
-  font-weight: 500;
-  line-height: 1.5;
-  letter-spacing: 0.22em;
+.collapseToggle {
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--ogc-color-text-muted);
+  background: none;
+  border: 1px solid transparent;
+  border-radius: var(--ogc-radius-md);
+  cursor: pointer;
+}
+
+.collapseToggle:hover {
+  color: var(--ogc-color-text-primary);
+  background: var(--ogc-color-surface-raised);
+  border-color: var(--ogc-color-border);
 }
 
 .sideNav {
@@ -134,17 +206,26 @@
   background: var(--ogc-color-surface-raised);
 }
 
-/* The current destination: a gold pill, as in the OGC dashboard design. */
+/* The current destination: a tinted row with an accent bar (restrained, readable in both modes). */
 .sideLink.active {
-  color: var(--ogc-color-on-accent);
+  color: var(--ogc-color-text-primary);
   font-weight: 600;
-  background: linear-gradient(180deg, #f0d48b, #c99a3c);
-  border-color: #f0d48b;
-  box-shadow: 0 6px 18px rgb(216 173 78 / 0.18);
+  background: var(--ogc-color-accent-subtle);
+}
+
+.sideLink.active::before {
+  content: '';
+  position: absolute;
+  top: 0.55rem;
+  bottom: 0.55rem;
+  left: 0;
+  width: 3px;
+  background: var(--ogc-color-accent);
+  border-radius: var(--ogc-radius-full);
 }
 
 .sideLink.active .navIcon {
-  color: var(--ogc-color-on-accent);
+  color: var(--ogc-color-accent);
 }
 
 .sideLink .badge {
@@ -173,18 +254,14 @@
   margin-top: auto;
   padding: var(--ogc-space-4) var(--ogc-space-3) var(--ogc-space-3);
   background:
-    radial-gradient(14rem 8rem at 100% 0%, rgb(216 173 78 / 0.16), transparent 70%),
+    radial-gradient(
+      14rem 8rem at 100% 0%,
+      color-mix(in srgb, var(--ogc-color-accent) 16%, transparent),
+      transparent 70%
+    ),
     var(--ogc-color-surface-raised);
-  border: 1px solid rgb(216 173 78 / 0.28);
+  border: 1px solid color-mix(in srgb, var(--ogc-color-accent) 28%, transparent);
   border-radius: var(--ogc-radius-lg);
-}
-
-.accountMotto {
-  margin: 0;
-  color: var(--ogc-color-accent-highlight);
-  font-size: var(--ogc-font-size-sm);
-  font-weight: 600;
-  line-height: 1.35;
 }
 
 .accountRow {
@@ -232,6 +309,59 @@
   background: var(--ogc-color-danger-subtle);
 }
 
+/* ---------- Create menu ---------- */
+.createWrap {
+  position: relative;
+}
+
+.createButton {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-2);
+  min-height: 2.5rem;
+  padding: 0 var(--ogc-space-4) 0 var(--ogc-space-3);
+  color: var(--ogc-color-on-accent);
+  font: inherit;
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+  background: var(--ogc-color-accent);
+  border: 0;
+  border-radius: var(--ogc-radius-full);
+  cursor: pointer;
+  transition: background-color var(--ogc-duration-fast) var(--ogc-easing-standard);
+}
+
+.createButton:hover {
+  background: var(--ogc-color-accent-hover);
+}
+
+.createButton:active {
+  background: var(--ogc-color-accent-pressed);
+}
+
+.createMenu {
+  right: auto;
+  left: 0;
+  min-width: 15rem;
+}
+
+@media (max-width: 1023px) {
+  .createMenu {
+    right: 0;
+    left: auto;
+  }
+}
+
+.menu:has(.menuSection) {
+  width: min(20rem, calc(100vw - 2rem));
+}
+
+.menuSection {
+  margin: var(--ogc-space-2) 0;
+  padding: var(--ogc-space-3);
+  border-block: 1px solid var(--ogc-color-border);
+}
+
 /* ---------- Desktop top bar ---------- */
 .deskActions {
   display: flex;
@@ -248,10 +378,10 @@
   min-width: 1.15rem;
   height: 1.15rem;
   padding: 0 0.25rem;
-  color: #fff;
+  color: var(--ogc-color-background);
   font-size: 0.625rem;
   font-weight: 700;
-  background: #d9443a;
+  background: var(--ogc-color-danger);
   border: 2px solid var(--ogc-color-background);
   border-radius: var(--ogc-radius-full);
 }
@@ -327,6 +457,15 @@
   font-family: var(--ogc-font-mono);
   font-size: var(--ogc-font-size-xs);
   letter-spacing: 0.06em;
+  white-space: nowrap;
+}
+
+/* Narrow desktops: the avatar alone (the button keeps its "Account: name" label). */
+@media (max-width: 1279px) {
+  .profileText,
+  .profile .chevron {
+    display: none;
+  }
 }
 
 .chevron {
@@ -382,7 +521,7 @@
   justify-content: space-between;
   height: var(--top-bar);
   padding: 0 var(--ogc-space-2) 0 var(--ogc-space-4);
-  background: rgb(11 11 13 / 0.88);
+  background: color-mix(in srgb, var(--ogc-color-background) 88%, transparent);
   border-bottom: 1px solid var(--ogc-color-border);
   backdrop-filter: blur(12px);
 }
@@ -397,7 +536,7 @@
   top: var(--top-bar);
   z-index: 9;
   padding: var(--ogc-space-2) var(--ogc-space-4);
-  background: rgb(11 11 13 / 0.94);
+  background: color-mix(in srgb, var(--ogc-color-background) 94%, transparent);
   border-bottom: 1px solid var(--ogc-color-border);
 }
 
@@ -679,7 +818,6 @@
 
 @keyframes enter {
   from {
-    opacity: 0;
     transform: translateY(6px);
   }
 }

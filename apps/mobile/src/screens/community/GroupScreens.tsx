@@ -7,7 +7,7 @@ import type {
   ReceivedInvitationView,
   ReportCategory,
 } from '@ogc/types';
-import { color, radius, space } from '@ogc/ui';
+import { radius, space } from '@ogc/ui';
 import {
   COMMUNITY_NAME_MAX_LENGTH,
   GROUP_MEMBER_LIMIT,
@@ -45,6 +45,7 @@ import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
 import { social } from '../social/styles';
+import { color, themedStyles } from '../../theme';
 
 const ROLE_LABEL = { OWNER: 'Owner', ADMIN: 'Admin', MODERATOR: 'Moderator', MEMBER: 'Member' };
 
@@ -788,7 +789,7 @@ export function JoinScreen({ token: initial }: { token?: string | undefined }) {
           </View>
           <View style={social.row}>
             <Icon
-              name={preview.endToEndEncrypted ? 'lock' : 'globe'}
+              name={preview.endToEndEncrypted ? 'lock' : 'compass'}
               size={16}
               tint={preview.endToEndEncrypted ? color.accent : color.textMuted}
             />
@@ -844,39 +845,41 @@ export function JoinScreen({ token: initial }: { token?: string | undefined }) {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  buttons: { flexDirection: 'row', gap: space[3] },
-  surface: {
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-  head: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
-  headTags: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-    minHeight: 60,
-    paddingHorizontal: space[4],
-    paddingVertical: space[3],
-  },
-  bordered: {
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.borderStrong,
-    paddingHorizontal: 0,
-  },
-  pressed: { backgroundColor: color.surfaceHover },
-  check: {
-    width: 24,
-    height: 24,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: color.borderStrong,
-  },
-  checkOn: { backgroundColor: color.accent, borderColor: color.accent },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    buttons: { flexDirection: 'row', gap: space[3] },
+    surface: {
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+    head: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
+    headTags: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space[3],
+      minHeight: 60,
+      paddingHorizontal: space[4],
+      paddingVertical: space[3],
+    },
+    bordered: {
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: color.borderStrong,
+      paddingHorizontal: 0,
+    },
+    pressed: { backgroundColor: color.surfaceHover },
+    check: {
+      width: 24,
+      height: 24,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 12,
+      borderWidth: 2,
+      borderColor: color.borderStrong,
+    },
+    checkOn: { backgroundColor: color.accent, borderColor: color.accent },
+  }),
+);

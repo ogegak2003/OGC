@@ -1,5 +1,6 @@
-import { ICON_STROKE, type IconName, color, icons } from '@ogc/ui';
+import { ICON_STROKE, type IconName, icons } from '@ogc/ui';
 import Svg, { Circle, Path } from 'react-native-svg';
+import { color } from '../theme';
 
 export type { IconName };
 

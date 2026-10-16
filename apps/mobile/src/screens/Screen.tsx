@@ -1,9 +1,10 @@
-import { color, fontSize, fontWeight, size, space } from '@ogc/ui';
+import { fontSize, fontWeight, size, space } from '@ogc/ui';
 import { type ReactNode, createContext, useContext } from 'react';
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { OgcMark } from '../components/Icon';
 import { IconButton } from '../components/ui';
+import { color, themedStyles } from '../theme';
 
 /** True inside a bottom-navigation destination: the tab bar owns the bottom safe area. */
 export const InTabsContext = createContext(false);
@@ -197,75 +198,79 @@ export function AuthScreen({
   );
 }
 
-export const text = StyleSheet.create({
-  body: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 23 },
-  strong: { color: color.textPrimary, fontWeight: fontWeight.semibold },
-  link: {
-    color: color.accent,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.medium,
-    textAlign: 'center',
-    paddingVertical: space[3],
-  },
-  muted: { color: color.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
-});
+export const text = themedStyles(() =>
+  StyleSheet.create({
+    body: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 23 },
+    strong: { color: color.textPrimary, fontWeight: fontWeight.semibold },
+    link: {
+      color: color.accent,
+      fontSize: fontSize.md,
+      fontWeight: fontWeight.medium,
+      textAlign: 'center',
+      paddingVertical: space[3],
+    },
+    muted: { color: color.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
+  }),
+);
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: color.background },
-  content: { flexGrow: 1, paddingHorizontal: space[5], paddingTop: space[4] },
-  fill: { flex: 1 },
-  inner: { width: '100%', maxWidth: 560, alignSelf: 'center', gap: space[5] },
-  largeHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-    paddingTop: space[2],
-  },
-  largeHeaderBare: { paddingTop: 0 },
-  largeTitles: { flex: 1, gap: space[1] },
-  title: {
-    color: color.textPrimary,
-    fontSize: fontSize['2xl'],
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.4,
-  },
-  subtitle: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 22 },
-  bar: {
-    backgroundColor: color.background,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.border,
-  },
-  barRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[1],
-    minHeight: size.appBar,
-    paddingHorizontal: space[2],
-  },
-  barSpacer: { width: space[2] },
-  barTitles: { flex: 1, paddingHorizontal: space[1] },
-  barTitle: { color: color.textPrimary, fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
-  barSubtitle: { color: color.textMuted, fontSize: fontSize.xs },
-  barActions: { flexDirection: 'row', alignItems: 'center' },
-  wordmark: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
-  wordmarkText: { color: color.textPrimary, fontWeight: fontWeight.bold, letterSpacing: 5 },
-  authContent: { flexGrow: 1, paddingHorizontal: space[6] },
-  authInner: {
-    flex: 1,
-    width: '100%',
-    maxWidth: size.formWidth,
-    alignSelf: 'center',
-    gap: space[5],
-  },
-  authTop: { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: 52 },
-  authTopBack: { marginLeft: -space[3] },
-  authTitles: { gap: space[2], marginTop: space[4] },
-  authTitle: {
-    color: color.textPrimary,
-    fontSize: fontSize['3xl'] - 4,
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.5,
-    lineHeight: 36,
-  },
-  authFooter: { marginTop: 'auto', paddingTop: space[4], alignItems: 'center' },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: color.background },
+    content: { flexGrow: 1, paddingHorizontal: space[5], paddingTop: space[4] },
+    fill: { flex: 1 },
+    inner: { width: '100%', maxWidth: 560, alignSelf: 'center', gap: space[5] },
+    largeHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space[3],
+      paddingTop: space[2],
+    },
+    largeHeaderBare: { paddingTop: 0 },
+    largeTitles: { flex: 1, gap: space[1] },
+    title: {
+      color: color.textPrimary,
+      fontSize: fontSize['2xl'],
+      fontWeight: fontWeight.bold,
+      letterSpacing: -0.4,
+    },
+    subtitle: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 22 },
+    bar: {
+      backgroundColor: color.background,
+      borderBottomWidth: StyleSheet.hairlineWidth,
+      borderBottomColor: color.border,
+    },
+    barRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space[1],
+      minHeight: size.appBar,
+      paddingHorizontal: space[2],
+    },
+    barSpacer: { width: space[2] },
+    barTitles: { flex: 1, paddingHorizontal: space[1] },
+    barTitle: { color: color.textPrimary, fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
+    barSubtitle: { color: color.textMuted, fontSize: fontSize.xs },
+    barActions: { flexDirection: 'row', alignItems: 'center' },
+    wordmark: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+    wordmarkText: { color: color.textPrimary, fontWeight: fontWeight.bold, letterSpacing: 5 },
+    authContent: { flexGrow: 1, paddingHorizontal: space[6] },
+    authInner: {
+      flex: 1,
+      width: '100%',
+      maxWidth: size.formWidth,
+      alignSelf: 'center',
+      gap: space[5],
+    },
+    authTop: { flexDirection: 'row', alignItems: 'center', gap: space[2], minHeight: 52 },
+    authTopBack: { marginLeft: -space[3] },
+    authTitles: { gap: space[2], marginTop: space[4] },
+    authTitle: {
+      color: color.textPrimary,
+      fontSize: fontSize['3xl'] - 4,
+      fontWeight: fontWeight.bold,
+      letterSpacing: -0.5,
+      lineHeight: 36,
+    },
+    authFooter: { marginTop: 'auto', paddingTop: space[4], alignItems: 'center' },
+  }),
+);

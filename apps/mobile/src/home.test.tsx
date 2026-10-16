@@ -65,7 +65,7 @@ async function openHome(unreadCount = 0) {
 describe('mobile home', () => {
   it('greets the signed-in person by name and shows their OGC ID', async () => {
     await openHome();
-    expect(screen.getByText('Your Global Identity')).toBeOnTheScreen();
+    expect(screen.getByText('Your OGC ID')).toBeOnTheScreen();
     expect(screen.getByText('OGC 306 841 127')).toBeOnTheScreen();
     expect(screen.getByRole('button', { name: 'Show my QR code' })).toBeOnTheScreen();
     // Real conversations, not sample data.

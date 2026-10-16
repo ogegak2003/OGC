@@ -1,81 +1,168 @@
 # OGC design system
 
-One visual language for the web app and the Android/iOS apps: premium black and gold,
-calm surfaces, and the OGC ID as the signature element. Everything below lives in
-`packages/ui` and is consumed by both clients, so the identity can evolve in one place.
+One visual language for the web app and the Android and iOS apps. It uses calm Obsidian
+surfaces, restrained champagne accents and strong typography, with the OGC ID as the signature
+element. The source of truth lives in `packages/ui` and both clients consume it, so the identity
+evolves in one place.
 
-## Tokens (`packages/ui/src/tokens`)
+**2026-10 redesign.**
+
+- The globe imagery and globe-based mark are gone. The mark is now a ring around a quiet core.
+- The palette is Obsidian, Charcoal, Champagne, Ivory, Emerald, Coral and Slate.
+- There is a complete theme system: dark and light modes, three accents, and a System option.
+
+## Brand palette (`packages/ui/src/tokens/color.ts`)
+
+| Name                 | Value     | Role                                             |
+| -------------------- | --------- | ------------------------------------------------ |
+| Obsidian             | `#101114` | Dark canvas; text on light accents               |
+| Elevated charcoal    | `#1B1D22` | Raised dark surfaces (cards, inputs, sheets)     |
+| Champagne gold       | `#D6B46A` | Default accent: primary actions, selection, IDs  |
+| Warm ivory           | `#F4F1E8` | Light canvas; primary text in dark mode          |
+| Emerald              | `#36B889` | Success, online presence; optional accent        |
+| Coral                | `#F07878` | Errors, destructive actions, missed calls (dark) |
+| Slate                | `#858B98` | Offline presence, secondary chart series         |
+| Blue Steel (support) | `#7FA6D8` | Information; optional accent                     |
+
+## Themes
+
+A theme is a **mode** × an **accent**, resolved by `resolveTheme(mode, accent)` into semantic
+roles. Application code only ever uses the roles.
+
+| Choice | Options                                                             | Default   |
+| ------ | ------------------------------------------------------------------- | --------- |
+| Mode   | **Obsidian** (dark), **Ivory** (light), **System** (follows device) | Obsidian  |
+| Accent | **Champagne**, **Emerald**, **Blue Steel**                          | Champagne |
+
+Roles:
+
+- **Canvas and surfaces:** `background`, `surface`, `surfaceRaised`, `surfaceHover`, `border`,
+  `borderStrong`.
+- **Text:** `textPrimary`, `textSecondary`, `textMuted`, `textDisabled`.
+- **Accent:** `accent`, `accentHover`, `accentPressed`, `accentHighlight`, `accentSubtle`,
+  `accentBorder`, `onAccent`, `focusRing`.
+- **Status:** `success`, `warning`, `danger`, `info`, each with a `…Subtle` background.
+- **Presence:** `online`, `offline`.
+- **Charts and overlays:** `chartSecondary`, `chartGrid`, `scrim`.
+
+Every theme (2 modes × 3 accents) is tested against WCAG 2.2 AA in
+`packages/ui/src/tokens.test.ts`: 4.5:1 for text roles on every surface and tint, and 3:1 for
+focus, status, presence, accent and chart colours.
+
+**Web.**
+
+- `toCssVariables()` emits `--ogc-*` custom properties: the default theme on `:root`, and one
+  block per `[data-theme][data-accent]` pair.
+- `ThemeProvider` (`apps/web/src/theme`) sets those attributes on `<html>`, so the whole app
+  switches at once. The saved choice (`localStorage`, `ogc.appearance`) is applied before the
+  first paint.
+- The call stage pins `data-theme="dark"` on its own subtree.
+
+**Mobile.**
+
+- `apps/mobile/src/theme` holds one live `color` object, updated in place.
+- Style sheets are wrapped in `themedStyles(() => StyleSheet.create(…))`, which rebuilds them
+  after a change.
+- `ThemeProvider` saves the choice with `expo-secure-store` and follows the device for System.
+  Screens are keyed by the theme, so they rebuild. The navigation stack and the messaging
+  session survive.
+- The call screen uses `stage`: always dark, with the current accent.
+
+Choices are made in **Settings → Appearance** on both platforms. The web account menu also
+offers them.
+
+**Rules.**
+
+- Accents are restrained. Use them for primary actions, the selected destination, identity
+  highlights and unread emphasis. Gold gradients appear only in the logo.
+- No hard-coded colours in components. The exceptions are the always-dark video stage,
+  shadows, and the avatar initial tints, which have a set per mode.
+
+## Other tokens
 
 | Group      | Notes                                                                                    |
 | ---------- | ---------------------------------------------------------------------------------------- |
-| Colour     | Semantic roles only in application code (`color.surface`, `color.accent`, …). See below. |
 | Typography | System font stacks (no font CDN); scale `xs` 12 → `4xl` 44; mono stack for OGC IDs.      |
 | Layout     | 4px spacing grid; radii `sm` 8, `md` 12, `lg` 16, `xl` 24; `size.touch` 44 (min target). |
-| Motion     | 120–320ms, standard/enter/exit easing; honour reduced-motion (both clients do).          |
+| Elevation  | Per mode (`elevations.dark`, `elevations.light`).                                        |
+| Motion     | 120–320 ms, standard/enter/exit easing.                                                  |
 
-Web receives the tokens as CSS custom properties (`--ogc-color-surface-raised`, …) generated
-by `toCssVariables()`; mobile imports the same objects.
+## Motion
 
-### Colour roles
+Animations are short and purposeful:
 
-| Role                                   | Value                             | Use                                                                 |
-| -------------------------------------- | --------------------------------- | ------------------------------------------------------------------- |
-| `background`                           | `#0B0B0D`                         | App canvas                                                          |
-| `surface` / `surfaceRaised`            | `#121214` / `#19191D`             | Panels, lists, bars / cards, inputs, sheets                         |
-| `surfaceHover`                         | `#2A2A2F`                         | Pressed and hovered rows                                            |
-| `border` / `borderStrong`              | `#232328` / `#34343A`             | Hairlines / control outlines                                        |
-| `textPrimary` / `Secondary` / `Muted`  | `#F5F3EE` / `#B5B0A6` / `#9B968C` | Warm white and greys                                                |
-| `accent`                               | `#D8AD4E`                         | Primary actions, selected navigation, unread counts                 |
-| `accentHighlight`                      | `#F0D48B`                         | Champagne: OGC IDs, identity text                                   |
-| `accentSubtle` / `accentBorder`        | `#1C170E` / `#5A441B`             | The identity card and selected rows — the only gold-tinted surfaces |
-| `success`, `warning`, `danger`, `info` | with `…Subtle` backgrounds        | Status, notices and destructive actions                             |
+- message arrival;
+- the details panel;
+- charts;
+- the welcome content;
+- sidebar collapse;
+- the theme transition;
+- the online "live" dot.
 
-Gold is reserved for primary actions, the selected destination, identity highlights and
-important states. Every text/background pair used is tested against WCAG 2.2 AA in
-`packages/ui/src/tokens.test.ts` (4.5:1 for text, 3:1 for non-text).
+**Rule:** an entrance animation moves content but never starts it invisible, so paused or
+throttled animations cannot hide anything. Reduced motion turns animations off on the web
+(global rule) and on mobile (`useReducedMotion`). Nothing waits for an animation before sending
+or navigating.
 
 ## Icons (`packages/ui/src/icons.ts`)
 
-A single outline icon set on a 24×24 grid (round caps, 1.75 stroke) defined as SVG path
-data, rendered by `apps/web/src/components/Icon.tsx` (DOM SVG, `currentColor`) and
-`apps/mobile/src/components/Icon.tsx` (`react-native-svg`). Icons are decorative: the
-control that contains them carries the accessible name. Emoji are used only for content
-(message reactions and the emoji picker), never as interface icons.
+There is one outline icon set on a 24×24 grid (round caps, 1.75 stroke). It is rendered on the
+web as DOM SVG and on mobile through `react-native-svg`. Icons are decorative: the control that
+contains them carries the accessible name.
+
+- **Added in the redesign:** `sun`, `moon`, `palette`, `sidebar`, `panelRight`, `barChart` and
+  `compass`.
+- **Removed:** `globe`. `compass` now marks public channels.
 
 ## Components
 
-| Concern   | Mobile (`apps/mobile/src/components`)                                                       | Web (`apps/web/src/components`)                                 |
-| --------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Actions   | `Button` (primary/secondary/ghost/danger, icon), `IconButton`                               | `Button` (same variants, icon)                                  |
-| Forms     | `Field` (label, icon, hint, error, password reveal), `SwitchRow`                            | `TextField`, `PasswordField`                                    |
-| Feedback  | `Notice` (+ Retry action), `Skeleton`, `SkeletonRows`, `Loading`                            | `Alert`, `Skeleton`, `Spinner`                                  |
-| Structure | `Card`, `ListGroup` + `ListRow`, `SectionHeader`, `Tabs`, `Tag`, `EmptyState`, `CountBadge` | CSS modules per area                                            |
-| Identity  | `Avatar` (photo or tinted initials), `OgcIdText`, `IdentityCard`, `OgcQrCode`               | `Avatar`, `OgcQrCode`                                           |
-| Layout    | `Screen` / `AppBar` / `AuthScreen` (safe areas), `TabBar`                                   | `AppShell` (sidebar ≥1024px, top + tab bar below), `AuthLayout` |
+| Concern   | Mobile (`apps/mobile/src`)                                                                  | Web (`apps/web/src/components`)                                                                    |
+| --------- | ------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| Actions   | `Button` (primary/secondary/ghost/danger, icon), `IconButton`                               | `Button` (same variants, icon); **Create** menu in the top bar                                     |
+| Forms     | `Field`, `SwitchRow`                                                                        | `TextField`, `PasswordField`                                                                       |
+| Feedback  | `Notice`, `Skeleton`, `SkeletonRows`, `Loading`                                             | `Alert`, `Skeleton`, `Spinner`                                                                     |
+| Structure | `Card`, `ListGroup` + `ListRow`, `SectionHeader`, `Tabs`, `Tag`, `EmptyState`, `CountBadge` | CSS modules per area                                                                               |
+| Identity  | `Avatar`, `OgcIdText`, `IdentityCard`, `OgcQrCode`, `OgcLogo`                               | `Avatar`, **`IdentityCard`** (OGC ID, copy, share, QR, privacy), `OgcQrCode`, `OgcLogo`, `OgcMark` |
+| Theme     | **`AppearanceScreen`**, `ThemeProvider`                                                     | **`ThemeControls`** (radio groups), `ThemeProvider`                                                |
+| Data      | —                                                                                           | **`BarChart`** (SVG, tokens, focusable days, tooltip, screen-reader table)                         |
+| Messaging | Conversation screens                                                                        | Workspace: list, conversation and **`ConversationDetails`** (collapsible list and details)         |
+| Layout    | `Screen` / `AppBar` / `AuthScreen` (safe areas), `TabBar`                                   | `AppShell` (collapsible sidebar ≥1024px; top bar and tab bar below), `AuthLayout`                  |
 
 ## Navigation
 
-The same five destinations on every platform:
+| Destination | Mobile tab  | Web                                | Contents                                                                                      |
+| ----------- | ----------- | ---------------------------------- | --------------------------------------------------------------------------------------------- |
+| Home        | Home        | `/home`                            | Welcome, numbers at a glance, quick actions, activity, calls chart, identity card, online now |
+| Messages    | Chats       | `/messages`                        | Conversations (direct, groups, encrypted channels)                                            |
+| Contacts    | Contacts    | `/contacts`                        | Contacts, requests, sent requests                                                             |
+| Groups      | Communities | `/communities`                     | Groups; create, invitations, join by link                                                     |
+| Channels    | Communities | `/channels`                        | Community channels                                                                            |
+| Calls       | from Home   | `/calls`                           | Call history and starting calls                                                               |
+| You         | You         | sidebar "You", or the "More" sheet | Profile, Appearance, Security and devices, Privacy, Notification settings, Blocked            |
 
-| Destination | Mobile tab  | Web                      | Contents                                                             |
-| ----------- | ----------- | ------------------------ | -------------------------------------------------------------------- |
-| Home        | Home        | `/home`                  | Greeting, OGC ID card (copy, share, QR), quick actions, recent chats |
-| Chats       | Chats       | `/messages`              | All conversations (direct, groups, encrypted channels)               |
-| Contacts    | Contacts    | `/contacts`              | Contacts, requests, sent requests                                    |
-| Communities | Communities | `/communities`           | Groups and community channels; create, invitations, join by link     |
-| You / More  | You         | sidebar, or "More" sheet | Profile, notifications, discovery, privacy, security, sign-out       |
+The web sidebar collapses to an icon rail (remembered per browser), and links keep their names
+as tooltips. On mobile, Android back pops the stack, then returns to Home, then leaves the app.
 
-Notifications are one tap away from Home (bell with the real unread count). Mobile Search
-(`search` route) covers chats, contacts, channels, on-device message text and exact OGC ID
-lookup. Android back pops the stack, then returns to Home, then leaves the app.
+## Data visualisation
+
+- **Calls chart (Home):** calls per day for the last 14 days, split into answered, missed and
+  not connected.
+  - It is built only from the account's call history returned by `GET /v1/calls` (its most
+    recent 50 calls), and says so.
+  - Bars start at zero, and the axis uses round numbers.
+  - Empty and error states are explicit.
+- **Message volume:** there is no message-volume chart. The server stores only ciphertext
+  metadata, and no privacy-reviewed aggregate exists. A chart computed on the device would need
+  its own design.
 
 ## Honesty rules
 
 - Message previews are the latest message as decrypted on this device; otherwise an honest
-  placeholder ("Encrypted message", "Message could not be displayed").
-- "End-to-end encrypted" appears only for direct conversations and groups (MLS); community
+  placeholder.
+- "End-to-end encrypted" appears only for direct conversations and groups (MLS). Community
   channels always say they are not end-to-end encrypted.
-- Online dots and typing indicators come only from realtime presence/typing events.
-- Profile completion is computed from the profile (photo, bio; the display name is required).
-- Features without a backend (managing other sessions, calls) are described as not available
-  yet rather than shown as working controls.
+- Online dots and typing indicators come only from realtime presence and typing events.
+- Dashboard numbers each link to their source and show "—" when it cannot be loaded. Nothing is
+  estimated or invented.
+- Features without a backend are described as not available rather than shown as working
+  controls.

@@ -2,10 +2,11 @@
  * The OGC logo, as platform-neutral geometry so the web (DOM `<svg>`) and mobile
  * (`react-native-svg`) draw the same lockup.
  *
- * The symbol is the OGC mark — a gold ring around a quiet core — with a meridian and an
- * equator inside the inner ring, which turns the mark into a globe. In the wordmark the
- * symbol is the "O"; "G" and "C" are monoline arcs with the same radius and stroke weight
- * as the ring, so the three letters read as one geometric family.
+ * The symbol is the OGC mark — a ring around a quiet core, with a faint inner ring: identity
+ * at the centre of a conversation. In the wordmark the symbol is the "O"; "G" and "C" are
+ * monoline arcs with the same radius and stroke weight as the ring, so the three letters read
+ * as one geometric family. (Phase 11 removed the earlier meridian and equator: OGC no longer
+ * uses globe imagery.)
  */
 
 /** The symbol's grid (48 × 48) and ring; matches the original mark. */
@@ -15,8 +16,6 @@ export const LOGO_SYMBOL = {
   ring: { r: 19, stroke: 3.5 },
   inner: { r: 11, stroke: 1, opacity: 0.45 },
   core: { r: 3.5 },
-  /** Meridian (ellipse) and equator, inside the inner ring. */
-  meridian: { rx: 5, ry: 11 },
 } as const;
 
 const R = LOGO_SYMBOL.ring.r;
@@ -51,12 +50,11 @@ export const LOGO_WORDMARK = {
   c: openArc(cx, cy, OPENING),
 } as const;
 
-export const LOGO_TAGLINE = 'GLOBAL COMMUNICATION WITHOUT BORDERS';
+export const LOGO_TAGLINE = 'PRIVATE COMMUNICATION, EVERYWHERE';
 
-/** Metallic gold, applied top to bottom across the whole lockup (y 4 → 44 on the 48 grid). */
+/** Champagne, top to bottom (y 4 → 44 on the 48 grid), for static assets; apps use theme colours. */
 export const LOGO_GOLD_STOPS = [
-  { offset: 0, color: '#F6E8C4' },
-  { offset: 0.42, color: '#E6C273' },
-  { offset: 0.58, color: '#D8AD4E' },
-  { offset: 1, color: '#A07A2C' },
+  { offset: 0, color: '#EBD9AB' },
+  { offset: 0.5, color: '#D6B46A' },
+  { offset: 1, color: '#B8964F' },
 ] as const;

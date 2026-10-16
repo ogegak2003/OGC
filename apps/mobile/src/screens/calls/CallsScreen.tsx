@@ -1,8 +1,8 @@
 import { callDescription, conversationTitle, isMissedCall } from '@ogc/messaging';
 import type { ConversationView } from '@ogc/types';
-import { color, fontSize, space } from '@ogc/ui';
+import { fontSize, space } from '@ogc/ui';
 import { formatOgcIdForDisplay } from '@ogc/validation';
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { Icon } from '../../components/Icon';
 import { Avatar } from '../../components/identity';
@@ -13,12 +13,14 @@ import {
   ListRow,
   Notice,
   SkeletonRows,
+  Tabs,
 } from '../../components/ui';
 import { listTime } from '../../lib/time';
 import { useCall, useRecentCalls } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
+import { color, themedStyles } from '../../theme';
 
 /** Voice and video call buttons for a direct conversation. */
 function CallActions({ conversation, name }: { conversation: ConversationView; name: string }) {
@@ -56,6 +58,9 @@ export function CallsScreen() {
     [conversations],
   );
   const byId = useMemo(() => new Map(conversations.map((c) => [c.id, c])), [conversations]);
+  const [filter, setFilter] = useState<'all' | 'missed'>('all');
+  const missed = calls?.filter(isMissedCall) ?? [];
+  const shown = filter === 'missed' ? missed : calls;
 
   useEffect(() => {
     const ogcIds = callable.flatMap((c) => (c.peer ? [c.peer.ogcId] : []));
@@ -71,6 +76,16 @@ export function CallsScreen() {
       <Text style={styles.heading} accessibilityRole="header">
         Recent calls
       </Text>
+      {calls?.length ? (
+        <Tabs
+          options={[
+            { id: 'all', label: 'All' },
+            { id: 'missed', label: 'Missed', count: missed.length },
+          ]}
+          value={filter}
+          onChange={setFilter}
+        />
+      ) : null}
       {failed ? (
         <Notice>Your call history could not be loaded.</Notice>
       ) : calls === undefined ? (
@@ -79,9 +94,11 @@ export function CallsScreen() {
         </View>
       ) : calls.length === 0 ? (
         <EmptyState icon="phone" title="No calls yet" body="Start one below or from a chat." />
+      ) : shown?.length === 0 ? (
+        <EmptyState icon="phone" title="No missed calls" />
       ) : (
         <ListGroup>
-          {calls.map((call) => {
+          {shown?.map((call) => {
             const conversation = byId.get(call.conversationId);
             const name = call.peer.displayName || formatOgcIdForDisplay(call.peer.ogcId);
             return (
@@ -164,26 +181,28 @@ export function CallsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  heading: { color: color.textPrimary, fontSize: fontSize.lg, fontWeight: '600' },
-  surface: {
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: 16,
-  },
-  actions: { flexDirection: 'row' },
-  onlineDot: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: color.surface,
-    backgroundColor: color.success,
-  },
-  note: { flexDirection: 'row', gap: space[2], alignItems: 'center' },
-  noteText: { flex: 1, color: color.textMuted, fontSize: fontSize.xs },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    heading: { color: color.textPrimary, fontSize: fontSize.lg, fontWeight: '600' },
+    surface: {
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: 16,
+    },
+    actions: { flexDirection: 'row' },
+    onlineDot: {
+      position: 'absolute',
+      right: 0,
+      bottom: 0,
+      width: 12,
+      height: 12,
+      borderRadius: 6,
+      borderWidth: 2,
+      borderColor: color.surface,
+      backgroundColor: color.success,
+    },
+    note: { flexDirection: 'row', gap: space[2], alignItems: 'center' },
+    noteText: { flex: 1, color: color.textMuted, fontSize: fontSize.xs },
+  }),
+);

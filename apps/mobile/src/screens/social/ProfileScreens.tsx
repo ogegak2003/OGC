@@ -1,5 +1,5 @@
 import type { OwnProfile } from '@ogc/types';
-import { color, fontSize, fontWeight, radius, space } from '@ogc/ui';
+import { fontSize, fontWeight, radius, space } from '@ogc/ui';
 import { BIO_MAX_LENGTH, updateProfileRequestSchema } from '@ogc/validation';
 import * as ImagePicker from 'expo-image-picker';
 import { useCallback, useState } from 'react';
@@ -23,6 +23,7 @@ import { useResource } from '../../lib/use-resource';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
+import { color, themedStyles } from '../../theme';
 
 function useOwnProfile() {
   const { client } = useAuth();
@@ -119,6 +120,18 @@ export function ProfileScreen() {
           subtitle="Find someone by their OGC ID"
           onPress={() => {
             nav.push({ name: 'discover' });
+          }}
+        />
+      </ListGroup>
+
+      <SectionHeader title="Appearance" />
+      <ListGroup>
+        <ListRow
+          icon="palette"
+          title="Appearance"
+          subtitle="Obsidian, Ivory or System, and your accent colour"
+          onPress={() => {
+            nav.push({ name: 'appearance' });
           }}
         />
       </ListGroup>
@@ -328,37 +341,39 @@ export function EditProfileScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  profile: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
-  profileText: { flex: 1, gap: space[1] },
-  name: { color: color.textPrimary, fontSize: fontSize.xl, fontWeight: fontWeight.bold },
-  bio: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 22 },
-  buttons: { flexDirection: 'row', gap: space[3] },
-  qrCard: {
-    alignItems: 'center',
-    gap: space[4],
-    padding: space[6],
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.xl,
-  },
-  qrName: { color: color.textPrimary, fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
-  qrNote: { flexDirection: 'row', gap: space[2], alignItems: 'flex-start' },
-  qrNoteText: { flex: 1, color: color.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
-  photo: { alignItems: 'center', gap: space[2] },
-  photoBadge: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    width: 32,
-    height: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.accent,
-    borderRadius: 16,
-    borderWidth: 3,
-    borderColor: color.background,
-  },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    profile: { flexDirection: 'row', alignItems: 'center', gap: space[4] },
+    profileText: { flex: 1, gap: space[1] },
+    name: { color: color.textPrimary, fontSize: fontSize.xl, fontWeight: fontWeight.bold },
+    bio: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 22 },
+    buttons: { flexDirection: 'row', gap: space[3] },
+    qrCard: {
+      alignItems: 'center',
+      gap: space[4],
+      padding: space[6],
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.xl,
+    },
+    qrName: { color: color.textPrimary, fontSize: fontSize.lg, fontWeight: fontWeight.semibold },
+    qrNote: { flexDirection: 'row', gap: space[2], alignItems: 'flex-start' },
+    qrNoteText: { flex: 1, color: color.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
+    photo: { alignItems: 'center', gap: space[2] },
+    photoBadge: {
+      position: 'absolute',
+      right: 0,
+      bottom: 0,
+      width: 32,
+      height: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: color.accent,
+      borderRadius: 16,
+      borderWidth: 3,
+      borderColor: color.background,
+    },
+  }),
+);

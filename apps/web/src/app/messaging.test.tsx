@@ -2,6 +2,7 @@ import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-libra
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   FakeEngine,
+  ME,
   PEER,
   conversationView,
   fakeMessaging,
@@ -97,6 +98,27 @@ describe('conversation list', () => {
 });
 
 describe('conversation', () => {
+  it('shows a message that was not sent, and retries it', async () => {
+    const engine = new FakeEngine([CONVERSATION]);
+    const failed = localMessage({
+      id: null,
+      seq: null,
+      mine: true,
+      senderOgcId: ME,
+      state: 'failed',
+      payload: { v: 1, text: 'Lost words' },
+    });
+    engine.data.set(CONVERSATION.id, [failed]);
+    setup(engine);
+    // The unsent text stays visible next to Retry and Discard.
+    expect(await screen.findByText('Lost words')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Retry' }));
+    await waitFor(() => {
+      expect(engine.send).toHaveBeenCalledWith(CONVERSATION.id, { text: 'Lost words' });
+    });
+    expect(engine.discardFailed).toHaveBeenCalledWith(CONVERSATION.id, failed.clientMessageId);
+  });
+
   it('renders text safely, with delivery state, placeholders and reply context', async () => {
     const engine = new FakeEngine([
       conversationView({ peerLastReadSeq: 2, peerLastDeliveredSeq: 2 }),

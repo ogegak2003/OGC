@@ -5,7 +5,6 @@
 }
 
 html {
-  color-scheme: dark;
   -webkit-text-size-adjust: 100%;
 }
 
@@ -17,6 +16,9 @@ body {
   color: var(--ogc-color-text-primary);
   background: var(--ogc-color-background);
   -webkit-font-smoothing: antialiased;
+  transition:
+    background-color var(--ogc-duration-normal) var(--ogc-easing-standard),
+    color var(--ogc-duration-normal) var(--ogc-easing-standard);
 }
 
 :focus-visible {
@@ -31,4 +33,14 @@ body {
     transition-duration: 0ms !important;
     animation-duration: 0ms !important;
   }
+}
+
+/* Links default to the theme accent (components with their own link styles override this). */
+a {
+  color: var(--ogc-color-accent);
+  text-underline-offset: 0.15em;
+}
+
+a:hover {
+  color: var(--ogc-color-accent-hover);
 }

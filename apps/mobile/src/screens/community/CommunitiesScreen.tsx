@@ -1,5 +1,5 @@
 import type { ChannelView } from '@ogc/types';
-import { color, fontSize, fontWeight, radius, space } from '@ogc/ui';
+import { fontSize, fontWeight, radius, space } from '@ogc/ui';
 import { useEffect, useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { communityApi } from '../../api/community';
@@ -19,6 +19,7 @@ import { type Route, useNavigation } from '../../navigation';
 import { ConversationRow } from '../messaging/MessagesScreen';
 import { Screen } from '../Screen';
 import { ChannelRow } from './ChannelScreens';
+import { color, themedStyles } from '../../theme';
 
 const ACTIONS: { label: string; icon: IconName; route: Route }[] = [
   { label: 'New group', icon: 'community', route: { name: 'new-group' } },
@@ -73,6 +74,32 @@ export function CommunitiesScreen() {
         />
       }
     >
+      <View style={styles.kinds}>
+        <View style={styles.kind}>
+          <View style={[styles.kindIcon, styles.kindIconSecure]}>
+            <Icon name="lock" size={18} tint={color.success} />
+          </View>
+          <View style={styles.kindText}>
+            <Text style={styles.kindTitle}>Groups are private</Text>
+            <Text style={styles.kindDetail}>
+              Invite-only and end-to-end encrypted for members’ devices.
+            </Text>
+          </View>
+        </View>
+        <View style={styles.kind}>
+          <View style={[styles.kindIcon, styles.kindIconCommunity]}>
+            <Icon name="megaphone" size={18} tint={color.accent} />
+          </View>
+          <View style={styles.kindText}>
+            <Text style={styles.kindTitle}>Channels are communities</Text>
+            <Text style={styles.kindDetail}>
+              Open, moderated feeds. Not end-to-end encrypted: OGC can read posts for moderation and
+              search.
+            </Text>
+          </View>
+        </View>
+      </View>
+
       <View style={styles.actions}>
         {ACTIONS.map((action) => (
           <Pressable
@@ -99,7 +126,7 @@ export function CommunitiesScreen() {
       ) : groups.length === 0 ? (
         <View style={styles.surface}>
           <EmptyState
-            icon="community"
+            icon="lock"
             title="No groups yet"
             body="Groups are end-to-end encrypted for their members’ devices."
             action={{
@@ -128,12 +155,6 @@ export function CommunitiesScreen() {
           },
         }}
       />
-      <View style={styles.note}>
-        <Icon name="globe" size={14} tint={color.textMuted} />
-        <Text style={styles.noteText}>
-          Channels are not end-to-end encrypted: OGC can read posts for moderation and search.
-        </Text>
-      </View>
       {error ? (
         <Notice
           action={{
@@ -152,7 +173,7 @@ export function CommunitiesScreen() {
       ) : channels.length === 0 ? (
         <View style={styles.surface}>
           <EmptyState
-            icon="hash"
+            icon="megaphone"
             title="No channels yet"
             body="Follow channels for announcements and discussions from larger communities."
             action={{
@@ -175,34 +196,57 @@ export function CommunitiesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
-  action: {
-    flexGrow: 1,
-    flexBasis: '45%',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[2],
-    minHeight: 48,
-    paddingHorizontal: space[3],
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.md,
-  },
-  actionPressed: { backgroundColor: color.surfaceRaised },
-  actionText: {
-    flex: 1,
-    color: color.textPrimary,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-  },
-  surface: {
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-  note: { flexDirection: 'row', alignItems: 'flex-start', gap: space[2] },
-  noteText: { flex: 1, color: color.textMuted, fontSize: fontSize.xs, lineHeight: 17 },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    actions: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+    action: {
+      flexGrow: 1,
+      flexBasis: '45%',
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space[2],
+      minHeight: 48,
+      paddingHorizontal: space[3],
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.md,
+    },
+    actionPressed: { backgroundColor: color.surfaceRaised },
+    actionText: {
+      flex: 1,
+      color: color.textPrimary,
+      fontSize: fontSize.sm,
+      fontWeight: fontWeight.semibold,
+    },
+    surface: {
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+    kinds: { gap: space[2] },
+    kind: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: space[3],
+      padding: space[3],
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+    kindIcon: {
+      width: 36,
+      height: 36,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radius.md,
+    },
+    kindIconSecure: { backgroundColor: color.successSubtle },
+    kindIconCommunity: { backgroundColor: color.accentSubtle },
+    kindText: { flex: 1, gap: 2 },
+    kindTitle: { color: color.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
+    kindDetail: { color: color.textMuted, fontSize: fontSize.xs, lineHeight: 17 },
+  }),
+);

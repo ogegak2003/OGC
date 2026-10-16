@@ -1,4 +1,4 @@
-import { color, fontSize, space } from '@ogc/ui';
+import { fontSize, space } from '@ogc/ui';
 import { PASSWORD_MIN_LENGTH, registerRequestSchema } from '@ogc/validation';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -7,6 +7,7 @@ import { Icon } from '../components/Icon';
 import { Button, Field, Notice } from '../components/ui';
 import { errorMessage, fieldErrors } from '../lib/errors';
 import { AuthScreen, text } from './Screen';
+import { color, themedStyles } from '../theme';
 
 export function RegisterScreen({
   onRegistered,
@@ -100,7 +101,9 @@ export function RegisterScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  privacy: { flexDirection: 'row', gap: space[2], alignItems: 'flex-start' },
-  privacyText: { flex: 1, color: color.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    privacy: { flexDirection: 'row', gap: space[2], alignItems: 'flex-start' },
+    privacyText: { flex: 1, color: color.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
+  }),
+);

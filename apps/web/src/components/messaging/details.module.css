@@ -1,0 +1,216 @@
+/* Conversation details: a third column on wide screens, a drawer over the chat below that. */
+.details {
+  display: flex;
+  flex-direction: column;
+  gap: var(--ogc-space-4);
+  min-width: 0;
+  min-height: 0;
+  padding: var(--ogc-space-4) var(--ogc-space-5) var(--ogc-space-6);
+  overflow-y: auto;
+  background: var(--ogc-color-surface);
+  border-left: 1px solid var(--ogc-color-border);
+  animation: details-in var(--ogc-duration-normal) var(--ogc-easing-enter);
+}
+
+@keyframes details-in {
+  from {
+    transform: translateX(12px);
+  }
+}
+
+@media (max-width: 1199px) {
+  .details {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 50;
+    width: min(22rem, 100vw);
+    box-shadow: var(--ogc-elevation-high);
+  }
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.heading {
+  margin: 0;
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.close {
+  display: inline-grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  color: var(--ogc-color-text-muted);
+  background: none;
+  border: 0;
+  border-radius: var(--ogc-radius-md);
+  cursor: pointer;
+}
+
+.close:hover {
+  color: var(--ogc-color-text-primary);
+  background: var(--ogc-color-surface-raised);
+}
+
+.identity {
+  display: grid;
+  justify-items: center;
+  gap: var(--ogc-space-1);
+  text-align: center;
+}
+
+.name {
+  margin: var(--ogc-space-2) 0 0;
+  overflow-wrap: anywhere;
+  font-size: var(--ogc-font-size-lg);
+  font-weight: 700;
+}
+
+.ogcId {
+  margin: 0;
+  color: var(--ogc-color-accent-highlight);
+  font-family: var(--ogc-font-mono);
+  font-size: var(--ogc-font-size-sm);
+  letter-spacing: 0.05em;
+}
+
+.meta {
+  margin: 0;
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-sm);
+}
+
+.encryption {
+  display: flex;
+  gap: var(--ogc-space-2);
+  margin: 0;
+  padding: var(--ogc-space-3);
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-xs);
+  line-height: 1.5;
+  background: var(--ogc-color-surface-raised);
+  border-radius: var(--ogc-radius-md);
+}
+
+.encryption svg {
+  flex: none;
+  color: var(--ogc-color-success);
+}
+
+.calls {
+  display: flex;
+  justify-content: center;
+}
+
+.actions {
+  display: grid;
+  gap: 2px;
+}
+
+.action {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  min-height: var(--ogc-size-touch);
+  padding: 0 var(--ogc-space-3);
+  color: var(--ogc-color-text-primary);
+  font: inherit;
+  font-size: var(--ogc-font-size-sm);
+  text-align: left;
+  text-decoration: none;
+  background: none;
+  border: 0;
+  border-radius: var(--ogc-radius-md);
+  cursor: pointer;
+}
+
+.action:hover:not(:disabled) {
+  background: var(--ogc-color-surface-raised);
+}
+
+.action svg {
+  flex: none;
+  color: var(--ogc-color-text-muted);
+}
+
+.danger,
+.danger svg {
+  color: var(--ogc-color-danger);
+}
+
+.confirm {
+  display: grid;
+  gap: var(--ogc-space-3);
+  padding: var(--ogc-space-3);
+  background: var(--ogc-color-danger-subtle);
+  border-radius: var(--ogc-radius-md);
+}
+
+.confirmText {
+  margin: 0;
+  font-size: var(--ogc-font-size-sm);
+}
+
+.confirmActions {
+  display: flex;
+  gap: var(--ogc-space-2);
+}
+
+.description {
+  margin: 0;
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.members {
+  display: grid;
+  gap: var(--ogc-space-2);
+}
+
+.subheading {
+  margin: 0;
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+}
+
+.memberList {
+  display: grid;
+  gap: var(--ogc-space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.member {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+  min-width: 0;
+}
+
+.memberName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: var(--ogc-font-size-sm);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.role {
+  color: var(--ogc-color-accent);
+  font-size: var(--ogc-font-size-xs);
+  font-weight: 600;
+  text-transform: capitalize;
+}

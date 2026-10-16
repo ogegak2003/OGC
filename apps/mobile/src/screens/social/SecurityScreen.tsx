@@ -1,8 +1,8 @@
 import type { DeviceSessionView } from '@ogc/types';
 import { changePasswordRequestSchema } from '@ogc/validation';
-import { color, fontSize } from '@ogc/ui';
+import { fontSize, radius, space } from '@ogc/ui';
 import { useCallback, useState } from 'react';
-import { Platform, StyleSheet, Text } from 'react-native';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../auth/AuthProvider';
 import {
   Button,
@@ -19,6 +19,7 @@ import { useResource } from '../../lib/use-resource';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
+import { color, themedStyles } from '../../theme';
 
 const THIS_PLATFORM =
   Platform.OS === 'ios' ? 'iPhone or iPad' : Platform.OS === 'android' ? 'Android' : 'This device';
@@ -46,7 +47,10 @@ function OtherDevices() {
   const [message, setMessage] = useState<Message>();
   const [busy, setBusy] = useState<string>();
 
+  // Signing devices out is confirmed first: the device id, or 'others'.
+  const [confirming, setConfirming] = useState<string>();
   const run = (key: string, task: () => Promise<string>) => {
+    setConfirming(undefined);
     setMessage(undefined);
     setBusy(key);
     task().then(
@@ -81,35 +85,84 @@ function OtherDevices() {
                 title={name}
                 subtitle={`Last active ${when(s.lastUsedAt)}`}
                 trailing={
-                  <Button
-                    title="Sign out"
-                    variant="secondary"
-                    compact
-                    busy={busy === s.id}
-                    accessibilityLabel={`Sign out ${name}`}
-                    onPress={() => {
-                      run(s.id, async () => {
-                        await client.revokeSession(s.id);
-                        return `${name} was signed out.`;
-                      });
-                    }}
-                  />
+                  confirming === s.id ? (
+                    <View style={styles.confirmRow}>
+                      <Button
+                        title="Keep"
+                        variant="ghost"
+                        compact
+                        onPress={() => {
+                          setConfirming(undefined);
+                        }}
+                      />
+                      <Button
+                        title="Sign out"
+                        variant="danger"
+                        compact
+                        accessibilityLabel={`Confirm sign out ${name}`}
+                        onPress={() => {
+                          run(s.id, async () => {
+                            await client.revokeSession(s.id);
+                            return `${name} was signed out.`;
+                          });
+                        }}
+                      />
+                    </View>
+                  ) : (
+                    <Button
+                      title="Sign out"
+                      variant="secondary"
+                      compact
+                      busy={busy === s.id}
+                      accessibilityLabel={`Sign out ${name}`}
+                      onPress={() => {
+                        setConfirming(s.id);
+                      }}
+                    />
+                  )
                 }
               />
             );
           })}
         </ListGroup>
       )}
-      {others.length > 0 ? (
+      {others.length > 0 && confirming === 'others' ? (
+        <View style={styles.confirmBox} accessibilityRole="alert">
+          <Text style={styles.body}>
+            {others.length} {others.length === 1 ? 'device loses' : 'devices lose'} access
+            immediately. This device stays signed in.
+          </Text>
+          <View style={styles.confirmRow}>
+            <Button
+              title="Keep"
+              variant="secondary"
+              compact
+              style={styles.flex}
+              onPress={() => {
+                setConfirming(undefined);
+              }}
+            />
+            <Button
+              title="Sign out others"
+              variant="danger"
+              compact
+              style={styles.flex}
+              onPress={() => {
+                run('others', async () => {
+                  const { ended } = await client.revokeOtherSessions();
+                  return `Signed out ${String(ended)} other ${ended === 1 ? 'device' : 'devices'}.`;
+                });
+              }}
+            />
+          </View>
+        </View>
+      ) : others.length > 0 ? (
         <Button
           title="Sign out all other devices"
           variant="danger"
           busy={busy === 'others'}
           onPress={() => {
-            run('others', async () => {
-              const { ended } = await client.revokeOtherSessions();
-              return `Signed out ${String(ended)} other ${ended === 1 ? 'device' : 'devices'}.`;
-            });
+            setConfirming('others');
           }}
         />
       ) : null}
@@ -247,6 +300,16 @@ export function SecurityScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  body: { color: color.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    confirmRow: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+    confirmBox: {
+      gap: space[3],
+      padding: space[4],
+      backgroundColor: color.surfaceRaised,
+      borderRadius: radius.md,
+    },
+    body: { color: color.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
+  }),
+);

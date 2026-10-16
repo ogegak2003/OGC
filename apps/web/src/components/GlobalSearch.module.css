@@ -20,7 +20,7 @@
   color: var(--ogc-color-text-primary);
   font: inherit;
   font-size: var(--ogc-font-size-sm);
-  background: rgb(255 255 255 / 0.03);
+  background: color-mix(in srgb, var(--ogc-color-text-primary) 3%, transparent);
   border: 1px solid var(--ogc-color-border-strong);
   border-radius: var(--ogc-radius-full);
   transition:
@@ -33,11 +33,11 @@
 }
 
 .input:hover {
-  border-color: rgb(216 173 78 / 0.35);
+  border-color: color-mix(in srgb, var(--ogc-color-accent) 35%, transparent);
 }
 
 .input:focus-visible {
-  background: rgb(255 255 255 / 0.05);
+  background: color-mix(in srgb, var(--ogc-color-text-primary) 5%, transparent);
   border-color: var(--ogc-color-accent);
   outline: 2px solid var(--ogc-color-focus-ring);
   outline-offset: 1px;

@@ -1,0 +1,140 @@
+.card {
+  display: grid;
+  gap: var(--ogc-space-4);
+  padding: var(--ogc-space-5);
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid var(--ogc-color-border);
+  border-top: 2px solid var(--ogc-color-accent);
+  border-radius: var(--ogc-radius-lg);
+}
+
+.top {
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-3);
+}
+
+.who {
+  flex: 1;
+  min-width: 0;
+}
+
+.title {
+  margin: 0;
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.name {
+  margin: 0;
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.mark {
+  flex: none;
+  opacity: 0.8;
+}
+
+.ogcId {
+  margin: 0;
+  color: var(--ogc-color-accent-highlight);
+  font-family: var(--ogc-font-mono);
+  font-size: clamp(1.375rem, 3.2vw, 1.75rem);
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  font-variant-numeric: tabular-nums;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ogc-space-2);
+}
+
+.qr {
+  display: grid;
+  justify-items: center;
+  padding: var(--ogc-space-3);
+  background: var(--ogc-color-surface);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-md);
+}
+
+.qr[hidden] {
+  display: none;
+}
+
+.live:empty {
+  display: none;
+}
+
+.live {
+  margin: 0;
+  color: var(--ogc-color-success);
+  font-size: var(--ogc-font-size-sm);
+}
+
+.facts {
+  display: grid;
+  gap: var(--ogc-space-2);
+  margin: 0;
+  font-size: var(--ogc-font-size-sm);
+}
+
+.facts div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--ogc-space-3);
+}
+
+.facts dt {
+  color: var(--ogc-color-text-muted);
+}
+
+.facts dd {
+  margin: 0;
+  color: var(--ogc-color-text-secondary);
+  text-align: right;
+}
+
+.note {
+  display: flex;
+  gap: var(--ogc-space-2);
+  margin: 0;
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+  line-height: 1.5;
+}
+
+.note svg {
+  flex: none;
+  color: var(--ogc-color-success);
+}
+
+.link {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-1);
+  justify-self: start;
+  color: var(--ogc-color-accent);
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.link:hover {
+  text-decoration: underline;
+}
+
+.bio {
+  margin: 0;
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
+  overflow-wrap: anywhere;
+}

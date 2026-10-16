@@ -1,0 +1,154 @@
+.figure {
+  display: grid;
+  gap: var(--ogc-space-3);
+  margin: 0;
+  animation: chart-in var(--ogc-duration-slow) var(--ogc-easing-enter);
+  transform-origin: bottom;
+}
+
+/* Movement only: data is never hidden, even if animations are paused. */
+@keyframes chart-in {
+  from {
+    transform: translateY(4px);
+  }
+}
+
+.legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ogc-space-4);
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-xs);
+}
+
+.legendItem {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-2);
+}
+
+.swatch {
+  display: inline-block;
+  flex: none;
+  width: 0.625rem;
+  height: 0.625rem;
+  border-radius: 2px;
+}
+
+.plot {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--ogc-space-2);
+  height: 10rem;
+}
+
+.axis {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-width: 1.25rem;
+  color: var(--ogc-color-text-muted);
+  font-size: 0.6875rem;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  transform: translateY(-0.4em);
+}
+
+.canvas {
+  position: relative;
+  min-width: 0;
+}
+
+.svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.grid {
+  stroke: var(--ogc-color-chart-grid);
+  stroke-width: 1;
+}
+
+.activeBar rect {
+  filter: brightness(1.15);
+}
+
+.hits {
+  position: absolute;
+  inset: 0;
+  display: flex;
+}
+
+.hit {
+  flex: 1;
+  margin: 0;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 2px;
+  cursor: default;
+}
+
+.hit:hover,
+.hit:focus-visible {
+  background: color-mix(in srgb, var(--ogc-color-text-primary) 6%, transparent);
+}
+
+.hit:focus-visible {
+  outline: 2px solid var(--ogc-color-focus-ring);
+  outline-offset: 1px;
+}
+
+.tooltip {
+  position: absolute;
+  bottom: calc(100% + var(--ogc-space-2));
+  z-index: 5;
+  display: grid;
+  gap: 2px;
+  min-width: 9rem;
+  padding: var(--ogc-space-2) var(--ogc-space-3);
+  color: var(--ogc-color-text-primary);
+  font-size: var(--ogc-font-size-xs);
+  white-space: nowrap;
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid var(--ogc-color-border-strong);
+  border-radius: var(--ogc-radius-sm);
+  box-shadow: var(--ogc-elevation-medium);
+  transform: translateX(-50%);
+  pointer-events: none;
+}
+
+.tooltip span {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ogc-space-2);
+  color: var(--ogc-color-text-secondary);
+}
+
+.labels {
+  display: flex;
+  margin-left: calc(1.25rem + var(--ogc-space-2));
+  color: var(--ogc-color-text-muted);
+  font-size: 0.6875rem;
+}
+
+.labels span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.visuallyHidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}

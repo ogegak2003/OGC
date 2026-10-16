@@ -1,0 +1,299 @@
+/* Groups (private, encrypted) and community channels (open, moderated): visibly different. */
+
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr));
+  gap: var(--ogc-space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.card {
+  min-width: 0;
+  animation: card-in var(--ogc-duration-normal) var(--ogc-easing-enter);
+}
+
+@keyframes card-in {
+  from {
+    transform: translateY(4px);
+  }
+}
+
+.cardLink {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ogc-space-3);
+  height: 100%;
+  padding: var(--ogc-space-4);
+  color: var(--ogc-color-text-primary);
+  text-decoration: none;
+  background: var(--ogc-color-surface);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-lg);
+  transition:
+    border-color var(--ogc-duration-fast) var(--ogc-easing-standard),
+    transform var(--ogc-duration-fast) var(--ogc-easing-standard);
+}
+
+.cardLink:hover {
+  border-color: var(--ogc-color-border-strong);
+  transform: translateY(-1px);
+}
+
+.avatarWrap {
+  position: relative;
+  flex: none;
+  display: inline-flex;
+}
+
+/* The kind marker on the avatar: a lock for groups, a megaphone for channels. */
+.kindBadge {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  display: inline-grid;
+  place-items: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  border: 2px solid var(--ogc-color-surface);
+  border-radius: var(--ogc-radius-full);
+}
+
+.kindGroup {
+  color: var(--ogc-color-background);
+  background: var(--ogc-color-success);
+}
+
+.kindChannel {
+  color: var(--ogc-color-on-accent);
+  background: var(--ogc-color-accent);
+}
+
+.body {
+  display: grid;
+  flex: 1;
+  gap: 2px;
+  min-width: 0;
+}
+
+.top {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--ogc-space-2);
+}
+
+.name {
+  overflow: hidden;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.time {
+  flex: none;
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+}
+
+.meta {
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+}
+
+.description {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--ogc-color-text-secondary);
+  font-size: var(--ogc-font-size-sm);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ogc-space-1);
+  margin-top: var(--ogc-space-1);
+}
+
+.tag {
+  padding: 0.0625rem var(--ogc-space-2);
+  color: var(--ogc-color-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 600;
+  background: var(--ogc-color-surface-raised);
+  border-radius: var(--ogc-radius-full);
+}
+
+.tagSecure {
+  color: var(--ogc-color-success);
+  background: var(--ogc-color-success-subtle);
+}
+
+.tagChannel {
+  color: var(--ogc-color-accent);
+  background: var(--ogc-color-accent-subtle);
+}
+
+.unread {
+  flex: none;
+  min-width: 1.5rem;
+  padding: 0 0.4rem;
+  color: var(--ogc-color-on-accent);
+  font-size: var(--ogc-font-size-xs);
+  font-weight: 700;
+  line-height: 1.5rem;
+  text-align: center;
+  background: var(--ogc-color-accent);
+  border-radius: var(--ogc-radius-full);
+}
+
+/* ---------- Kind explainer (two columns) ---------- */
+.kinds {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: var(--ogc-space-3);
+}
+
+.kind {
+  display: flex;
+  gap: var(--ogc-space-3);
+  padding: var(--ogc-space-4);
+  background: var(--ogc-color-surface);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-lg);
+}
+
+.kindIcon {
+  display: inline-grid;
+  flex: none;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--ogc-radius-md);
+}
+
+.kindIconGroup {
+  color: var(--ogc-color-success);
+  background: var(--ogc-color-success-subtle);
+}
+
+.kindIconChannel {
+  color: var(--ogc-color-accent);
+  background: var(--ogc-color-accent-subtle);
+}
+
+.kindText {
+  display: grid;
+  gap: 2px;
+}
+
+.kindTitle {
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+}
+
+.kindDetail {
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-xs);
+  line-height: 1.5;
+}
+
+/* ---------- Page layout ---------- */
+.page {
+  display: grid;
+  gap: var(--ogc-space-6);
+}
+
+.section {
+  display: grid;
+  gap: var(--ogc-space-3);
+}
+
+/* ---------- Channel header ---------- */
+.hero {
+  display: grid;
+  gap: var(--ogc-space-3);
+  padding-bottom: var(--ogc-space-4);
+  overflow: hidden;
+  background: var(--ogc-color-surface);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-lg);
+}
+
+.heroBand {
+  height: 3.5rem;
+  background: linear-gradient(
+    120deg,
+    var(--ogc-color-accent-subtle),
+    color-mix(in srgb, var(--ogc-color-accent) 22%, var(--ogc-color-surface))
+  );
+  border-bottom: 1px solid var(--ogc-color-accent-border);
+}
+
+/* Avatar overlaps the band; name, details and actions always sit below it. */
+.heroBody {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--ogc-space-3) var(--ogc-space-4);
+  margin-top: -2rem;
+  padding: 0 var(--ogc-space-4);
+}
+
+.heroAvatar {
+  grid-column: 1 / -1;
+  justify-self: start;
+  padding: 3px;
+  background: var(--ogc-color-surface);
+  border-radius: var(--ogc-radius-full);
+}
+
+.heroText {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+@media (max-width: 32rem) {
+  .heroBody {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.heroName {
+  margin: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--ogc-font-size-xl);
+  font-weight: 700;
+}
+
+.heroActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ogc-space-2);
+}
+
+.heroDescription {
+  margin: 0;
+  padding: 0 var(--ogc-space-4);
+  color: var(--ogc-color-text-secondary);
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--ogc-space-2);
+  margin: var(--ogc-space-3) 0;
+  color: var(--ogc-color-text-muted);
+  font-size: var(--ogc-font-size-sm);
+}
+
+.notice svg {
+  flex: none;
+  margin-top: 2px;
+}

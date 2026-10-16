@@ -6,6 +6,11 @@ import { BrowserRouter } from 'react-router';
 import { App } from './app/App';
 import { AuthProvider } from './auth/AuthProvider';
 import { MessagingProvider } from './messaging/MessagingProvider';
+import { ThemeProvider } from './theme/ThemeProvider';
+import { applyAppearance, loadAppearance } from './theme/theme';
+
+// Apply the saved appearance before the first paint (no flash of the wrong theme).
+applyAppearance(loadAppearance());
 
 const container = document.getElementById('root');
 if (!container) {
@@ -14,12 +19,14 @@ if (!container) {
 
 createRoot(container).render(
   <StrictMode>
-    <BrowserRouter>
-      <AuthProvider>
-        <MessagingProvider>
-          <App />
-        </MessagingProvider>
-      </AuthProvider>
-    </BrowserRouter>
+    <ThemeProvider>
+      <BrowserRouter>
+        <AuthProvider>
+          <MessagingProvider>
+            <App />
+          </MessagingProvider>
+        </AuthProvider>
+      </BrowserRouter>
+    </ThemeProvider>
   </StrictMode>,
 );

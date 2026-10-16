@@ -1,0 +1,21 @@
+.page {
+  display: grid;
+  gap: var(--ogc-space-5);
+  max-width: 44rem;
+}
+
+.form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: var(--ogc-space-3);
+}
+
+.field {
+  flex: 1 1 16rem;
+}
+
+/* Align the button with the input (below the label). */
+.form > button {
+  margin-top: 1.75rem;
+}

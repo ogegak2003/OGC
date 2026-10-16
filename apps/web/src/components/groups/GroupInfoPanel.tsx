@@ -22,6 +22,8 @@ import { api } from '../../lib/api';
 import { groupsApi } from '../../lib/community-api';
 import { useMessaging } from '../../messaging/messaging-context';
 import { Avatar } from '../Avatar';
+import community from '../community/community.module.css';
+import { Icon } from '../Icon';
 import { SafetyNumberDialog } from '../messaging/Dialogs';
 import { Modal } from '../messaging/Modal';
 import styles from '../messaging/messaging.module.css';
@@ -112,7 +114,15 @@ export function GroupInfoPanel({
     <Modal title={`${kind === 'CHANNEL' ? 'Channel' : 'Group'} info`} onClose={onClose}>
       <div className={styles.infoScroll}>
         <div className={styles.infoHeader}>
-          <Avatar url={group.avatarUrl} name={group.name} size={72} />
+          <span className={community.avatarWrap}>
+            <Avatar url={group.avatarUrl} name={group.name} size={72} />
+            <span
+              className={[community.kindBadge, community.kindGroup].join(' ')}
+              aria-hidden="true"
+            >
+              <Icon name="lock" size={12} />
+            </span>
+          </span>
           <div>
             <p className={styles.emptyTitle}>{group.name}</p>
             <p className={styles.sidebarNote}>
@@ -122,6 +132,14 @@ export function GroupInfoPanel({
           </div>
         </div>
         {group.description ? <p className={styles.disclosure}>{group.description}</p> : null}
+        <p className={styles.encryptionNote}>
+          <Icon name="shieldCheck" size={18} />
+          <span>
+            Messages are end-to-end encrypted for members’ devices. Removed members and people who
+            leave can’t read anything sent afterwards. Use Verify beside a member to compare safety
+            numbers.
+          </span>
+        </p>
         {error ? <Alert>{error}</Alert> : null}
         {notice ? <Alert tone="success">{notice}</Alert> : null}
 
@@ -527,7 +545,10 @@ export function GroupInfoPanel({
           </section>
         ) : null}
 
-        <section className={styles.infoSection} aria-labelledby="danger-heading">
+        <section
+          className={[styles.infoSection, styles.dangerZone].join(' ')}
+          aria-labelledby="danger-heading"
+        >
           <h3 id="danger-heading" className={styles.sectionLabel}>
             Leave or close
           </h3>

@@ -30,7 +30,7 @@ describe('welcome', () => {
     renderApp('/');
     expect(await screen.findByRole('heading', { level: 1 })).toHaveProperty(
       'textContent',
-      'OGC GlobalCommunication',
+      'Private conversations,one OGC ID.',
     );
     expect(screen.getByRole('img', { name: 'OGC' })).toBeTruthy();
     expect(screen.getByRole('link', { name: 'Create Account' }).getAttribute('href')).toBe(
@@ -110,7 +110,8 @@ describe('sign in', () => {
     expect(within(screen.getByRole('main')).getByText('OGC 306 841 127')).toBeTruthy();
     const qr = screen.getByRole('img', { name: 'QR code for OGC306841127' });
     expect(qr.closest('figure')?.getAttribute('data-payload')).toBe('ogc://id/OGC306841127');
-    expect(screen.getByRole('button', { name: 'Share my OGC' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Share' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy();
 
     const login = fetchMock.mock.calls.find(([url]) => url === '/api/v1/auth/login');
     expect(bodyOf(login?.[1])).toEqual({
@@ -254,7 +255,17 @@ describe('signed-in home', () => {
 
     fireEvent.click(more);
     expect(more.getAttribute('aria-expanded')).toBe('true');
-    for (const name of ['Notifications', 'Discover', 'Invitations', 'Edit profile', 'Privacy']) {
+    for (const name of [
+      'Notifications',
+      'Calls',
+      'Discover',
+      'Invitations',
+      'Channels',
+      'Profile',
+      'Appearance',
+      'Security & devices',
+      'Privacy',
+    ]) {
       expect(tabs.getByRole('link', { name })).toBeTruthy();
     }
     expect(tabs.getByRole('button', { name: 'Sign out' })).toBeTruthy();
@@ -267,14 +278,17 @@ describe('signed-in home', () => {
     const side = within(required(sidebar));
     for (const name of [
       'Home',
-      'Chats',
+      'Messages',
       'Calls',
       'Groups',
       'Channels',
       'Contacts',
       'Notifications',
-      'Discover',
-      'Settings',
+      'Find by OGC ID',
+      'Profile',
+      'Appearance',
+      'Security & devices',
+      'Privacy',
     ]) {
       expect(side.getByRole('link', { name })).toBeTruthy();
     }

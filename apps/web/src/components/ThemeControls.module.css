@@ -1,0 +1,129 @@
+.controls {
+  display: grid;
+  gap: var(--ogc-space-6);
+}
+
+.compact {
+  gap: var(--ogc-space-4);
+}
+
+.group {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.legend {
+  margin-bottom: var(--ogc-space-3);
+  padding: 0;
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+  color: var(--ogc-color-text-secondary);
+}
+
+.compact .legend {
+  margin-bottom: var(--ogc-space-2);
+  font-size: var(--ogc-font-size-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ogc-color-text-muted);
+}
+
+.segments {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--ogc-space-2);
+}
+
+.segment,
+.swatch {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: var(--ogc-space-2);
+  min-height: var(--ogc-size-touch);
+  padding: var(--ogc-space-3);
+  color: var(--ogc-color-text-secondary);
+  background: var(--ogc-color-surface-raised);
+  border: 1px solid var(--ogc-color-border);
+  border-radius: var(--ogc-radius-md);
+  cursor: pointer;
+  transition:
+    border-color var(--ogc-duration-fast) var(--ogc-easing-standard),
+    background-color var(--ogc-duration-fast) var(--ogc-easing-standard);
+}
+
+.segment {
+  flex-direction: column;
+  justify-content: center;
+  text-align: center;
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+}
+
+.compact .segment {
+  flex-direction: row;
+  padding: var(--ogc-space-2);
+  font-size: var(--ogc-font-size-xs);
+}
+
+.hint {
+  font-size: var(--ogc-font-size-xs);
+  font-weight: 400;
+  color: var(--ogc-color-text-muted);
+}
+
+.segment:hover,
+.swatch:hover {
+  border-color: var(--ogc-color-border-strong);
+}
+
+/* The real radio stays in the accessibility tree and takes focus; the label is the visual. */
+.segment input,
+.swatch input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.segment:has(input:checked),
+.swatch:has(input:checked) {
+  color: var(--ogc-color-text-primary);
+  background: var(--ogc-color-accent-subtle);
+  border-color: var(--ogc-color-accent);
+}
+
+.segment:has(input:focus-visible),
+.swatch:has(input:focus-visible) {
+  outline: 2px solid var(--ogc-color-focus-ring);
+  outline-offset: 2px;
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--ogc-space-2);
+}
+
+.swatch {
+  flex: 1 1 8rem;
+  font-size: var(--ogc-font-size-sm);
+  font-weight: 600;
+}
+
+.compact .swatch {
+  flex-basis: 6rem;
+  padding: var(--ogc-space-2);
+  font-size: var(--ogc-font-size-xs);
+}
+
+.dot {
+  flex: none;
+  width: 1.125rem;
+  height: 1.125rem;
+  border-radius: var(--ogc-radius-full);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ogc-color-text-primary) 20%, transparent);
+}

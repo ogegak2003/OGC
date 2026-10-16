@@ -3,6 +3,7 @@ import { formatOgcIdForDisplay } from '@ogc/validation';
 import { useEffect, useId, useRef, useState } from 'react';
 import { useCall } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
+import { useTheme } from '../../theme/theme';
 import { Avatar } from '../Avatar';
 import { Icon } from '../Icon';
 import styles from './calls.module.css';
@@ -98,6 +99,7 @@ function ControlButton({
 export function CallOverlay() {
   const { calls } = useMessaging();
   const state = useCall();
+  const { accent } = useTheme();
   const titleId = useId();
   const statusId = useId();
   const now = useNow(state.phase === 'active');
@@ -123,10 +125,17 @@ export function CallOverlay() {
   const inCall = state.phase === 'connecting' || state.phase === 'active';
   const showRemoteVideo = video && inCall && state.remoteStream !== null && !state.remoteCameraOff;
   const showLocalVideo = video && state.localStream !== null && !state.cameraOff;
+  const ringing =
+    state.phase === 'incoming' || state.phase === 'outgoing' || state.phase === 'connecting';
+  const reconnecting =
+    inCall && (state.reconnecting || (state.phase === 'active' && state.connectedAt === null));
 
   return (
     <div
       className={[styles.overlay, showRemoteVideo ? styles.withVideo : ''].join(' ')}
+      // The call stage is always dark (video reads best on black), in the person's accent.
+      data-theme="dark"
+      data-accent={accent}
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
@@ -146,8 +155,13 @@ export function CallOverlay() {
       ) : null}
 
       <div className={styles.identity}>
+        <p className={styles.kind}>
+          <Icon name={video ? 'video' : 'phone'} size={14} />
+          {video ? 'Video call' : 'Voice call'}
+          {state.phase === 'incoming' ? ' · Incoming' : ''}
+        </p>
         {showRemoteVideo ? null : (
-          <span className={styles.avatarRing}>
+          <span className={[styles.avatarRing, ringing ? styles.ringing : ''].join(' ')}>
             <Avatar url={state.peer.avatarUrl} name={name} size={112} />
           </span>
         )}
@@ -162,10 +176,12 @@ export function CallOverlay() {
           className={[
             styles.status,
             state.phase === 'ended' ? styles.statusEnded : '',
-            state.phase === 'active' && !state.reconnecting ? styles.timer : '',
+            state.phase === 'active' && !reconnecting ? styles.timer : '',
+            reconnecting ? styles.statusWarn : '',
           ].join(' ')}
           aria-live="polite"
         >
+          {reconnecting ? <Icon name="refresh" size={16} className={styles.spin} /> : null}
           {status}
         </p>
         {inCall && state.remoteMicrophoneMuted ? (

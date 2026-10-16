@@ -1,6 +1,6 @@
 import type { NotificationSettingsView } from '@ogc/types';
 import type { NotificationSettingsUpdate } from '@ogc/validation';
-import { color, fontSize, fontWeight, radius, space } from '@ogc/ui';
+import { fontSize, fontWeight, radius, space } from '@ogc/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { AppState, Linking, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../../auth/AuthProvider';
@@ -24,6 +24,7 @@ import {
   requestPushPermission,
 } from '../../notifications/push';
 import { Screen } from '../Screen';
+import { color, themedStyles } from '../../theme';
 
 const STEP = 30;
 
@@ -346,43 +347,49 @@ export function NotificationSettingsScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  surface: {
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-  status: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
-  statusText: { flex: 1, color: color.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
-  permission: { gap: space[3] },
-  groupTitle: { color: color.textPrimary, fontSize: fontSize.md, fontWeight: fontWeight.semibold },
-  help: { color: color.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
-  quiet: {
-    gap: space[3],
-    padding: space[4],
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-  stepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  stepperLabel: { color: color.textPrimary, fontSize: fontSize.md },
-  stepperControls: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  stepButton: {
-    width: 40,
-    height: 40,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    borderRadius: 20,
-  },
-  stepperValue: {
-    minWidth: 56,
-    color: color.textPrimary,
-    fontSize: fontSize.lg,
-    fontVariant: ['tabular-nums'],
-    textAlign: 'center',
-  },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    surface: {
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+    status: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+    statusText: { flex: 1, color: color.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
+    permission: { gap: space[3] },
+    groupTitle: {
+      color: color.textPrimary,
+      fontSize: fontSize.md,
+      fontWeight: fontWeight.semibold,
+    },
+    help: { color: color.textMuted, fontSize: fontSize.sm, lineHeight: 20 },
+    quiet: {
+      gap: space[3],
+      padding: space[4],
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+    stepper: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    stepperLabel: { color: color.textPrimary, fontSize: fontSize.md },
+    stepperControls: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+    stepButton: {
+      width: 40,
+      height: 40,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: color.borderStrong,
+      borderRadius: 20,
+    },
+    stepperValue: {
+      minWidth: 56,
+      color: color.textPrimary,
+      fontSize: fontSize.lg,
+      fontVariant: ['tabular-nums'],
+      textAlign: 'center',
+    },
+  }),
+);

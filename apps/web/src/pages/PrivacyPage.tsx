@@ -1,13 +1,13 @@
 import type { PrivacySettings } from '@ogc/types';
 import { type SyntheticEvent, useCallback, useState } from 'react';
-import { Link } from 'react-router';
 import { AppShell } from '../components/AppShell';
 import styles from '../components/social.module.css';
 import { Alert, Button, Spinner } from '../components/ui';
 import { api } from '../lib/api';
 import { errorMessage } from '../lib/form';
 import { useResource } from '../lib/use-resource';
-import { Icon } from '../components/Icon';
+import { PageIntro, Section, SettingRow } from '../components/kit';
+import kit from '../components/kit.module.css';
 
 interface Choice<T extends string> {
   value: T;
@@ -29,7 +29,7 @@ function RadioGroup<T extends string>({
   onChange: (value: T) => void;
 }) {
   return (
-    <fieldset className={styles.fieldset}>
+    <fieldset className={[styles.fieldset, kit.section].join(' ')}>
       <legend className={styles.legend}>{legend}</legend>
       {choices.map((choice) => (
         <label key={choice.value} className={styles.option}>
@@ -72,7 +72,7 @@ function PrivacyForm({ initial }: { initial: PrivacySettings }) {
   }
 
   return (
-    <form className={styles.card} onSubmit={(e) => void save(e)}>
+    <form className={kit.sectionBody} onSubmit={(e) => void save(e)}>
       {notice ? <Alert tone={notice.tone}>{notice.text}</Alert> : null}
       <RadioGroup
         legend="Who can see your photo, bio and join date"
@@ -144,12 +144,29 @@ export function PrivacyPage() {
   const { state } = useResource(load);
   return (
     <AppShell title="Privacy">
-      {state.status === 'loading' ? <Spinner label="Loading settings" /> : null}
-      {state.status === 'error' ? <Alert>{errorMessage(state.error)}</Alert> : null}
-      {state.status === 'ready' ? <PrivacyForm initial={state.data.privacy} /> : null}
-      <Link className={styles.textLink} to="/settings/blocked">
-        Blocked people <Icon name="arrowRight" size={16} />
-      </Link>
+      <div className={kit.sectionBody}>
+        <PageIntro>
+          Decide who can see your details and reach you. Your email address is never shown to
+          anyone, whatever you choose here.
+        </PageIntro>
+        {state.status === 'loading' ? <Spinner label="Loading settings" /> : null}
+        {state.status === 'error' ? <Alert>{errorMessage(state.error)}</Alert> : null}
+        {state.status === 'ready' ? <PrivacyForm initial={state.data.privacy} /> : null}
+        <Section title="Safety">
+          <SettingRow
+            icon="ban"
+            title="Blocked people"
+            detail="See and unblock people you blocked"
+            to="/settings/blocked"
+          />
+          <SettingRow
+            icon="shieldCheck"
+            title="Security and devices"
+            detail="Signed-in devices, password and encryption"
+            to="/settings/security"
+          />
+        </Section>
+      </div>
     </AppShell>
   );
 }

@@ -82,6 +82,10 @@ export function MessageBubble({
   const [menuOpen, setMenuOpen] = useState(false);
   const status = messageStatus(message, conversation);
   const readable = message.state === 'ok' && message.payload !== null;
+  // Your own message still sending, or not sent: its content is shown (it never left this device).
+  const showContent =
+    message.payload !== null &&
+    (readable || message.state === 'pending' || message.state === 'failed');
   const sent = message.id !== null && message.state !== 'pending' && message.state !== 'failed';
   const canAct = sent && message.state !== 'deleted';
   const grouped = new Map<ReactionType, { count: number; mine: boolean }>();
@@ -112,7 +116,7 @@ export function MessageBubble({
             {replyTarget ? previewText(replyTarget) : 'Original message unavailable'}
           </a>
         ) : null}
-        {readable ? (
+        {showContent ? (
           <>
             {message.payload?.attachments?.map((attachment) => (
               <AttachmentView key={attachment.id} descriptor={attachment} />

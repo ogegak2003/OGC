@@ -5,6 +5,9 @@ import { Link, useParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
 import { Avatar } from '../components/Avatar';
 import { type PostActions, PostCard } from '../components/channels/PostCard';
+import community from '../components/community/community.module.css';
+import { Icon } from '../components/Icon';
+import { EmptyState, FilterField } from '../components/kit';
 import { Modal } from '../components/messaging/Modal';
 import styles from '../components/messaging/messaging.module.css';
 import { Alert, Button, Spinner } from '../components/ui';
@@ -277,50 +280,73 @@ export function ChannelPage() {
 
   return (
     <AppShell title={channel.name}>
-      <header className={styles.channelHeader}>
-        <Avatar url={channel.avatarUrl} name={channel.name} size={56} />
-        <div className={styles.cardBody}>
-          <p className={styles.emptyTitle}>{channel.name}</p>
-          <p className={styles.sidebarNote}>
-            @{channel.handle} · {channel.memberCount}{' '}
-            {channel.memberCount === 1 ? 'member' : 'members'} ·{' '}
-            {channel.visibility === 'PUBLIC' ? 'Public' : 'Private'} · Not end-to-end encrypted
-          </p>
-          {channel.description ? <p className={styles.rowPreview}>{channel.description}</p> : null}
+      <header className={community.hero}>
+        <div className={community.heroBand} aria-hidden="true" />
+        <div className={community.heroBody}>
+          <span className={[community.avatarWrap, community.heroAvatar].join(' ')}>
+            <Avatar url={channel.avatarUrl} name={channel.name} size={64} />
+            <span
+              className={[community.kindBadge, community.kindChannel].join(' ')}
+              aria-hidden="true"
+            >
+              <Icon name="megaphone" size={12} />
+            </span>
+          </span>
+          <div className={community.heroText}>
+            <p className={community.heroName}>{channel.name}</p>
+            <p className={community.meta}>
+              Community channel · @{channel.handle} · {channel.memberCount}{' '}
+              {channel.memberCount === 1 ? 'member' : 'members'}
+            </p>
+            <span className={community.tags}>
+              <span className={[community.tag, community.tagChannel].join(' ')}>
+                {channel.visibility === 'PUBLIC' ? 'Public' : 'Private'}
+              </span>
+              <span className={community.tag}>Not end-to-end encrypted</span>
+              {channel.joinPolicy === 'APPROVAL' ? (
+                <span className={community.tag}>Approval to join</span>
+              ) : null}
+            </span>
+          </div>
+          <div className={community.heroActions}>
+            {!channel.membership ? (
+              <Button
+                onClick={() => {
+                  run(channelsApi.join(channel.id));
+                }}
+              >
+                {channel.joinPolicy === 'APPROVAL' ? 'Request to join' : 'Join'}
+              </Button>
+            ) : null}
+            {channel.membership?.status === 'PENDING' ? (
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  run(channelsApi.leave(channel.id));
+                }}
+              >
+                Withdraw request
+              </Button>
+            ) : null}
+            {member ? (
+              <Button
+                variant="secondary"
+                icon="settings"
+                onClick={() => {
+                  setShowSettings(true);
+                }}
+              >
+                {channel.canModerate ? 'Manage' : 'Settings'}
+              </Button>
+            ) : null}
+          </div>
         </div>
-        <div className={styles.cardActions}>
-          {!channel.membership ? (
-            <Button
-              onClick={() => {
-                run(channelsApi.join(channel.id));
-              }}
-            >
-              {channel.joinPolicy === 'APPROVAL' ? 'Request to join' : 'Join'}
-            </Button>
-          ) : null}
-          {channel.membership?.status === 'PENDING' ? (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                run(channelsApi.leave(channel.id));
-              }}
-            >
-              Withdraw request
-            </Button>
-          ) : null}
-          {member ? (
-            <Button
-              variant="secondary"
-              onClick={() => {
-                setShowSettings(true);
-              }}
-            >
-              {channel.canModerate ? 'Manage' : 'Settings'}
-            </Button>
-          ) : null}
-        </div>
+        {channel.description ? (
+          <p className={community.heroDescription}>{channel.description}</p>
+        ) : null}
       </header>
-      <p className={styles.sidebarNote}>
+      <p className={community.notice}>
+        <Icon name="info" size={16} />
         Posts in community channels can be read by OGC for moderation and search. Don’t share
         secrets here.
       </p>
@@ -351,20 +377,19 @@ export function ChannelPage() {
         </p>
       ) : null}
 
-      <input
-        type="search"
-        className={styles.search}
+      <FilterField
+        label="Search this channel’s posts"
         placeholder="Search this channel"
-        aria-label="Search this channel’s posts"
         value={search}
-        maxLength={64}
-        onChange={(event) => {
-          setSearch(event.target.value);
+        onChange={(value) => {
+          setSearch(value.slice(0, 64));
         }}
       />
       <section aria-label="Posts" className={styles.feed}>
         {posts === undefined ? <Spinner label="Loading posts" /> : null}
-        {posts?.length === 0 ? <p className={styles.sidebarNote}>No posts yet.</p> : null}
+        {posts?.length === 0 ? (
+          <EmptyState icon="megaphone" title={search ? 'No matching posts' : 'No posts yet'} />
+        ) : null}
         {posts?.map(card)}
       </section>
       {cursor ? (

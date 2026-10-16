@@ -3,11 +3,12 @@ import { ogcIdInputSchema } from '@ogc/validation';
 import { type SyntheticEvent, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
+import { EmptyState, PageIntro, Section } from '../components/kit';
 import { PublicProfileCard } from '../components/PublicProfileCard';
-import styles from '../components/social.module.css';
 import { Alert, Button, TextField } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import { errorMessage } from '../lib/form';
+import styles from './DiscoverPage.module.css';
 
 /** Find someone by their exact OGC ID — the primary, privacy-preserving discovery method. */
 export function DiscoverPage() {
@@ -47,37 +48,47 @@ export function DiscoverPage() {
   }
 
   return (
-    <AppShell title="Discover">
-      <form className={styles.card} onSubmit={onSubmit} noValidate role="search">
-        <TextField
-          label="OGC ID"
-          placeholder="OGC 482 731 905"
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-          }}
-          error={inputError}
-          hint="Ask the person for their OGC ID, or scan their OGC QR code."
-          autoComplete="off"
-          spellCheck={false}
-          inputMode="text"
-        />
-        <div className={styles.actions}>
-          <Button type="submit" busy={busy}>
-            Find
-          </Button>
-        </div>
-      </form>
+    <AppShell title="Find by OGC ID">
+      <div className={styles.page}>
+        <PageIntro>
+          OGC has no public directory. To add someone, ask for their OGC ID or scan their OGC QR
+          code — spaces and capitals do not matter.
+        </PageIntro>
+        <Section title="Look up an OGC ID">
+          <form className={styles.form} onSubmit={onSubmit} noValidate role="search">
+            <TextField
+              label="OGC ID"
+              placeholder="OGC 482 731 905"
+              value={input}
+              onChange={(e) => {
+                setInput(e.target.value);
+              }}
+              error={inputError}
+              hint="The person can find theirs on their Home screen."
+              autoComplete="off"
+              spellCheck={false}
+              inputMode="text"
+              className={styles.field}
+            />
+            <Button type="submit" icon="search" busy={busy}>
+              Find
+            </Button>
+          </form>
+        </Section>
 
-      {error ? <Alert>{error}</Alert> : null}
-      {result === 'not-found' ? (
-        <div className={styles.empty} role="status">
-          No OGC account was found for that ID. Check the ID with the person you are looking for.
-        </div>
-      ) : null}
-      {result && result !== 'not-found' ? (
-        <PublicProfileCard profile={result} onChanged={() => void lookup(result.ogcId)} />
-      ) : null}
+        {error ? <Alert>{error}</Alert> : null}
+        {result === 'not-found' ? (
+          <div role="status">
+            <EmptyState icon="search" title="No account found">
+              No OGC account was found for that ID. Check the ID with the person you are looking
+              for. People who chose not to be findable only appear to their contacts.
+            </EmptyState>
+          </div>
+        ) : null}
+        {result && result !== 'not-found' ? (
+          <PublicProfileCard profile={result} onChanged={() => void lookup(result.ogcId)} />
+        ) : null}
+      </div>
     </AppShell>
   );
 }

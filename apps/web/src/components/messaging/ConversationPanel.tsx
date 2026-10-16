@@ -57,7 +57,21 @@ type TimelineItem =
   | { kind: 'event'; at: string; event: TimelineEvent }
   | { kind: 'call'; at: string; call: CallView };
 
-export function ConversationPanel({ conversation }: { conversation: ConversationView }) {
+/** Layout controls supplied by the messaging workspace (wide screens). */
+export interface WorkspaceControls {
+  listCollapsed: boolean;
+  onToggleList: () => void;
+  detailsOpen: boolean;
+  onToggleDetails: () => void;
+}
+
+export function ConversationPanel({
+  conversation,
+  workspace,
+}: {
+  conversation: ConversationView;
+  workspace?: WorkspaceControls;
+}) {
   const { engine, typing, presence, connection, setTyping, watchPresence, calls } = useMessaging();
   const messages = useConversationMessages(conversation.id);
   const events = useTimeline(conversation.id);
@@ -309,6 +323,20 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
         <Link to="/messages" className={styles.back} aria-label="Back to conversations">
           <Icon name="back" size={22} />
         </Link>
+        {workspace ? (
+          <button
+            type="button"
+            className={styles.workspaceToggle}
+            onClick={workspace.onToggleList}
+            aria-pressed={!workspace.listCollapsed}
+            aria-label={
+              workspace.listCollapsed ? 'Show conversation list' : 'Hide conversation list'
+            }
+            title={workspace.listCollapsed ? 'Show conversation list' : 'Hide conversation list'}
+          >
+            <Icon name="sidebar" size={20} />
+          </button>
+        ) : null}
         {peer ? (
           <Link to={`/id/${peer.ogcId}`} className={styles.peer}>
             {headerInner}
@@ -367,6 +395,18 @@ export function ConversationPanel({ conversation }: { conversation: Conversation
             Verify
           </button>
         )}
+        {workspace ? (
+          <button
+            type="button"
+            className={styles.detailsToggle}
+            onClick={workspace.onToggleDetails}
+            aria-pressed={workspace.detailsOpen}
+            aria-label={workspace.detailsOpen ? 'Hide details' : 'Show details'}
+            title={workspace.detailsOpen ? 'Hide details' : 'Show details'}
+          >
+            <Icon name="panelRight" size={20} />
+          </button>
+        ) : null}
       </header>
 
       {connection === 'offline' ? (

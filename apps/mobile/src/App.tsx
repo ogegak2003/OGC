@@ -1,7 +1,6 @@
-import { color } from '@ogc/ui';
 import { parseInviteToken, parseOgcIdLink } from '@ogc/validation';
 import { StatusBar } from 'expo-status-bar';
-import { useEffect, useState } from 'react';
+import { Fragment, type ReactNode, useEffect, useState } from 'react';
 import { BackHandler, Linking, StyleSheet, View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import type { ApiClient } from './api/client';
@@ -53,6 +52,9 @@ import {
 import { EditProfileScreen, MyQrScreen, ProfileScreen } from './screens/social/ProfileScreens';
 import { BlockedScreen, PrivacyScreen, ReportScreen } from './screens/social/SafetyScreens';
 import { SecurityScreen } from './screens/social/SecurityScreen';
+import { color, themedStyles } from './theme';
+import { ThemeProvider, useTheme } from './theme/ThemeProvider';
+import { AppearanceScreen } from './screens/settings/AppearanceScreen';
 
 type GuestRoute =
   | { name: 'welcome' }
@@ -112,7 +114,7 @@ function renderSignedIn(route: Route) {
     case 'public-profile':
       return <PublicProfileScreen ogcId={route.ogcId} />;
     case 'contacts':
-      return <ContactsScreen />;
+      return <ContactsScreen initialTab={route.tab === 'requests' ? 'incoming' : 'contacts'} />;
     case 'privacy':
       return <PrivacyScreen />;
     case 'blocked':
@@ -159,7 +161,15 @@ function renderSignedIn(route: Route) {
       return <CallsScreen />;
     case 'notification-settings':
       return <NotificationSettingsScreen />;
+    case 'appearance':
+      return <AppearanceScreen />;
   }
+}
+
+/** Rebuilds screens when the theme changes (navigation state lives above, so it survives). */
+function Themed({ children }: { children: ReactNode }) {
+  const { revision } = useTheme();
+  return <Fragment key={revision}>{children}</Fragment>;
 }
 
 function Router() {
@@ -183,7 +193,11 @@ function Router() {
   if (state.status === 'loading') return <Loading label="Loading" />;
   if (state.status === 'signed-in') {
     if (state.account.accountStatus === 'PENDING_VERIFICATION')
-      return <PendingVerificationScreen />;
+      return (
+        <Themed>
+          <PendingVerificationScreen />
+        </Themed>
+      );
     const initial: Route[] = linked ? [{ name: 'home' }, linked] : [{ name: 'home' }];
     // A new link restarts the stack on its screen (the key forces a fresh navigator).
     return (
@@ -191,7 +205,9 @@ function Router() {
         {(current) => (
           <>
             <PushNotifications />
-            <TabShell route={current}>{renderSignedIn(current)}</TabShell>
+            <Themed>
+              <TabShell route={current}>{renderSignedIn(current)}</TabShell>
+            </Themed>
           </>
         )}
       </StackNavigator>
@@ -207,34 +223,55 @@ function Router() {
   const welcome = () => {
     setRoute({ name: 'welcome' });
   };
-  switch (route.name) {
-    case 'welcome':
-      return <WelcomeScreen onCreate={create} onSignIn={signIn} />;
-    case 'sign-in':
-      return (
-        <SignInScreen
-          onCreate={create}
-          onBack={welcome}
-          onForgot={() => {
-            setRoute({ name: 'forgot-password' });
-          }}
-        />
-      );
-    case 'forgot-password':
-      return <ForgotPasswordScreen onSignIn={signIn} />;
-    case 'register':
-      return (
-        <RegisterScreen
-          onSignIn={signIn}
-          onBack={welcome}
-          onRegistered={(email) => {
-            setRoute({ name: 'check-email', email });
-          }}
-        />
-      );
-    case 'check-email':
-      return <CheckEmailScreen email={route.email} onSignIn={signIn} />;
+  return <Themed>{renderGuest()}</Themed>;
+
+  function renderGuest(): ReactNode {
+    switch (route.name) {
+      case 'welcome':
+        return <WelcomeScreen onCreate={create} onSignIn={signIn} />;
+      case 'sign-in':
+        return (
+          <SignInScreen
+            onCreate={create}
+            onBack={welcome}
+            onForgot={() => {
+              setRoute({ name: 'forgot-password' });
+            }}
+          />
+        );
+      case 'forgot-password':
+        return <ForgotPasswordScreen onSignIn={signIn} />;
+      case 'register':
+        return (
+          <RegisterScreen
+            onSignIn={signIn}
+            onBack={welcome}
+            onRegistered={(email) => {
+              setRoute({ name: 'check-email', email });
+            }}
+          />
+        );
+      case 'check-email':
+        return <CheckEmailScreen email={route.email} onSignIn={signIn} />;
+    }
   }
+}
+
+/** The app frame: background, screens, the call layer and the status bar, in the current theme. */
+function Frame() {
+  const { mode } = useTheme();
+  return (
+    <>
+      <View style={styles.root}>
+        <Router />
+        {/* Incoming, outgoing and active calls, over whichever screen is open. */}
+        <Themed>
+          <CallScreen />
+        </Themed>
+      </View>
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+    </>
+  );
 }
 
 export function App({
@@ -246,21 +283,20 @@ export function App({
   messaging?: MessagingDependencies;
 }) {
   return (
-    <SafeAreaProvider style={styles.root}>
-      <AuthProvider client={client}>
-        <MessagingProvider {...(messaging ? { dependencies: messaging } : {})}>
-          <View style={styles.root}>
-            <Router />
-            {/* Incoming, outgoing and active calls, over whichever screen is open. */}
-            <CallScreen />
-          </View>
-        </MessagingProvider>
-        <StatusBar style="light" />
-      </AuthProvider>
-    </SafeAreaProvider>
+    <ThemeProvider>
+      <SafeAreaProvider style={styles.root}>
+        <AuthProvider client={client}>
+          <MessagingProvider {...(messaging ? { dependencies: messaging } : {})}>
+            <Frame />
+          </MessagingProvider>
+        </AuthProvider>
+      </SafeAreaProvider>
+    </ThemeProvider>
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: color.background },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: color.background },
+  }),
+);

@@ -5,7 +5,7 @@ import type {
   ProfileSummary,
   PublicProfile,
 } from '@ogc/types';
-import { color, radius, space } from '@ogc/ui';
+import { radius, space } from '@ogc/ui';
 import { formatOgcIdForDisplay, ogcIdInputSchema } from '@ogc/validation';
 import { type ReactNode, useCallback, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -27,9 +27,11 @@ import {
 } from '../../components/ui';
 import { errorMessage } from '../../lib/errors';
 import { useResource } from '../../lib/use-resource';
+import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
 import { social } from './styles';
+import { color, themedStyles } from '../../theme';
 
 const RELATIONSHIP_LABEL: Record<PublicProfile['relationship'], string | null> = {
   SELF: 'This is you',
@@ -52,13 +54,39 @@ const RELATIONSHIP_TONE: Record<
   BLOCKED: 'danger',
 };
 
+type Sensitive = 'remove' | 'cancel' | 'unblock' | 'block';
+
+const CONFIRM: Record<Sensitive, { label: string; detail: string; danger: boolean }> = {
+  remove: {
+    label: 'Remove contact',
+    detail: 'You will need a new contact request to reconnect.',
+    danger: true,
+  },
+  cancel: {
+    label: 'Cancel request',
+    detail: 'They will no longer see your contact request.',
+    danger: false,
+  },
+  unblock: {
+    label: 'Unblock',
+    detail: 'They can find you and send a contact request again. They are not added back.',
+    danger: false,
+  },
+  block: {
+    label: 'Confirm block',
+    detail: 'They can’t message or call you, see your profile, or find you. They are not told.',
+    danger: true,
+  },
+};
+
 /** A profile with the actions its relationship allows; re-reads from the server after each action. */
 function ProfileCard({ profile, onChanged }: { profile: PublicProfile; onChanged: () => void }) {
   const { client } = useAuth();
+  const { engine } = useMessaging();
   const nav = useNavigation();
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
-  const [confirmBlock, setConfirmBlock] = useState(false);
+  const [confirming, setConfirming] = useState<Sensitive>();
   const { ogcId, relationship, pendingRequestId } = profile;
 
   async function run(kind: string, action: () => Promise<unknown>) {
@@ -66,6 +94,7 @@ function ProfileCard({ profile, onChanged }: { profile: PublicProfile; onChanged
     setError(undefined);
     try {
       await action();
+      setConfirming(undefined);
       onChanged();
     } catch (e) {
       setError(errorMessage(e));
@@ -74,10 +103,38 @@ function ProfileCard({ profile, onChanged }: { profile: PublicProfile; onChanged
     }
   }
 
+  function perform(kind: Sensitive) {
+    if (kind === 'remove') void run(kind, () => client.removeContact(ogcId));
+    if (kind === 'unblock') void run(kind, () => client.unblock(ogcId));
+    if (kind === 'block') void run(kind, () => client.block(ogcId));
+    if (kind === 'cancel' && pendingRequestId) {
+      void run(kind, () => client.cancelRequest(pendingRequestId));
+    }
+  }
+
+  function message() {
+    if (!engine) return;
+    setBusy('message');
+    engine.openDirect(ogcId).then(
+      (conversation) => {
+        setBusy(undefined);
+        nav.push({ name: 'conversation', conversationId: conversation.id });
+      },
+      () => {
+        setBusy(undefined);
+        setError('This conversation could not be opened.');
+      },
+    );
+  }
+
   const label = RELATIONSHIP_LABEL[relationship];
+  const pending = confirming ? CONFIRM[confirming] : undefined;
   return (
     <View style={[social.card, styles.profileCard]}>
-      <Avatar url={profile.avatarUrl} name={profile.displayName} size={88} />
+      <View style={styles.band} />
+      <View style={styles.avatarRing}>
+        <Avatar url={profile.avatarUrl} name={profile.displayName} size={88} />
+      </View>
       <View style={styles.identity}>
         <Text style={[social.name, styles.center]}>{profile.displayName}</Text>
         <OgcIdText ogcId={ogcId} />
@@ -85,98 +142,131 @@ function ProfileCard({ profile, onChanged }: { profile: PublicProfile; onChanged
       {label ? <Tag label={label} tone={RELATIONSHIP_TONE[relationship]} /> : null}
       {profile.bio ? <Text style={[social.body, styles.center]}>{profile.bio}</Text> : null}
       {error ? <Notice>{error}</Notice> : null}
-      <View style={styles.actions}>
-        {profile.canSendContactRequest ? (
-          <Button
-            title="Add contact"
-            icon="userPlus"
-            busy={busy === 'add'}
-            onPress={() => void run('add', () => client.sendContactRequest(ogcId))}
-          />
-        ) : null}
-        {relationship === 'NONE' && !profile.canSendContactRequest ? (
-          <Text style={[social.muted, styles.center]}>
-            This person is not accepting contact requests.
-          </Text>
-        ) : null}
-        {relationship === 'INCOMING_REQUEST' && pendingRequestId ? (
-          <>
+      {confirming && pending ? (
+        <View style={styles.confirm} accessibilityRole="alert">
+          <Text style={social.body}>{pending.detail}</Text>
+          <View style={styles.safety}>
             <Button
-              title="Accept"
-              busy={busy === 'accept'}
-              onPress={() => void run('accept', () => client.acceptRequest(pendingRequestId))}
-            />
-            <Button
-              title="Decline"
+              title="Keep"
               variant="secondary"
-              busy={busy === 'decline'}
-              onPress={() => void run('decline', () => client.declineRequest(pendingRequestId))}
-            />
-          </>
-        ) : null}
-        {relationship === 'OUTGOING_REQUEST' && pendingRequestId ? (
-          <Button
-            title="Cancel request"
-            variant="secondary"
-            busy={busy === 'cancel'}
-            onPress={() => void run('cancel', () => client.cancelRequest(pendingRequestId))}
-          />
-        ) : null}
-        {relationship === 'CONTACT' ? (
-          <Button
-            title="Remove contact"
-            variant="secondary"
-            busy={busy === 'remove'}
-            onPress={() => void run('remove', () => client.removeContact(ogcId))}
-          />
-        ) : null}
-        {relationship === 'BLOCKED' ? (
-          <Button
-            title="Unblock"
-            variant="secondary"
-            busy={busy === 'unblock'}
-            onPress={() => void run('unblock', () => client.unblock(ogcId))}
-          />
-        ) : null}
-        <View style={styles.safety}>
-          {relationship !== 'SELF' && relationship !== 'BLOCKED' ? (
-            confirmBlock ? (
-              <Button
-                title="Confirm block"
-                variant="danger"
-                icon="ban"
-                compact
-                style={styles.flex}
-                busy={busy === 'block'}
-                onPress={() => void run('block', () => client.block(ogcId))}
-              />
-            ) : (
-              <Button
-                title="Block"
-                variant="ghost"
-                icon="ban"
-                compact
-                style={styles.flex}
-                onPress={() => {
-                  setConfirmBlock(true);
-                }}
-              />
-            )
-          ) : null}
-          {relationship !== 'SELF' ? (
-            <Button
-              title="Report"
-              variant="ghost"
-              icon="flag"
               compact
               style={styles.flex}
               onPress={() => {
-                nav.push({ name: 'report', ogcId });
+                setConfirming(undefined);
+              }}
+            />
+            <Button
+              title={pending.label}
+              variant={pending.danger ? 'danger' : 'primary'}
+              compact
+              style={styles.flex}
+              busy={busy === confirming}
+              onPress={() => {
+                perform(confirming);
+              }}
+            />
+          </View>
+        </View>
+      ) : (
+        <View style={styles.actions}>
+          {relationship === 'CONTACT' && engine ? (
+            <Button title="Message" icon="chat" busy={busy === 'message'} onPress={message} />
+          ) : null}
+          {relationship === 'SELF' ? (
+            <Button
+              title="Edit your profile"
+              icon="edit"
+              variant="secondary"
+              onPress={() => {
+                nav.push({ name: 'edit-profile' });
               }}
             />
           ) : null}
+          {profile.canSendContactRequest ? (
+            <Button
+              title="Add contact"
+              icon="userPlus"
+              busy={busy === 'add'}
+              onPress={() => void run('add', () => client.sendContactRequest(ogcId))}
+            />
+          ) : null}
+          {relationship === 'NONE' && !profile.canSendContactRequest ? (
+            <Text style={[social.muted, styles.center]}>
+              This person is not accepting contact requests.
+            </Text>
+          ) : null}
+          {relationship === 'INCOMING_REQUEST' && pendingRequestId ? (
+            <View style={styles.safety}>
+              <Button
+                title="Decline"
+                variant="secondary"
+                style={styles.flex}
+                busy={busy === 'decline'}
+                onPress={() => void run('decline', () => client.declineRequest(pendingRequestId))}
+              />
+              <Button
+                title="Accept"
+                style={styles.flex}
+                busy={busy === 'accept'}
+                onPress={() => void run('accept', () => client.acceptRequest(pendingRequestId))}
+              />
+            </View>
+          ) : null}
+          {relationship === 'OUTGOING_REQUEST' && pendingRequestId ? (
+            <Button
+              title="Cancel request"
+              variant="secondary"
+              onPress={() => {
+                setConfirming('cancel');
+              }}
+            />
+          ) : null}
+          {relationship === 'CONTACT' ? (
+            <Button
+              title="Remove contact"
+              variant="secondary"
+              onPress={() => {
+                setConfirming('remove');
+              }}
+            />
+          ) : null}
+          {relationship === 'BLOCKED' ? (
+            <Button
+              title="Unblock"
+              variant="secondary"
+              onPress={() => {
+                setConfirming('unblock');
+              }}
+            />
+          ) : null}
+          {relationship !== 'SELF' ? (
+            <View style={[styles.safety, styles.safetyRow]}>
+              {relationship !== 'BLOCKED' ? (
+                <Button
+                  title="Block"
+                  variant="ghost"
+                  icon="ban"
+                  compact
+                  style={styles.flex}
+                  onPress={() => {
+                    setConfirming('block');
+                  }}
+                />
+              ) : null}
+              <Button
+                title="Report"
+                variant="ghost"
+                icon="flag"
+                compact
+                style={styles.flex}
+                onPress={() => {
+                  nav.push({ name: 'report', ogcId });
+                }}
+              />
+            </View>
+          ) : null}
         </View>
-      </View>
+      )}
     </View>
   );
 }
@@ -286,11 +376,23 @@ function PersonRow({ profile, children }: { profile: ProfileSummary; children?: 
 
 type Tab = 'contacts' | 'incoming' | 'outgoing';
 
-export function ContactsScreen() {
+/** Filters the loaded list by name or OGC ID (spaces ignored); it never queries the server. */
+function matches(profile: ProfileSummary, filter: string): boolean {
+  const query = filter.trim().toLowerCase();
+  if (!query) return true;
+  return (
+    profile.displayName.toLowerCase().includes(query) ||
+    profile.ogcId.toLowerCase().includes(query.replace(/\s+/g, ''))
+  );
+}
+
+export function ContactsScreen({ initialTab = 'contacts' }: { initialTab?: Tab }) {
   const { client } = useAuth();
   const nav = useNavigation();
-  const [tab, setTab] = useState<Tab>('contacts');
+  const [tab, setTab] = useState<Tab>(initialTab);
   const [error, setError] = useState<string>();
+  const [filter, setFilter] = useState('');
+  const [cancelling, setCancelling] = useState<string>();
   const load = useCallback(
     (): Promise<Page<ContactView> | Page<ContactRequestView>> =>
       tab === 'contacts'
@@ -361,56 +463,114 @@ export function ContactsScreen() {
           <EmptyState icon="inbox" title="Nothing pending." />
         )
       ) : null}
+      {state.status === 'ready' && tab === 'contacts' && state.data.items.length > 5 ? (
+        <Field
+          label="Filter contacts"
+          icon="search"
+          placeholder="Name or OGC ID"
+          value={filter}
+          onChangeText={setFilter}
+          autoCorrect={false}
+        />
+      ) : null}
       {state.status === 'ready' && state.data.items.length > 0 ? (
         <ListGroup>
-          {state.data.items.map((item) =>
-            'id' in item ? (
-              <PersonRow key={item.id} profile={item.profile}>
-                {tab === 'incoming' ? (
-                  <View style={styles.requestActions}>
+          {state.data.items
+            .filter((item) => tab !== 'contacts' || matches(item.profile, filter))
+            .map((item) =>
+              'id' in item ? (
+                <PersonRow key={item.id} profile={item.profile}>
+                  {tab === 'incoming' ? (
+                    <View style={styles.requestActions}>
+                      <Button
+                        title="Decline"
+                        variant="ghost"
+                        compact
+                        onPress={() => void act(() => client.declineRequest(item.id))}
+                      />
+                      <Button
+                        title="Accept"
+                        compact
+                        onPress={() => void act(() => client.acceptRequest(item.id))}
+                      />
+                    </View>
+                  ) : cancelling === item.id ? (
+                    <View style={styles.requestActions}>
+                      <Button
+                        title="Keep"
+                        variant="ghost"
+                        compact
+                        onPress={() => {
+                          setCancelling(undefined);
+                        }}
+                      />
+                      <Button
+                        title="Cancel request"
+                        variant="danger"
+                        compact
+                        onPress={() => {
+                          setCancelling(undefined);
+                          void act(() => client.cancelRequest(item.id));
+                        }}
+                      />
+                    </View>
+                  ) : (
                     <Button
-                      title="Decline"
+                      title="Cancel"
                       variant="ghost"
                       compact
-                      onPress={() => void act(() => client.declineRequest(item.id))}
+                      onPress={() => {
+                        setCancelling(item.id);
+                      }}
                     />
-                    <Button
-                      title="Accept"
-                      compact
-                      onPress={() => void act(() => client.acceptRequest(item.id))}
-                    />
-                  </View>
-                ) : (
-                  <Button
-                    title="Cancel"
-                    variant="ghost"
-                    compact
-                    onPress={() => void act(() => client.cancelRequest(item.id))}
-                  />
-                )}
-              </PersonRow>
-            ) : (
-              <PersonRow key={item.profile.ogcId} profile={item.profile} />
-            ),
-          )}
+                  )}
+                </PersonRow>
+              ) : (
+                <PersonRow key={item.profile.ogcId} profile={item.profile} />
+              ),
+            )}
         </ListGroup>
       ) : null}
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  flex: { flex: 1 },
-  profileCard: { alignItems: 'center' },
-  identity: { alignItems: 'center', gap: space[1] },
-  center: { textAlign: 'center' },
-  actions: { alignSelf: 'stretch', gap: space[3] },
-  safety: { flexDirection: 'row', gap: space[2] },
-  requestActions: { flexDirection: 'row', gap: space[1] },
-  surface: {
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    flex: { flex: 1 },
+    profileCard: { alignItems: 'center', overflow: 'hidden', paddingTop: 0 },
+    band: {
+      alignSelf: 'stretch',
+      height: 64,
+      marginHorizontal: -space[5],
+      marginBottom: -56,
+      backgroundColor: color.accentSubtle,
+      borderBottomWidth: 1,
+      borderBottomColor: color.accentBorder,
+    },
+    avatarRing: { padding: 4, borderRadius: radius.full, backgroundColor: color.surface },
+    confirm: {
+      alignSelf: 'stretch',
+      gap: space[3],
+      padding: space[4],
+      backgroundColor: color.surfaceRaised,
+      borderRadius: radius.md,
+    },
+    safetyRow: {
+      paddingTop: space[2],
+      borderTopWidth: 1,
+      borderTopColor: color.border,
+    },
+    identity: { alignItems: 'center', gap: space[1] },
+    center: { textAlign: 'center' },
+    actions: { alignSelf: 'stretch', gap: space[3] },
+    safety: { flexDirection: 'row', gap: space[2] },
+    requestActions: { flexDirection: 'row', gap: space[1] },
+    surface: {
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+  }),
+);

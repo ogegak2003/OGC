@@ -5,18 +5,26 @@ import {
   previewText,
 } from '@ogc/messaging';
 import type { ConversationView } from '@ogc/types';
-import { color } from '@ogc/ui';
+
 import { useEffect, useState } from 'react';
 import { FlatList, Pressable, Text, TextInput, View } from 'react-native';
 import { Icon } from '../../components/Icon';
-import { Avatar } from '../../components/identity';
-import { CountBadge, EmptyState, IconButton, Notice, SkeletonRows } from '../../components/ui';
+import { Avatar, KindAvatar } from '../../components/identity';
+import {
+  CountBadge,
+  EmptyState,
+  IconButton,
+  Notice,
+  SkeletonRows,
+  Tabs,
+} from '../../components/ui';
 import { listTime } from '../../lib/time';
 import { useLastMessage } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { AppBar } from '../Screen';
 import { m } from './styles';
+import { color } from '../../theme';
 
 /**
  * One conversation in a list. The preview is the latest message as decrypted
@@ -43,18 +51,17 @@ export function ConversationRow({ conversation }: { conversation: ConversationVi
       }}
     >
       <View style={m.avatarWrap}>
-        <Avatar url={avatar.url} name={avatar.name} size={50} />
         {group ? (
-          <View style={m.kindBadge}>
-            <Icon
-              name={group.kind === 'CHANNEL' ? 'megaphone' : 'community'}
-              size={11}
-              tint={color.accent}
-            />
-          </View>
-        ) : online ? (
-          <View style={m.onlineDot} accessibilityLabel="Online" />
-        ) : null}
+          <KindAvatar
+            url={avatar.url}
+            name={avatar.name}
+            size={50}
+            kind={group.kind === 'CHANNEL' ? 'encrypted-channel' : 'group'}
+          />
+        ) : (
+          <Avatar url={avatar.url} name={avatar.name} size={50} />
+        )}
+        {!group && online ? <View style={m.onlineDot} accessibilityLabel="Online" /> : null}
       </View>
       <View style={m.rowBody}>
         <View style={m.rowTop}>
@@ -89,11 +96,28 @@ export function ConversationRow({ conversation }: { conversation: ConversationVi
   );
 }
 
-/** Conversations by recent activity, with on-device search. */
+type Filter = 'all' | 'unread' | 'direct' | 'groups';
+
+const FILTERS: Record<Filter, (c: ConversationView) => boolean> = {
+  all: () => true,
+  unread: (c) => !c.blockedByMe && c.unreadCount > 0,
+  direct: (c) => c.peer !== null,
+  groups: (c) => c.group !== null,
+};
+
+const FILTER_EMPTY: Record<Filter, string> = {
+  all: '',
+  unread: 'You’re all caught up.',
+  direct: 'No direct chats yet.',
+  groups: 'No groups yet.',
+};
+
+/** Conversations by recent activity, with filters and on-device search. */
 export function MessagesScreen() {
   const nav = useNavigation();
   const { conversations, engine, status, connection, error, retry } = useMessaging();
   const [query, setQuery] = useState('');
+  const [filter, setFilter] = useState<Filter>('all');
   const [results, setResults] = useState<LocalMessage[]>([]);
   const trimmed = query.trim();
   const visibleResults = trimmed.length >= 2 ? results : [];
@@ -113,9 +137,12 @@ export function MessagesScreen() {
   }, [engine, trimmed]);
 
   const lowered = trimmed.toLocaleLowerCase();
-  const shown = lowered
-    ? conversations.filter((c) => conversationTitle(c).toLocaleLowerCase().includes(lowered))
-    : conversations;
+  const unreadChats = conversations.filter((c) => !c.blockedByMe && c.unreadCount > 0).length;
+  const shown = conversations.filter(
+    (c) =>
+      FILTERS[filter](c) &&
+      (!lowered || conversationTitle(c).toLocaleLowerCase().includes(lowered)),
+  );
 
   return (
     <View style={m.root}>
@@ -163,6 +190,20 @@ export function MessagesScreen() {
           selectionColor={color.accent}
         />
       </View>
+      {conversations.length > 0 ? (
+        <View style={m.filters}>
+          <Tabs
+            options={[
+              { id: 'all', label: 'All' },
+              { id: 'unread', label: 'Unread', count: unreadChats },
+              { id: 'direct', label: 'Direct' },
+              { id: 'groups', label: 'Groups' },
+            ]}
+            value={filter}
+            onChange={setFilter}
+          />
+        </View>
+      ) : null}
       {status === 'error' ? (
         <View style={m.padded}>
           <Notice action={{ label: 'Retry', onPress: retry }}>
@@ -177,7 +218,7 @@ export function MessagesScreen() {
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={m.listContent}
         ListEmptyComponent={
-          status === 'ready' && !trimmed ? (
+          status === 'ready' && !trimmed && conversations.length === 0 ? (
             <EmptyState
               icon="chat"
               title="No conversations yet"
@@ -192,8 +233,10 @@ export function MessagesScreen() {
             />
           ) : status === 'starting' ? (
             <SkeletonRows count={5} label="Setting up secure messaging…" />
-          ) : status === 'ready' ? (
+          ) : status === 'ready' && trimmed ? (
             <Text style={m.note}>No chats match “{trimmed}”.</Text>
+          ) : status === 'ready' ? (
+            <Text style={m.note}>{FILTER_EMPTY[filter]}</Text>
           ) : null
         }
         ListFooterComponent={

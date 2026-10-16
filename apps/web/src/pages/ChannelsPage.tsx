@@ -1,35 +1,24 @@
 import type { ChannelView } from '@ogc/types';
 import { useEffect, useState } from 'react';
-import { Link, useNavigate, useSearchParams } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
-import { Avatar } from '../components/Avatar';
 import { CreateChannelDialog } from '../components/channels/CreateChannelDialog';
-import styles from '../components/messaging/messaging.module.css';
-import { Alert, Button, Spinner } from '../components/ui';
+import { CardGrid, ChannelCard } from '../components/community/CommunityCards';
+import community from '../components/community/community.module.css';
+import { EmptyState, FilterField, PageIntro, SegmentedTabs } from '../components/kit';
+import { tabId, tabPanelId } from '../components/kit-ids';
+import { Alert, Button, Skeleton } from '../components/ui';
 import { channelsApi } from '../lib/community-api';
 
-export function ChannelRow({ channel }: { channel: ChannelView }) {
+type Tab = 'mine' | 'discover';
+
+function LoadingCards({ label }: { label: string }) {
   return (
-    <li className={styles.card}>
-      <Avatar url={channel.avatarUrl} name={channel.name} size={48} />
-      <div className={styles.cardBody}>
-        <Link to={`/channels/${channel.id}`} className={styles.cardLink}>
-          {channel.name}
-        </Link>
-        <p className={styles.sidebarNote}>
-          @{channel.handle} · {channel.memberCount}{' '}
-          {channel.memberCount === 1 ? 'member' : 'members'}
-          {channel.visibility === 'PRIVATE' ? ' · Private' : ''}
-          {channel.membership?.status === 'PENDING' ? ' · Request pending' : ''}
-        </p>
-        {channel.description ? <p className={styles.rowPreview}>{channel.description}</p> : null}
-      </div>
-      {channel.unreadCount > 0 ? (
-        <span className={styles.unread} aria-label={`${String(channel.unreadCount)} unread`}>
-          {channel.unreadCount > 999 ? '999+' : channel.unreadCount}
-        </span>
-      ) : null}
-    </li>
+    <div className={community.grid} role="status" aria-label={label}>
+      {[0, 1, 2].map((key) => (
+        <Skeleton key={key} height="6.5rem" />
+      ))}
+    </div>
   );
 }
 
@@ -39,7 +28,7 @@ export function ChannelsPage() {
   // `?q=` comes from the global search: open the public directory with that search.
   const [params] = useSearchParams();
   const initialQuery = params.get('q') ?? '';
-  const [tab, setTab] = useState<'mine' | 'discover'>(initialQuery ? 'discover' : 'mine');
+  const [tab, setTab] = useState<Tab>(initialQuery ? 'discover' : 'mine');
   const [mine, setMine] = useState<ChannelView[]>();
   const [query, setQuery] = useState(initialQuery);
   const [found, setFound] = useState<ChannelView[]>();
@@ -82,93 +71,108 @@ export function ChannelsPage() {
     };
   }, [tab, query]);
 
+  const unread = mine?.reduce((sum, channel) => sum + channel.unreadCount, 0) ?? 0;
+
   return (
     <AppShell title="Channels">
-      <div className={styles.toolbar}>
-        <div className={styles.segmented} role="tablist" aria-label="Channels">
-          {(['mine', 'discover'] as const).map((value) => (
-            <button
-              key={value}
-              type="button"
-              role="tab"
-              aria-selected={tab === value}
-              className={tab === value ? styles.segmentActive : styles.segment}
-              onClick={() => {
-                setTab(value);
-                setError(undefined);
-              }}
-            >
-              {value === 'mine' ? 'My channels' : 'Discover'}
-            </button>
-          ))}
-        </div>
-        <Button
-          onClick={() => {
-            setCreating(true);
-          }}
-        >
-          New channel
-        </Button>
-      </div>
-      <p className={styles.sidebarNote}>
-        Community channels are open spaces for larger audiences. They are not end-to-end encrypted —
-        use groups for private conversations.
-      </p>
-      {error ? <Alert>{error}</Alert> : null}
-      {tab === 'mine' ? (
-        <>
-          {!mine && !error ? <Spinner label="Loading channels" /> : null}
-          {mine?.length === 0 ? (
-            <p className={styles.sidebarNote}>
-              You haven’t joined any channels yet. Find some in Discover.
-            </p>
-          ) : null}
-          <ul className={styles.cardList}>
-            {mine?.map((channel) => (
-              <ChannelRow key={channel.id} channel={channel} />
-            ))}
-          </ul>
-        </>
-      ) : (
-        <>
-          <input
-            type="search"
-            className={styles.search}
-            placeholder="Search public channels"
-            aria-label="Search public channels"
-            value={query}
-            maxLength={64}
-            onChange={(event) => {
-              setQuery(event.target.value);
-            }}
-          />
-          {!found && !error ? <Spinner label="Searching" /> : null}
-          {found?.length === 0 ? <p className={styles.sidebarNote}>No channels found.</p> : null}
-          <ul className={styles.cardList}>
-            {found?.map((channel) => (
-              <ChannelRow key={channel.id} channel={channel} />
-            ))}
-          </ul>
-          {cursor ? (
+      <div className={community.page}>
+        <PageIntro
+          actions={
             <Button
-              variant="secondary"
+              icon="plus"
               onClick={() => {
-                channelsApi.discover(query, cursor).then(
-                  (page) => {
-                    setFound((current) => [...(current ?? []), ...page.items]);
-                    setCursor(page.nextCursor);
-                  },
-                  () => {
-                    setError('More channels could not be loaded.');
-                  },
-                );
+                setCreating(true);
               }}
             >
-              Load more
+              New channel
             </Button>
-          ) : null}
-        </>
-      )}
+          }
+        >
+          Community channels are open spaces for announcements and discussion with larger audiences.
+          They are not end-to-end encrypted — use groups for private conversations.
+        </PageIntro>
+
+        <SegmentedTabs
+          label="Channels"
+          prefix="channels"
+          value={tab}
+          onChange={(value) => {
+            setTab(value);
+            setError(undefined);
+          }}
+          options={[
+            { id: 'mine', label: 'My channels', count: unread || undefined, countLabel: 'unread' },
+            { id: 'discover', label: 'Discover' },
+          ]}
+        />
+        {error ? <Alert>{error}</Alert> : null}
+
+        <div
+          role="tabpanel"
+          id={tabPanelId('channels', tab)}
+          aria-labelledby={tabId('channels', tab)}
+          className={community.section}
+        >
+          {tab === 'mine' ? (
+            <>
+              {!mine && !error ? <LoadingCards label="Loading channels" /> : null}
+              {mine?.length === 0 ? (
+                <EmptyState icon="megaphone" title="No channels yet">
+                  You haven’t joined any channels yet. Find some in Discover.
+                </EmptyState>
+              ) : null}
+              {mine?.length ? (
+                <CardGrid label="My channels">
+                  {mine.map((channel) => (
+                    <ChannelCard key={channel.id} channel={channel} />
+                  ))}
+                </CardGrid>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <FilterField
+                label="Search public channels"
+                value={query}
+                onChange={(value) => {
+                  setQuery(value.slice(0, 64));
+                }}
+              />
+              {!found && !error ? <LoadingCards label="Searching" /> : null}
+              {found?.length === 0 ? (
+                <EmptyState icon="compass" title="No channels found">
+                  {query ? 'Try a different name or @handle.' : 'There are no public channels yet.'}
+                </EmptyState>
+              ) : null}
+              {found?.length ? (
+                <CardGrid label="Public channels">
+                  {found.map((channel) => (
+                    <ChannelCard key={channel.id} channel={channel} />
+                  ))}
+                </CardGrid>
+              ) : null}
+              {cursor ? (
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    channelsApi.discover(query, cursor).then(
+                      (page) => {
+                        setFound((current) => [...(current ?? []), ...page.items]);
+                        setCursor(page.nextCursor);
+                      },
+                      () => {
+                        setError('More channels could not be loaded.');
+                      },
+                    );
+                  }}
+                >
+                  Load more
+                </Button>
+              ) : null}
+            </>
+          )}
+        </div>
+      </div>
       {creating ? (
         <CreateChannelDialog
           onClose={() => {

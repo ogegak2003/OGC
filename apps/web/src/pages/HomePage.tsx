@@ -1,25 +1,22 @@
 import { callDescription, conversationTitle, isMissedCall } from '@ogc/messaging';
 import type { CallView, ConversationView, OwnProfile } from '@ogc/types';
-import { LOGO_TAGLINE } from '@ogc/ui';
 import { formatOgcIdForDisplay } from '@ogc/validation';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
-import globe from '../assets/welcome-globe.webp';
-import { useAuth } from '../auth/auth-context';
 import { AppShell } from '../components/AppShell';
 import { Avatar } from '../components/Avatar';
 import { CallButtons } from '../components/calls/CallButtons';
+import { BarChart } from '../components/charts/BarChart';
 import { CreateGroupDialog } from '../components/groups/CreateGroupDialog';
 import { Icon, type IconName } from '../components/Icon';
+import { IdentityCard } from '../components/IdentityCard';
 import { ConversationRow } from '../components/messaging/ConversationList';
 import { NewConversationDialog } from '../components/messaging/Dialogs';
 import list from '../components/messaging/messaging.module.css';
-import { OgcLogo } from '../components/OgcLogo';
-import { OgcQrCode } from '../components/OgcQrCode';
 import { Alert, Button, Skeleton } from '../components/ui';
 import { api } from '../lib/api';
+import { callsByDay, missedSince, talkMinutes } from '../lib/activity';
 import { errorMessage } from '../lib/form';
-import { shareIdentity, shareableIdentity } from '../lib/share';
 import { useResource } from '../lib/use-resource';
 import { listTime } from '../messaging/format';
 import { useRecentCalls } from '../messaging/hooks';
@@ -30,6 +27,9 @@ import styles from './HomePage.module.css';
 const ACTIVITY = 6;
 /** People watched for "Online now" (direct-conversation peers; presence is limited to them). */
 const PRESENCE_WATCH = 50;
+/** Days in the calls chart. */
+const CHART_DAYS = 14;
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 function greeting(now = new Date()): string {
   const hour = now.getHours();
@@ -63,10 +63,12 @@ function QuickAction({
   const inner = (
     <>
       <span className={styles.quickIcon}>
-        <Icon name={icon} size={24} />
+        <Icon name={icon} size={20} />
       </span>
-      <span className={styles.quickLabel}>{label}</span>
-      <span className={styles.quickHint}>{hint}</span>
+      <span className={styles.quickText}>
+        <span className={styles.quickLabel}>{label}</span>
+        <span className={styles.quickHint}>{hint}</span>
+      </span>
     </>
   );
   return to ? (
@@ -77,6 +79,34 @@ function QuickAction({
     <button type="button" className={styles.quick} onClick={onClick}>
       {inner}
     </button>
+  );
+}
+
+/** One real number with a link to where it comes from. `value` undefined = still loading. */
+function Stat({
+  icon,
+  label,
+  value,
+  to,
+  tone = 'default',
+}: {
+  icon: IconName;
+  label: string;
+  value: number | string | undefined;
+  to: string;
+  tone?: 'default' | 'attention';
+}) {
+  return (
+    <Link
+      to={to}
+      className={[styles.stat, tone === 'attention' ? styles.statAttention : ''].join(' ')}
+    >
+      <span className={styles.statIcon}>
+        <Icon name={icon} size={18} />
+      </span>
+      <span className={styles.statValue}>{value ?? <Skeleton width="2rem" height="1.5rem" />}</span>
+      <span className={styles.statLabel}>{label}</span>
+    </Link>
   );
 }
 
@@ -113,9 +143,14 @@ type Activity =
   | { kind: 'call'; at: string; call: CallView };
 
 /** Latest conversations and calls, newest first — all real data from this account. */
-function ActivityFeed({ onNewConversation }: { onNewConversation: () => void }) {
+function ActivityFeed({
+  calls,
+  onNewConversation,
+}: {
+  calls: CallView[] | undefined;
+  onNewConversation: () => void;
+}) {
   const { conversations, status, error, retry } = useMessaging();
-  const { calls } = useRecentCalls();
   const items = useMemo<Activity[]>(() => {
     const merged: Activity[] = [
       ...conversations.slice(0, ACTIVITY).map((conversation) => ({
@@ -134,12 +169,11 @@ function ActivityFeed({ onNewConversation }: { onNewConversation: () => void }) 
     <section className={styles.card} aria-labelledby="activity-heading">
       <div className={styles.cardHeader}>
         <h2 id="activity-heading" className={styles.cardTitle}>
-          <Icon name="clock" size={20} className={styles.gold} />
-          Your activity
+          Recent activity
         </h2>
         {conversations.length > 0 ? (
           <Link to="/messages" className={styles.seeAll}>
-            See all chats
+            All messages
             <Icon name="arrowRight" size={16} />
           </Link>
         ) : null}
@@ -166,7 +200,7 @@ function ActivityFeed({ onNewConversation }: { onNewConversation: () => void }) 
       ) : items.length === 0 ? (
         <div className={styles.empty}>
           <span className={styles.emptyIcon}>
-            <Icon name="chat" size={24} />
+            <Icon name="chat" size={22} />
           </span>
           <p className={styles.emptyTitle}>No conversations yet</p>
           <p className={styles.muted}>
@@ -190,6 +224,59 @@ function ActivityFeed({ onNewConversation }: { onNewConversation: () => void }) 
             ),
           )}
         </ul>
+      )}
+    </section>
+  );
+}
+
+/** Calls over the last two weeks, from this account's call history. */
+function CallsChart({ calls, failed }: { calls: CallView[] | undefined; failed: boolean }) {
+  const points = useMemo(() => (calls ? callsByDay(calls, CHART_DAYS) : []), [calls]);
+  const total = points.reduce(
+    (sum, point) => sum + Object.values(point.values).reduce((a, b) => a + b, 0),
+    0,
+  );
+  return (
+    <section className={styles.card} aria-labelledby="calls-chart-heading">
+      <div className={styles.cardHeader}>
+        <h2 id="calls-chart-heading" className={styles.cardTitle}>
+          Calls, last {CHART_DAYS} days
+        </h2>
+        <Link to="/calls" className={styles.seeAll}>
+          Call history
+          <Icon name="arrowRight" size={16} />
+        </Link>
+      </div>
+      {failed ? (
+        <p className={styles.muted}>Call history could not be loaded right now.</p>
+      ) : !calls ? (
+        <div role="status" aria-label="Loading call activity">
+          <Skeleton height="10rem" />
+        </div>
+      ) : total === 0 ? (
+        <div className={styles.chartEmpty}>
+          <Icon name="barChart" size={22} />
+          <p className={styles.muted}>
+            No calls in the last {CHART_DAYS} days. Voice and video calls you make or receive will
+            appear here.
+          </p>
+        </div>
+      ) : (
+        <>
+          <BarChart
+            title={`Calls per day, last ${String(CHART_DAYS)} days`}
+            unit="calls"
+            points={points}
+            series={[
+              { key: 'answered', label: 'Answered', color: 'var(--ogc-color-accent)' },
+              { key: 'missed', label: 'Missed', color: 'var(--ogc-color-danger)' },
+              { key: 'other', label: 'Not connected', color: 'var(--ogc-color-chart-secondary)' },
+            ]}
+          />
+          <p className={styles.chartNote}>
+            From your most recent call history. Talk time: {talkMinutes(calls)} min.
+          </p>
+        </>
       )}
     </section>
   );
@@ -235,7 +322,7 @@ function OnlineNow() {
               <li key={conversation.id} className={styles.person}>
                 <Link to={`/messages/${conversation.id}`} className={styles.personLink}>
                   <span className={styles.personAvatar}>
-                    <Avatar url={peer.avatarUrl} name={name} size={38} />
+                    <Avatar url={peer.avatarUrl} name={name} size={36} />
                     <span className={styles.personDot} aria-hidden="true" />
                   </span>
                   <span className={styles.personText}>
@@ -249,7 +336,7 @@ function OnlineNow() {
           })}
         </ul>
       )}
-      <Link to="/contacts" className={styles.pillLink}>
+      <Link to="/contacts" className={styles.seeAll}>
         All contacts
         <Icon name="arrowRight" size={14} />
       </Link>
@@ -257,25 +344,33 @@ function OnlineNow() {
   );
 }
 
-/** The signed-in dashboard: welcome, quick actions, activity, who is online, and your OGC ID. */
+/**
+ * The signed-in dashboard: a welcome with the person's real name, numbers that link to their
+ * source (unread messages, missed calls, contact requests, notifications), quick actions,
+ * recent activity, a calls chart from real call history, who is online, and the OGC identity
+ * card. Nothing on this page is placeholder data.
+ */
 export function HomePage() {
-  const { state: auth } = useAuth();
   const navigate = useNavigate();
+  const { unreadTotal, notificationsUnread, status } = useMessaging();
+  const { calls, failed } = useRecentCalls();
   const load = useCallback((signal: AbortSignal) => api.profile(signal), []);
   const { state } = useResource(load);
-  const [notice, setNotice] = useState<string>();
+  const loadRequests = useCallback(
+    (signal: AbortSignal) => api.incomingRequests(undefined, signal),
+    [],
+  );
+  const { state: requests } = useResource(loadRequests);
   const [dialog, setDialog] = useState<'conversation' | 'group'>();
-  const [globeFailed, setGlobeFailed] = useState(false);
+  // Fixed when the page opens; the window moves on the next visit.
+  const [weekAgo] = useState(() => new Date(Date.now() - 7 * DAY_MS));
 
   if (state.status === 'loading') {
     return (
       <AppShell title="Home" hideTitle width="wide">
-        <div className={styles.hero} role="status" aria-label="Loading your profile">
-          <div className={styles.heroContent}>
-            <Skeleton width="30%" height="1.5rem" />
-            <Skeleton width="55%" height="2.5rem" />
-            <Skeleton width="70%" height="1rem" />
-          </div>
+        <div className={styles.welcome} role="status" aria-label="Loading your profile">
+          <Skeleton width="30%" height="1rem" />
+          <Skeleton width="45%" height="2rem" />
         </div>
       </AppShell>
     );
@@ -288,66 +383,103 @@ export function HomePage() {
     );
   }
   const profile = state.data;
-  const email = auth.status === 'signed-in' ? auth.account.email : '';
   const missing = missingParts(profile);
-
-  async function share() {
-    const result = await shareIdentity(
-      shareableIdentity(profile.ogcId, profile.displayName, window.location.origin),
-    );
-    setNotice(result === 'copied' ? 'Your OGC details were copied to the clipboard.' : undefined);
-  }
-
-  async function copyId() {
-    await navigator.clipboard.writeText(profile.ogcId);
-    setNotice('OGC ID copied.');
-  }
-
   const openConversation = () => {
     setDialog('conversation');
   };
+  const missed = calls ? missedSince(calls, weekAgo) : failed ? '—' : undefined;
+  const requestCount =
+    requests.status === 'ready'
+      ? `${String(requests.data.items.length)}${requests.data.nextCursor ? '+' : ''}`
+      : requests.status === 'error'
+        ? '—'
+        : undefined;
 
   return (
     <AppShell title="Home" hideTitle width="wide">
+      <section className={styles.welcome} aria-labelledby="welcome-heading">
+        <div className={styles.welcomeText}>
+          <p className={styles.welcomeLead}>{greeting()}</p>
+          <h2 id="welcome-heading" className={styles.welcomeName}>
+            {profile.displayName}
+          </h2>
+          <p className={styles.welcomeMeta}>
+            <Icon name="lock" size={14} />
+            Messages and group chats are end-to-end encrypted on your devices.
+          </p>
+        </div>
+        <div className={styles.welcomeActions}>
+          <Button icon="chat" onClick={openConversation}>
+            Start a conversation
+          </Button>
+          <Link to="/discover" className={styles.secondaryLink}>
+            <Icon name="userPlus" size={18} />
+            Find by OGC ID
+          </Link>
+        </div>
+      </section>
+
+      <section className={styles.stats} aria-label="At a glance">
+        <Stat
+          icon="chat"
+          label="Unread messages"
+          value={status === 'ready' ? unreadTotal : undefined}
+          to="/messages"
+          tone={unreadTotal > 0 ? 'attention' : 'default'}
+        />
+        <Stat
+          icon="phoneOff"
+          label="Missed calls, 7 days"
+          value={missed}
+          to="/calls"
+          tone={typeof missed === 'number' && missed > 0 ? 'attention' : 'default'}
+        />
+        <Stat icon="userPlus" label="Contact requests" value={requestCount} to="/contacts" />
+        <Stat
+          icon="bell"
+          label="New notifications"
+          value={status === 'ready' ? notificationsUnread : undefined}
+          to="/notifications"
+        />
+      </section>
+
       <div className={styles.dashboard}>
         <div className={styles.center}>
-          <section className={styles.hero} aria-labelledby="welcome-heading">
-            {globeFailed ? null : (
-              <img
-                className={styles.globe}
-                src={globe}
-                alt=""
-                decoding="async"
-                onError={() => {
-                  setGlobeFailed(true);
+          <section aria-labelledby="quick-heading">
+            <h2 id="quick-heading" className={styles.visuallyHidden}>
+              Quick actions
+            </h2>
+            <div className={styles.quickGrid}>
+              <QuickAction
+                icon="chat"
+                label="New message"
+                hint="Message a contact"
+                onClick={openConversation}
+              />
+              <QuickAction icon="phone" label="Start call" hint="Voice or video" to="/calls" />
+              <QuickAction
+                icon="community"
+                label="New group"
+                hint="Encrypted, up to 32"
+                onClick={() => {
+                  setDialog('group');
                 }}
               />
-            )}
-            <div className={styles.heroContent}>
-              <div className={styles.heroBrand}>
-                <OgcLogo height={52} />
-                <span className={styles.heroTagline}>{LOGO_TAGLINE}</span>
-              </div>
-              <h2 id="welcome-heading" className={styles.welcome}>
-                <span className={styles.welcomeLead}>{greeting()},</span>
-                <span className={styles.welcomeName}>{profile.displayName}</span>
-              </h2>
-              <p className={styles.heroText}>
-                Stay connected with the people who matter — private, end-to-end encrypted
-                conversations, groups and calls, anywhere in the world.
-              </p>
-              <div className={styles.heroActions}>
-                <button type="button" className={styles.heroPrimary} onClick={openConversation}>
-                  Start a conversation
-                  <Icon name="arrowRight" size={18} />
-                </button>
-                <Link to="/discover" className={styles.heroSecondary}>
-                  Find people
-                </Link>
-              </div>
+              <QuickAction
+                icon="compass"
+                label="Explore channels"
+                hint="Public communities"
+                to="/channels"
+              />
             </div>
           </section>
 
+          <ActivityFeed calls={calls} onNewConversation={openConversation} />
+          <CallsChart calls={calls} failed={failed} />
+        </div>
+
+        <aside className={styles.rail} aria-label="People and identity">
+          <IdentityCard profile={profile} />
           {missing.length > 0 ? (
             <Link to="/profile/edit" className={styles.progress}>
               <span className={styles.progressTop}>
@@ -363,108 +495,7 @@ export function HomePage() {
               <span className={styles.muted}>{missing.join(' · ')}</span>
             </Link>
           ) : null}
-
-          <section aria-labelledby="quick-heading">
-            <h2 id="quick-heading" className={styles.visuallyHidden}>
-              Quick actions
-            </h2>
-            <div className={styles.quickGrid}>
-              <QuickAction
-                icon="chat"
-                label="New chat"
-                hint="Message a contact"
-                onClick={openConversation}
-              />
-              <QuickAction icon="phone" label="Start call" hint="Voice or video" to="/calls" />
-              <QuickAction
-                icon="community"
-                label="Create group"
-                hint="Bring people together"
-                onClick={() => {
-                  setDialog('group');
-                }}
-              />
-              <QuickAction
-                icon="megaphone"
-                label="Join channel"
-                hint="Get updates"
-                to="/channels"
-              />
-              <QuickAction icon="userPlus" label="Find people" hint="By OGC ID" to="/discover" />
-            </div>
-          </section>
-
-          <ActivityFeed onNewConversation={openConversation} />
-        </div>
-
-        <aside className={styles.rail} aria-label="People and identity">
           <OnlineNow />
-
-          <section className={[styles.card, styles.identity].join(' ')} aria-labelledby="ogc-id">
-            <div className={styles.identityTop}>
-              <span className={styles.identityIcon}>
-                <Icon name="globe" size={22} />
-              </span>
-              <div>
-                <h2 id="ogc-id" className={styles.identityTitle}>
-                  Your OGC ID
-                </h2>
-                <p className={styles.identitySub}>One ID. A world of possibilities.</p>
-              </div>
-            </div>
-            <p className={styles.ogcId} aria-label={profile.ogcId}>
-              {formatOgcIdForDisplay(profile.ogcId)}
-            </p>
-            {profile.bio ? <p className={styles.bio}>{profile.bio}</p> : null}
-            <div className={styles.qr}>
-              <OgcQrCode ogcId={profile.ogcId} size={168} />
-            </div>
-            <div className={styles.identityActions}>
-              <Button
-                icon="share"
-                onClick={() =>
-                  void share().catch((e: unknown) => {
-                    setNotice(errorMessage(e));
-                  })
-                }
-              >
-                Share my OGC
-              </Button>
-              <Button icon="copy" variant="secondary" onClick={() => void copyId()}>
-                Copy OGC ID
-              </Button>
-            </div>
-            <p className={styles.liveRegion} role="status" aria-live="polite">
-              {notice ?? ''}
-            </p>
-            <dl className={styles.facts}>
-              <div>
-                <dt>Email</dt>
-                <dd>
-                  <span className={styles.ellipsis}>{email}</span>
-                  <span className={styles.badge}>Private</span>
-                </dd>
-              </div>
-              <div>
-                <dt>Profile visible to</dt>
-                <dd>
-                  {profile.privacy.profileVisibility === 'EVERYONE' ? 'Everyone' : 'Contacts only'}
-                </dd>
-              </div>
-              <div>
-                <dt>Findable by OGC ID</dt>
-                <dd>{profile.privacy.discoverable ? 'Yes' : 'Only by contacts'}</dd>
-              </div>
-            </dl>
-            <p className={styles.explainer}>
-              <Icon name="shieldCheck" size={16} />
-              People find you by your OGC ID or QR code. Your email address always stays private.
-            </p>
-            <Link to="/settings/privacy" className={styles.pillLink}>
-              Privacy settings
-              <Icon name="arrowRight" size={14} />
-            </Link>
-          </section>
         </aside>
       </div>
 

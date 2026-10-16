@@ -1,5 +1,11 @@
-/** The OGC mark: a gold ring around a quiet core — identity at the centre of a global network. */
-export function OgcMark({ size = 40, className }: { size?: number; className?: string }) {
+/** The OGC mark: a ring around a quiet core — identity at the centre of a conversation. Theme accent. */
+export function OgcMark({
+  size = 40,
+  className,
+}: {
+  size?: number;
+  className?: string | undefined;
+}) {
   return (
     <svg
       width={size}

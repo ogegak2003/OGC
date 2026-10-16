@@ -19,6 +19,28 @@ function rect(x: number, y: number, w: number, h: number, r: number): string {
 }
 
 export const icons = {
+  // Appearance and layout
+  sun: [
+    circle(12, 12, 4),
+    'M12 2v2',
+    'M12 20v2',
+    'M2 12h2',
+    'M20 12h2',
+    'm4.9 4.9 1.4 1.4',
+    'm17.7 17.7 1.4 1.4',
+    'm4.9 19.1 1.4-1.4',
+    'm17.7 6.3 1.4-1.4',
+  ],
+  moon: ['M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z'],
+  palette: [
+    'M12 3a9 9 0 0 0 0 18c1.1 0 1.5-.8 1.5-1.5 0-.9-.6-1.2-.6-2 0-.8.6-1.5 1.6-1.5H17a4 4 0 0 0 4-4c0-5-4-9-9-9z',
+    circle(7.5, 11, 1),
+    circle(10, 7, 1),
+    circle(14.5, 7, 1),
+  ],
+  sidebar: [rect(3, 4, 18, 16, 2), 'M9 4v16'],
+  panelRight: [rect(3, 4, 18, 16, 2), 'M15 4v16'],
+  barChart: ['M4 20h16', 'M7 16v-5', 'M12 16V7', 'M17 16v-8'],
   // Navigation
   home: ['M3 10.5 12 3l9 7.5', 'M5 9v11a1 1 0 0 0 1 1h4v-6h4v6h4a1 1 0 0 0 1-1V9'],
   chat: ['M12 3a9 9 0 0 0-7.8 13.5L3 21l4.5-1.2A9 9 0 1 0 12 3z'],
@@ -112,7 +134,8 @@ export const icons = {
     'M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1',
     'M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1',
   ],
-  globe: [circle(12, 12, 9), 'M3 12h18', 'M12 3a14 14 0 0 1 0 18', 'M12 3a14 14 0 0 0 0 18'],
+  /** Public / discoverable (replaces the former globe glyph). */
+  compass: [circle(12, 12, 9), 'm15.5 8.5-2 5-5 2 2-5z'],
 
   // Security and safety
   lock: [rect(5, 11, 14, 10, 2), 'M8 11V7a4 4 0 0 1 8 0v4'],

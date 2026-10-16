@@ -1,6 +1,6 @@
 import { describe, expect, it, jest } from '@jest/globals';
 import type { AccountView, OgcId, OwnProfile } from '@ogc/types';
-import { act, fireEvent, render, screen } from '@testing-library/react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
 import { Alert } from 'react-native';
 import { ApiClient } from './api/client';
 import type { TokenStore } from './auth/token-store';
@@ -105,6 +105,29 @@ describe('mobile messaging', () => {
     expect(screen.getByLabelText('Read')).toBeOnTheScreen();
     expect(screen.getByText('This message was deleted')).toBeOnTheScreen();
     expect(screen.getByText(/Sent before this device joined/)).toBeOnTheScreen();
+  });
+
+  it('shows a message that was not sent, and retries it', async () => {
+    const engine = new FakeEngine([CONVERSATION]);
+    const failed = localMessage({
+      id: null,
+      seq: null,
+      mine: true,
+      senderOgcId: account.ogcId,
+      state: 'failed',
+      payload: { v: 1, text: 'Lost words' },
+    });
+    engine.data.set(CONVERSATION.id, [failed]);
+    await openConversation(engine);
+    // The unsent text stays visible (it is not mistaken for an undecryptable message).
+    expect(await screen.findByText('Lost words')).toBeOnTheScreen();
+    expect(screen.queryByText(/couldn’t be decrypted/)).toBeNull();
+    await fireEvent.press(screen.getByText('Not sent · Tap to retry'));
+    await fireEvent.press(await screen.findByRole('button', { name: 'Retry' }));
+    expect(engine.discardFailed).toHaveBeenCalledWith(CONVERSATION.id, failed.clientMessageId);
+    await waitFor(() => {
+      expect(engine.send).toHaveBeenCalledWith(CONVERSATION.id, { text: 'Lost words' });
+    });
   });
 
   it('sends, replies and signals typing', async () => {

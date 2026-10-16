@@ -1,6 +1,6 @@
 import { type LocalMessage, conversationTitle, previewText } from '@ogc/messaging';
 import type { ChannelView, ContactView, PublicProfile } from '@ogc/types';
-import { color, fontSize, radius, space } from '@ogc/ui';
+import { fontSize, radius, space } from '@ogc/ui';
 import { formatOgcIdForDisplay, ogcIdInputSchema } from '@ogc/validation';
 import { useEffect, useMemo, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -16,6 +16,7 @@ import { useNavigation } from '../navigation';
 import { ConversationRow } from './messaging/MessagesScreen';
 import { AppBar } from './Screen';
 import { ChannelRow } from './community/ChannelScreens';
+import { color, themedStyles } from '../theme';
 
 const LIMIT = 5;
 
@@ -257,22 +258,24 @@ export function SearchScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: color.background },
-  searchWrap: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[2],
-    minHeight: 42,
-    marginRight: space[2],
-    paddingHorizontal: space[3],
-    backgroundColor: color.surfaceRaised,
-    borderRadius: radius.md,
-  },
-  search: { flex: 1, minHeight: 42, color: color.textPrimary, fontSize: fontSize.md },
-  content: { gap: space[4], padding: space[4] },
-  note: { color: color.textMuted, fontSize: fontSize.sm },
-  privacy: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
-  privacyText: { flex: 1, color: color.textMuted, fontSize: fontSize.xs, lineHeight: 17 },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: color.background },
+    searchWrap: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space[2],
+      minHeight: 42,
+      marginRight: space[2],
+      paddingHorizontal: space[3],
+      backgroundColor: color.surfaceRaised,
+      borderRadius: radius.md,
+    },
+    search: { flex: 1, minHeight: 42, color: color.textPrimary, fontSize: fontSize.md },
+    content: { gap: space[4], padding: space[4] },
+    note: { color: color.textMuted, fontSize: fontSize.sm },
+    privacy: { flexDirection: 'row', alignItems: 'center', gap: space[2] },
+    privacyText: { flex: 1, color: color.textMuted, fontSize: fontSize.xs, lineHeight: 17 },
+  }),
+);

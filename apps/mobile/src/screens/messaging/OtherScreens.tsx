@@ -1,5 +1,5 @@
 import { conversationAvatar, conversationTitle } from '@ogc/messaging';
-import { color, radius, space } from '@ogc/ui';
+import { radius, space } from '@ogc/ui';
 import { formatOgcIdForDisplay } from '@ogc/validation';
 import { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
@@ -21,6 +21,7 @@ import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
 import { social } from '../social/styles';
 import { m } from './styles';
+import { color, themedStyles } from '../../theme';
 
 /** Pick a contact; conversations can be started with contacts only. */
 export function NewConversationScreen() {
@@ -239,23 +240,25 @@ export function SafetyNumberScreen({
   );
 }
 
-const styles = StyleSheet.create({
-  surface: {
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-  badge: {
-    alignSelf: 'center',
-    width: 64,
-    height: 64,
-    marginTop: space[2],
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.accentSubtle,
-    borderWidth: 1,
-    borderColor: color.accentBorder,
-    borderRadius: radius.xl,
-  },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    surface: {
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+    badge: {
+      alignSelf: 'center',
+      width: 64,
+      height: 64,
+      marginTop: space[2],
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: color.accentSubtle,
+      borderWidth: 1,
+      borderColor: color.accentBorder,
+      borderRadius: radius.xl,
+    },
+  }),
+);

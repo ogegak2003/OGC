@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { contrastRatio } from './contrast.js';
 import { toCssVariables } from './css.js';
-import { color } from './tokens/color.js';
+import { THEME_ACCENTS, THEME_MODES, color, resolveTheme } from './tokens/color.js';
+
+const THEMES = THEME_MODES.flatMap((mode) =>
+  THEME_ACCENTS.map((accent) => ({ name: `${mode}/${accent}`, theme: resolveTheme(mode, accent) })),
+);
 
 /** WCAG 2.2 AA thresholds. */
 const AA_TEXT = 4.5;
@@ -18,7 +22,7 @@ describe('contrastRatio', () => {
   });
 });
 
-describe('colour tokens meet WCAG AA', () => {
+describe.each(THEMES)('colour tokens of the $name theme meet WCAG AA', ({ theme: color }) => {
   const surfaces = ['background', 'surface', 'surfaceRaised'] as const;
   const texts = ['textPrimary', 'textSecondary', 'textMuted', 'accent'] as const;
 
@@ -49,7 +53,7 @@ describe('colour tokens meet WCAG AA', () => {
     }
   });
 
-  it('text on the gold accent is readable', () => {
+  it('text on the accent is readable', () => {
     for (const fill of ['accent', 'accentHover', 'accentPressed'] as const) {
       const ratio = contrastRatio(color.onAccent, color[fill]);
       expect(ratio, `onAccent on ${fill}`).toBeGreaterThanOrEqual(AA_TEXT);
@@ -57,7 +61,16 @@ describe('colour tokens meet WCAG AA', () => {
   });
 
   it('focus ring and status colours are distinguishable from the background', () => {
-    for (const token of ['focusRing', 'success', 'warning', 'danger', 'info'] as const) {
+    for (const token of [
+      'focusRing',
+      'success',
+      'warning',
+      'danger',
+      'info',
+      'online',
+      'accent',
+      'chartSecondary',
+    ] as const) {
       const ratio = contrastRatio(color[token], color.background);
       expect(ratio, token).toBeGreaterThanOrEqual(AA_NON_TEXT);
     }
@@ -65,6 +78,16 @@ describe('colour tokens meet WCAG AA', () => {
 });
 
 describe('toCssVariables', () => {
+  it('emits every mode and accent, switching the colour scheme', () => {
+    const css = toCssVariables();
+    for (const { name } of THEMES) {
+      const [mode, accent] = name.split('/');
+      expect(css).toContain(`[data-theme="${String(mode)}"][data-accent="${String(accent)}"] {`);
+    }
+    expect(css).toContain('color-scheme: light;');
+    expect(css).toContain(`--ogc-color-accent: ${resolveTheme('light', 'steel').accent};`);
+  });
+
   it('emits namespaced custom properties', () => {
     const css = toCssVariables();
     expect(css.startsWith(':root {')).toBe(true);

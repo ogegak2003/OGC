@@ -1,3 +1,4 @@
+import { isMissedCall } from '@ogc/messaging';
 import type {
   ChannelMemberView,
   ChannelPostReportView,
@@ -8,7 +9,7 @@ import type {
   NotificationView,
 } from '@ogc/types';
 import { REACTION_EMOJI, REACTION_TYPES } from '@ogc/types';
-import { color, fontSize, fontWeight, radius, space } from '@ogc/ui';
+import { fontSize, fontWeight, radius, space } from '@ogc/ui';
 import {
   CHANNEL_POST_MAX_LENGTH,
   COMMUNITY_NAME_MAX_LENGTH,
@@ -23,12 +24,13 @@ import { communityApi } from '../../api/community';
 import { webAppUrl } from '../../config/runtime';
 import { useAuth } from '../../auth/AuthProvider';
 import { Icon, type IconName } from '../../components/Icon';
-import { Avatar, LinkQrCode } from '../../components/identity';
+import { Avatar, KindAvatar, LinkQrCode } from '../../components/identity';
 import {
   Button,
   CountBadge,
   EmptyState,
   Field,
+  IconButton,
   ListGroup,
   ListRow,
   Loading,
@@ -41,10 +43,12 @@ import {
 } from '../../components/ui';
 import { listTime } from '../../lib/time';
 import { errorMessage } from '../../lib/errors';
+import { useRecentCalls } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
 import { social } from '../social/styles';
+import { color, themedStyles } from '../../theme';
 
 const NOT_E2EE =
   'Community channels are not end-to-end encrypted: OGC can read posts for moderation and search.';
@@ -59,10 +63,17 @@ export function ChannelRow({ channel }: { channel: ChannelView }) {
   return (
     <ListRow
       title={channel.name}
-      subtitle={`@${channel.handle} · ${String(channel.memberCount)} members${
+      subtitle={`Community · @${channel.handle} · ${String(channel.memberCount)} ${channel.memberCount === 1 ? 'member' : 'members'}${
         channel.visibility === 'PRIVATE' ? ' · Private' : ''
       }${channel.membership?.status === 'PENDING' ? ' · Pending' : ''}`}
-      leading={<Avatar url={channel.avatarUrl} name={channel.name} size={44} />}
+      leading={
+        <KindAvatar
+          url={channel.avatarUrl}
+          name={channel.name}
+          size={44}
+          kind="community-channel"
+        />
+      }
       trailing={<CountBadge count={channel.unreadCount} />}
       accessibilityLabel={`${channel.name}${channel.unreadCount ? `, ${String(channel.unreadCount)} unread` : ''}`}
       onPress={() => {
@@ -546,7 +557,7 @@ export function ChannelScreen({ channelId }: { channelId: string }) {
           {channel.visibility === 'PRIVATE' ? (
             <Tag label="Private" icon="lock" />
           ) : (
-            <Tag label="Public" icon="globe" />
+            <Tag label="Public" icon="compass" />
           )}
           {member ? <Tag label="Member" tone="success" icon="check" /> : null}
         </View>
@@ -993,12 +1004,52 @@ function describe(n: NotificationView): string {
 }
 
 /** In-app notifications, newest first. Opening the screen marks them read. */
+/** "Today", "Yesterday" or the date, for grouping notifications by day. */
+function dayLabel(iso: string, now: Date): string {
+  const date = new Date(iso);
+  const start = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((start(now) - start(date)) / 86_400_000);
+  if (days <= 0) return 'Today';
+  if (days === 1) return 'Yesterday';
+  return date.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+}
+
+/**
+ * Group and channel activity grouped by day, plus what is waiting elsewhere (contact requests,
+ * missed calls). Opening it marks everything read, as the service supports.
+ */
 export function NotificationsScreen() {
   const nav = useNavigation();
   const api = useCommunity();
+  const { client } = useAuth();
   const { setNotificationsUnread } = useMessaging();
+  const { calls } = useRecentCalls();
   const [items, setItems] = useState<NotificationView[]>();
   const [error, setError] = useState<string>();
+  const [pendingRequests, setPendingRequests] = useState(0);
+  const missedCalls = calls?.filter(isMissedCall).length ?? 0;
+  const days = useMemo(() => {
+    const now = new Date();
+    const grouped = new Map<string, NotificationView[]>();
+    for (const n of items ?? []) {
+      const label = dayLabel(n.createdAt, now);
+      grouped.set(label, [...(grouped.get(label) ?? []), n]);
+    }
+    return [...grouped.entries()];
+  }, [items]);
+
+  useEffect(() => {
+    let active = true;
+    client.incomingRequests().then(
+      (page) => {
+        if (active) setPendingRequests(page.items.length);
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [client]);
   useEffect(() => {
     let active = true;
     api.notifications.list().then(
@@ -1020,7 +1071,46 @@ export function NotificationsScreen() {
     };
   }, [api, setNotificationsUnread]);
   return (
-    <Screen title="Notifications" onBack={nav.back}>
+    <Screen
+      title="Notifications"
+      subtitle="Notifications never include message text."
+      onBack={nav.back}
+      actions={
+        <IconButton
+          icon="settings"
+          label="Notification settings"
+          onPress={() => {
+            nav.push({ name: 'notification-settings' });
+          }}
+        />
+      }
+    >
+      {pendingRequests > 0 || missedCalls > 0 ? (
+        <ListGroup>
+          {pendingRequests > 0 ? (
+            <ListRow
+              icon="userPlus"
+              tone="accent"
+              title={`${String(pendingRequests)} contact ${pendingRequests === 1 ? 'request' : 'requests'}`}
+              subtitle="Waiting for your answer"
+              onPress={() => {
+                nav.push({ name: 'contacts', tab: 'requests' });
+              }}
+            />
+          ) : null}
+          {missedCalls > 0 ? (
+            <ListRow
+              icon="phoneOff"
+              tone="danger"
+              title={`${String(missedCalls)} missed ${missedCalls === 1 ? 'call' : 'calls'}`}
+              subtitle="In your recent calls"
+              onPress={() => {
+                nav.push({ name: 'calls' });
+              }}
+            />
+          ) : null}
+        </ListGroup>
+      ) : null}
       {error ? <Notice>{error}</Notice> : null}
       {!items && !error ? (
         <View style={styles.surface}>
@@ -1034,102 +1124,110 @@ export function NotificationsScreen() {
           body="Invitations, mentions and channel announcements appear here."
         />
       ) : null}
-      {items?.length ? (
-        <ListGroup>
-          {items.map((n) => (
-            <Pressable
-              key={n.id}
-              style={({ pressed }) => [styles.notification, pressed && styles.postPressed]}
-              accessibilityRole="button"
-              accessibilityLabel={`${describe(n)}${n.readAt ? '' : ', new'}`}
-              onPress={() => {
-                const channelId =
-                  typeof n.data.channelId === 'string' ? n.data.channelId : undefined;
-                const conversationId =
-                  typeof n.data.conversationId === 'string' ? n.data.conversationId : undefined;
-                if (n.type === 'GROUP_INVITATION') nav.push({ name: 'invitations' });
-                else if (channelId) nav.push({ name: 'channel', channelId });
-                else if (conversationId) nav.push({ name: 'conversation', conversationId });
-              }}
-            >
-              <View style={[styles.notificationIcon, n.readAt ? null : styles.notificationIconNew]}>
-                <Icon
-                  name={NOTIFICATION_ICON[n.type]}
-                  size={18}
-                  tint={n.readAt ? color.textSecondary : color.accent}
-                />
-              </View>
-              <View style={social.names}>
-                <Text
-                  style={[styles.notificationText, n.readAt ? null : styles.notificationTextNew]}
+      {days.map(([label, list]) => (
+        <View key={label} style={styles.day}>
+          <SectionHeader title={label} />
+          <ListGroup>
+            {list.map((n) => (
+              <Pressable
+                key={n.id}
+                style={({ pressed }) => [styles.notification, pressed && styles.postPressed]}
+                accessibilityRole="button"
+                accessibilityLabel={`${describe(n)}${n.readAt ? '' : ', new'}`}
+                onPress={() => {
+                  const channelId =
+                    typeof n.data.channelId === 'string' ? n.data.channelId : undefined;
+                  const conversationId =
+                    typeof n.data.conversationId === 'string' ? n.data.conversationId : undefined;
+                  if (n.type === 'GROUP_INVITATION') nav.push({ name: 'invitations' });
+                  else if (channelId) nav.push({ name: 'channel', channelId });
+                  else if (conversationId) nav.push({ name: 'conversation', conversationId });
+                }}
+              >
+                <View
+                  style={[styles.notificationIcon, n.readAt ? null : styles.notificationIconNew]}
                 >
-                  {describe(n)}
-                </Text>
-                <Text style={styles.when}>{listTime(n.createdAt)}</Text>
-              </View>
-              {n.readAt ? null : <View style={styles.unreadDot} />}
-            </Pressable>
-          ))}
-        </ListGroup>
-      ) : null}
+                  <Icon
+                    name={NOTIFICATION_ICON[n.type]}
+                    size={18}
+                    tint={n.readAt ? color.textSecondary : color.accent}
+                  />
+                </View>
+                <View style={social.names}>
+                  <Text
+                    style={[styles.notificationText, n.readAt ? null : styles.notificationTextNew]}
+                  >
+                    {describe(n)}
+                  </Text>
+                  <Text style={styles.when}>{listTime(n.createdAt)}</Text>
+                </View>
+                {n.readAt ? null : <View style={styles.unreadDot} />}
+              </Pressable>
+            ))}
+          </ListGroup>
+        </View>
+      ))}
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
-  surface: {
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-  channelHead: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  channelTags: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
-  post: {
-    gap: space[3],
-    padding: space[4],
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-  announcement: { borderColor: color.accentBorder, backgroundColor: color.accentSubtle },
-  postPressed: { backgroundColor: color.surfaceRaised },
-  author: { color: color.textPrimary, fontSize: fontSize.md, fontWeight: fontWeight.semibold },
-  when: { color: color.textMuted, fontSize: fontSize.xs },
-  tags: { flexDirection: 'row', gap: space[2] },
-  postFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space[2] },
-  reaction: {
-    paddingHorizontal: space[2],
-    paddingVertical: 2,
-    color: color.textSecondary,
-    fontSize: fontSize.sm,
-    backgroundColor: color.surfaceRaised,
-    borderRadius: radius.full,
-    overflow: 'hidden',
-  },
-  reactionMine: { backgroundColor: color.accentSubtle, color: color.accentHighlight },
-  replies: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto' },
-  repliesText: { color: color.textMuted, fontSize: fontSize.sm },
-  composer: { gap: space[2] },
-  composerInput: { minHeight: 96 },
-  notification: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space[3],
-    paddingHorizontal: space[4],
-    paddingVertical: space[3],
-  },
-  notificationIcon: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.surfaceRaised,
-    borderRadius: 19,
-  },
-  notificationIconNew: { backgroundColor: color.accentSubtle },
-  notificationText: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 21 },
-  notificationTextNew: { color: color.textPrimary, fontWeight: fontWeight.semibold },
-  unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.accent },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    day: { gap: space[2] },
+    surface: {
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+    channelHead: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+    channelTags: { flex: 1, flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+    post: {
+      gap: space[3],
+      padding: space[4],
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+    announcement: { borderColor: color.accentBorder, backgroundColor: color.accentSubtle },
+    postPressed: { backgroundColor: color.surfaceRaised },
+    author: { color: color.textPrimary, fontSize: fontSize.md, fontWeight: fontWeight.semibold },
+    when: { color: color.textMuted, fontSize: fontSize.xs },
+    tags: { flexDirection: 'row', gap: space[2] },
+    postFooter: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: space[2] },
+    reaction: {
+      paddingHorizontal: space[2],
+      paddingVertical: 2,
+      color: color.textSecondary,
+      fontSize: fontSize.sm,
+      backgroundColor: color.surfaceRaised,
+      borderRadius: radius.full,
+      overflow: 'hidden',
+    },
+    reactionMine: { backgroundColor: color.accentSubtle, color: color.accentHighlight },
+    replies: { flexDirection: 'row', alignItems: 'center', gap: 4, marginLeft: 'auto' },
+    repliesText: { color: color.textMuted, fontSize: fontSize.sm },
+    composer: { gap: space[2] },
+    composerInput: { minHeight: 96 },
+    notification: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space[3],
+      paddingHorizontal: space[4],
+      paddingVertical: space[3],
+    },
+    notificationIcon: {
+      width: 38,
+      height: 38,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: color.surfaceRaised,
+      borderRadius: 19,
+    },
+    notificationIconNew: { backgroundColor: color.accentSubtle },
+    notificationText: { color: color.textSecondary, fontSize: fontSize.md, lineHeight: 21 },
+    notificationTextNew: { color: color.textPrimary, fontWeight: fontWeight.semibold },
+    unreadDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: color.accent },
+  }),
+);

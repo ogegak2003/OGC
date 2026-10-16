@@ -7,12 +7,13 @@ export type Route =
   | { name: 'communities' }
   | { name: 'search' }
   | { name: 'security' }
+  | { name: 'appearance' }
   | { name: 'profile' }
   | { name: 'edit-profile' }
   | { name: 'my-qr' }
   | { name: 'discover' }
   | { name: 'public-profile'; ogcId: string }
-  | { name: 'contacts' }
+  | { name: 'contacts'; tab?: 'requests' }
   | { name: 'privacy' }
   | { name: 'blocked' }
   | { name: 'report'; ogcId: string }

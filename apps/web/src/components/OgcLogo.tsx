@@ -1,11 +1,13 @@
-import { LOGO_GOLD_STOPS, LOGO_SYMBOL, LOGO_WORDMARK } from '@ogc/ui';
+import { LOGO_SYMBOL, LOGO_WORDMARK } from '@ogc/ui';
 import { useId } from 'react';
 
 const S = LOGO_SYMBOL;
 
 /**
- * The OGC wordmark in metallic gold: the globe mark as "O", then geometric "G" and "C".
- * Same geometry as the mobile app and `public/ogc-logo.svg`. `height` in px.
+ * The OGC wordmark: the ring mark as "O", then geometric "G" and "C". Drawn in the theme's
+ * accent (a soft vertical blend from the highlight tone), so it stays legible in light mode and
+ * follows the chosen accent. Same geometry as the mobile app and `public/ogc-logo.svg`.
+ * `height` in px.
  */
 export function OgcLogo({
   height = 48,
@@ -14,8 +16,8 @@ export function OgcLogo({
   height?: number;
   className?: string | undefined;
 }) {
-  const gradient = `ogc-gold-${useId().replace(/[^\w-]/g, '')}`;
-  const gold = `url(#${gradient})`;
+  const gradient = `ogc-logo-${useId().replace(/[^\w-]/g, '')}`;
+  const fill = `url(#${gradient})`;
   return (
     <svg
       width={(height * LOGO_WORDMARK.width) / LOGO_WORDMARK.height}
@@ -27,24 +29,23 @@ export function OgcLogo({
     >
       <defs>
         <linearGradient id={gradient} x1="0" y1="4" x2="0" y2="44" gradientUnits="userSpaceOnUse">
-          {LOGO_GOLD_STOPS.map((stop) => (
-            <stop key={stop.offset} offset={stop.offset} stopColor={stop.color} />
-          ))}
+          <stop offset="0" stopColor="var(--ogc-color-accent-highlight)" />
+          <stop offset="1" stopColor="var(--ogc-color-accent)" />
         </linearGradient>
       </defs>
-      <g fill="none" stroke={gold} strokeWidth={S.ring.stroke}>
+      <g fill="none" stroke={fill} strokeWidth={S.ring.stroke}>
         <circle cx={S.center} cy={S.center} r={S.ring.r} />
-        <g strokeWidth={S.inner.stroke} opacity={S.inner.opacity}>
-          <circle cx={S.center} cy={S.center} r={S.inner.r} />
-          <ellipse cx={S.center} cy={S.center} rx={S.meridian.rx} ry={S.meridian.ry} />
-          <path
-            d={`M${String(S.center - S.inner.r)} ${String(S.center)}h${String(2 * S.inner.r)}`}
-          />
-        </g>
+        <circle
+          cx={S.center}
+          cy={S.center}
+          r={S.inner.r}
+          strokeWidth={S.inner.stroke}
+          opacity={S.inner.opacity}
+        />
         <path d={LOGO_WORDMARK.g} />
         <path d={LOGO_WORDMARK.c} />
       </g>
-      <circle cx={S.center} cy={S.center} r={S.core.r} fill={gold} />
+      <circle cx={S.center} cy={S.center} r={S.core.r} fill={fill} />
     </svg>
   );
 }

@@ -1,4 +1,4 @@
-import { color, fontSize, fontWeight, radius, space } from '@ogc/ui';
+import { fontSize, fontWeight, radius, space } from '@ogc/ui';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { useAuth } from '../auth/AuthProvider';
@@ -6,6 +6,7 @@ import { Icon, type IconName } from '../components/Icon';
 import { Button, Notice } from '../components/ui';
 import { errorMessage } from '../lib/errors';
 import { AuthScreen, text } from './Screen';
+import { color, themedStyles } from '../theme';
 
 function Badge({ icon }: { icon: IconName }) {
   return (
@@ -108,46 +109,48 @@ export function PendingVerificationScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  badge: {
-    width: 64,
-    height: 64,
-    marginTop: space[6],
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.accentSubtle,
-    borderColor: color.accentBorder,
-    borderWidth: 1,
-    borderRadius: radius.xl,
-  },
-  title: {
-    color: color.textPrimary,
-    fontSize: fontSize['2xl'],
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.4,
-  },
-  steps: {
-    gap: space[3],
-    padding: space[4],
-    backgroundColor: color.surface,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  step: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  stepNumber: {
-    width: 26,
-    height: 26,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: 13,
-    backgroundColor: color.surfaceHover,
-  },
-  stepNumberText: {
-    color: color.accentHighlight,
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.bold,
-  },
-  stepText: { flex: 1, color: color.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
-  actions: { gap: space[3] },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    badge: {
+      width: 64,
+      height: 64,
+      marginTop: space[6],
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: color.accentSubtle,
+      borderColor: color.accentBorder,
+      borderWidth: 1,
+      borderRadius: radius.xl,
+    },
+    title: {
+      color: color.textPrimary,
+      fontSize: fontSize['2xl'],
+      fontWeight: fontWeight.bold,
+      letterSpacing: -0.4,
+    },
+    steps: {
+      gap: space[3],
+      padding: space[4],
+      backgroundColor: color.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: color.border,
+    },
+    step: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+    stepNumber: {
+      width: 26,
+      height: 26,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: 13,
+      backgroundColor: color.surfaceHover,
+    },
+    stepNumberText: {
+      color: color.accentHighlight,
+      fontSize: fontSize.xs,
+      fontWeight: fontWeight.bold,
+    },
+    stepText: { flex: 1, color: color.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
+    actions: { gap: space[3] },
+  }),
+);

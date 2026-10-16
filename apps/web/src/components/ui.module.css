@@ -56,7 +56,7 @@
 .danger {
   color: var(--ogc-color-danger);
   background: var(--ogc-color-danger-subtle);
-  border-color: rgb(239 107 99 / 0.3);
+  border-color: color-mix(in srgb, var(--ogc-color-danger) 30%, transparent);
 }
 
 .danger:hover:not(:disabled) {
@@ -106,7 +106,7 @@
 
 .inputWrap:focus-within {
   border-color: var(--ogc-color-accent);
-  box-shadow: 0 0 0 3px rgb(216 173 78 / 0.16);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--ogc-color-accent) 16%, transparent);
 }
 
 .inputWrap[data-invalid] {
@@ -184,7 +184,7 @@
 .alert-error {
   color: var(--ogc-color-text-primary);
   background: var(--ogc-color-danger-subtle);
-  border-color: rgb(239 107 99 / 0.35);
+  border-color: color-mix(in srgb, var(--ogc-color-danger) 35%, transparent);
 }
 
 .alert-error .alertIcon {
@@ -194,7 +194,7 @@
 .alert-info {
   color: var(--ogc-color-text-primary);
   background: var(--ogc-color-info-subtle);
-  border-color: rgb(111 168 220 / 0.3);
+  border-color: color-mix(in srgb, var(--ogc-color-info) 30%, transparent);
 }
 
 .alert-info .alertIcon {
@@ -204,7 +204,7 @@
 .alert-success {
   color: var(--ogc-color-text-primary);
   background: var(--ogc-color-success-subtle);
-  border-color: rgb(93 190 138 / 0.35);
+  border-color: color-mix(in srgb, var(--ogc-color-success) 35%, transparent);
 }
 
 .alert-success .alertIcon {

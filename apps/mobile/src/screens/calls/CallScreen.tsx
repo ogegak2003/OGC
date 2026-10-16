@@ -1,5 +1,5 @@
 import { callStatusText } from '@ogc/messaging';
-import { color, fontSize, fontWeight, space } from '@ogc/ui';
+import { fontSize, fontWeight, space } from '@ogc/ui';
 import { formatOgcIdForDisplay } from '@ogc/validation';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { useEffect, useState } from 'react';
@@ -18,6 +18,7 @@ import { Icon, type IconName } from '../../components/Icon';
 import { Avatar } from '../../components/identity';
 import { useCall } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
+import { stage as color, themedStyles } from '../../theme';
 
 /** The "call ended" screen closes itself after this long. */
 const ENDED_DISMISS_MS = 3500;
@@ -147,6 +148,8 @@ export function CallScreen() {
   const showLocalVideo =
     video && !state.cameraOff && VideoView !== undefined && localUrl !== undefined;
   const previewWidth = Math.min(width * (inCall ? 0.28 : 0.4), 160);
+  const reconnecting =
+    inCall && (state.reconnecting || (state.phase === 'active' && state.connectedAt === null));
 
   return (
     <View
@@ -169,6 +172,15 @@ export function CallScreen() {
         ]}
       >
         {showRemoteVideo ? null : (
+          <View style={styles.kind}>
+            <Icon name={video ? 'video' : 'phone'} size={13} tint={color.textSecondary} />
+            <Text style={styles.kindText}>
+              {video ? 'Video call' : 'Voice call'}
+              {state.phase === 'incoming' ? ' · Incoming' : ''}
+            </Text>
+          </View>
+        )}
+        {showRemoteVideo ? null : (
           <View style={styles.avatarRing}>
             <Avatar url={peer.avatarUrl} name={name} size={112} />
           </View>
@@ -182,7 +194,8 @@ export function CallScreen() {
         <Text
           style={[
             styles.status,
-            state.phase === 'active' && !state.reconnecting && styles.timer,
+            state.phase === 'active' && !reconnecting && styles.timer,
+            reconnecting && styles.reconnecting,
             state.phase === 'ended' && styles.statusEnded,
           ]}
           accessibilityLiveRegion="polite"
@@ -245,7 +258,7 @@ export function CallScreen() {
           </>
         ) : null}
         {state.phase === 'outgoing' || inCall ? (
-          <>
+          <View style={styles.toggles}>
             <Control
               label={state.microphoneMuted ? 'Unmute' : 'Mute'}
               icon={state.microphoneMuted ? 'micOff' : 'mic'}
@@ -284,15 +297,17 @@ export function CallScreen() {
                 }}
               />
             ) : null}
-            <Control
-              label={state.phase === 'outgoing' ? 'Cancel' : 'End'}
-              icon="phoneOff"
-              tone="danger"
-              onPress={() => {
-                void calls.hangUp();
-              }}
-            />
-          </>
+          </View>
+        ) : null}
+        {state.phase === 'outgoing' || inCall ? (
+          <Control
+            label={state.phase === 'outgoing' ? 'Cancel' : 'End'}
+            icon="phoneOff"
+            tone="danger"
+            onPress={() => {
+              void calls.hangUp();
+            }}
+          />
         ) : null}
         {state.phase === 'ended' ? (
           <Control
@@ -308,102 +323,130 @@ export function CallScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  screen: {
-    zIndex: 100,
-    elevation: 100,
-    justifyContent: 'space-between',
-    backgroundColor: color.background,
-  },
-  videoScreen: { backgroundColor: '#000000' },
-  glow: {
-    position: 'absolute',
-    top: -160,
-    alignSelf: 'center',
-    width: 420,
-    height: 420,
-    borderRadius: 210,
-    backgroundColor: 'rgba(212, 170, 79, 0.07)',
-  },
-  identity: {
-    alignItems: 'center',
-    paddingHorizontal: space[6],
-  },
-  identityOverVideo: {
-    alignSelf: 'center',
-    paddingHorizontal: space[4],
-    paddingBottom: space[2],
-    borderRadius: 16,
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
-  },
-  avatarRing: {
-    padding: 4,
-    marginBottom: space[5],
-    borderWidth: 1,
-    borderColor: color.accent,
-    borderRadius: 64,
-  },
-  name: {
-    color: color.textPrimary,
-    fontSize: fontSize['2xl'],
-    fontWeight: fontWeight.semibold,
-    textAlign: 'center',
-  },
-  ogcId: {
-    marginTop: space[1],
-    color: color.textMuted,
-    fontSize: fontSize.sm,
-    letterSpacing: 1,
-    fontVariant: ['tabular-nums'],
-  },
-  status: {
-    marginTop: space[3],
-    color: color.textSecondary,
-    fontSize: fontSize.lg,
-    textAlign: 'center',
-  },
-  timer: { color: color.accent, fontVariant: ['tabular-nums'], letterSpacing: 1 },
-  statusEnded: { color: color.textPrimary },
-  note: {
-    marginTop: space[2],
-    color: color.textMuted,
-    fontSize: fontSize.sm,
-    textAlign: 'center',
-  },
-  preview: {
-    position: 'absolute',
-    right: space[4],
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.2)',
-    borderRadius: 16,
-    backgroundColor: '#111111',
-  },
-  controls: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    justifyContent: 'center',
-    rowGap: space[4],
-    columnGap: space[3],
-    paddingHorizontal: space[4],
-    paddingTop: space[4],
-  },
-  controlsOverVideo: { backgroundColor: 'rgba(0, 0, 0, 0.45)' },
-  control: { alignItems: 'center', width: 72, gap: space[2] },
-  round: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.16)',
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  selected: { backgroundColor: '#F4F1EA', borderColor: '#F4F1EA' },
-  danger: { backgroundColor: '#C8322A', borderColor: '#C8322A' },
-  accept: { backgroundColor: '#D4AA4F', borderColor: '#F0D48B' },
-  pressed: { opacity: 0.8 },
-  disabled: { opacity: 0.4 },
-  controlLabel: { color: color.textSecondary, fontSize: fontSize.xs },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    screen: {
+      zIndex: 100,
+      elevation: 100,
+      justifyContent: 'space-between',
+      backgroundColor: color.background,
+    },
+    videoScreen: { backgroundColor: '#000000' },
+    glow: {
+      position: 'absolute',
+      top: -160,
+      alignSelf: 'center',
+      width: 420,
+      height: 420,
+      borderRadius: 210,
+      backgroundColor: color.accentSubtle,
+    },
+    identity: {
+      alignItems: 'center',
+      paddingHorizontal: space[6],
+    },
+    identityOverVideo: {
+      alignSelf: 'center',
+      paddingHorizontal: space[4],
+      paddingBottom: space[2],
+      borderRadius: 16,
+      backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    },
+    kind: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space[2],
+      marginBottom: space[5],
+      paddingHorizontal: space[3],
+      paddingVertical: space[1],
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: 999,
+      backgroundColor: color.surfaceRaised,
+    },
+    kindText: {
+      color: color.textSecondary,
+      fontSize: fontSize.xs,
+      fontWeight: fontWeight.semibold,
+    },
+    avatarRing: {
+      padding: 4,
+      marginBottom: space[5],
+      borderWidth: 1,
+      borderColor: color.accent,
+      borderRadius: 64,
+    },
+    name: {
+      color: color.textPrimary,
+      fontSize: fontSize['2xl'],
+      fontWeight: fontWeight.semibold,
+      textAlign: 'center',
+    },
+    ogcId: {
+      marginTop: space[1],
+      color: color.textMuted,
+      fontSize: fontSize.sm,
+      letterSpacing: 1,
+      fontVariant: ['tabular-nums'],
+    },
+    status: {
+      marginTop: space[3],
+      color: color.textSecondary,
+      fontSize: fontSize.lg,
+      textAlign: 'center',
+    },
+    timer: { color: color.accent, fontVariant: ['tabular-nums'], letterSpacing: 1 },
+    statusEnded: { color: color.textPrimary },
+    reconnecting: { color: color.warning },
+    note: {
+      marginTop: space[2],
+      color: color.textMuted,
+      fontSize: fontSize.sm,
+      textAlign: 'center',
+    },
+    preview: {
+      position: 'absolute',
+      right: space[4],
+      overflow: 'hidden',
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.2)',
+      borderRadius: 16,
+      backgroundColor: '#111111',
+    },
+    controls: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      rowGap: space[5],
+      columnGap: space[3],
+      paddingHorizontal: space[4],
+      paddingTop: space[4],
+    },
+    toggles: {
+      width: '100%',
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      justifyContent: 'center',
+      rowGap: space[4],
+      columnGap: space[3],
+    },
+    controlsOverVideo: { backgroundColor: 'rgba(0, 0, 0, 0.45)' },
+    control: { alignItems: 'center', width: 72, gap: space[2] },
+    round: {
+      width: 64,
+      height: 64,
+      borderRadius: 32,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: 'rgba(255, 255, 255, 0.16)',
+      backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    },
+    selected: { backgroundColor: '#F4F1EA', borderColor: '#F4F1EA' },
+    danger: { backgroundColor: '#C8322A', borderColor: '#C8322A' },
+    accept: { backgroundColor: color.accent, borderColor: color.accentHighlight },
+    pressed: { opacity: 0.8 },
+    disabled: { opacity: 0.4 },
+    controlLabel: { color: color.textSecondary, fontSize: fontSize.xs },
+  }),
+);

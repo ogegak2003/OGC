@@ -1,4 +1,3 @@
-import { LOGO_TAGLINE } from '@ogc/ui';
 import { formatOgcIdForDisplay } from '@ogc/validation';
 import {
   type ReactNode,
@@ -9,7 +8,7 @@ import {
   useRef,
   useState,
 } from 'react';
-import { Link, NavLink, useLocation } from 'react-router';
+import { Link, NavLink, useLocation, useNavigate } from 'react-router';
 import { useAuth } from '../auth/auth-context';
 import { useMessaging } from '../messaging/messaging-context';
 import styles from './AppShell.module.css';
@@ -18,6 +17,9 @@ import { GlobalSearch } from './GlobalSearch';
 import { Icon, type IconName } from './Icon';
 import { OgcLogo } from './OgcLogo';
 import { OgcMark } from './OgcMark';
+import { ThemeControls } from './ThemeControls';
+import { CreateGroupDialog } from './groups/CreateGroupDialog';
+import { NewConversationDialog } from './messaging/Dialogs';
 
 interface Destination {
   to: string;
@@ -39,34 +41,40 @@ const CALLS: Destination = { to: '/calls', label: 'Calls', icon: 'phone' };
 /** The sidebar on wide screens: every main destination, in the order people use them. */
 const SIDEBAR: Destination[] = [
   { to: '/home', label: 'Home', icon: 'home' },
-  { to: '/messages', label: 'Chats', icon: 'chat' },
-  CALLS,
+  { to: '/messages', label: 'Messages', icon: 'chat' },
+  { to: '/contacts', label: 'Contacts', icon: 'contacts' },
   { to: '/communities', label: 'Groups', icon: 'community' },
   { to: '/channels', label: 'Channels', icon: 'megaphone' },
-  { to: '/contacts', label: 'Contacts', icon: 'contacts' },
-  { to: '/discover', label: 'Discover', icon: 'userPlus' },
+  CALLS,
   NOTIFICATIONS,
 ];
 
+/** "You": profile, settings and security. */
 const SIDEBAR_MORE: Destination[] = [
-  { to: '/invitations', label: 'Invitations', icon: 'inbox' },
-  { to: '/profile/edit', label: 'Edit profile', icon: 'edit' },
-  { to: '/settings/privacy', label: 'Settings', icon: 'settings' },
+  { to: '/settings', label: 'All settings', icon: 'settings' },
+  { to: '/profile/edit', label: 'Profile', icon: 'user' },
+  { to: '/settings/appearance', label: 'Appearance', icon: 'palette' },
+  { to: '/settings/security', label: 'Security & devices', icon: 'shieldCheck' },
+  { to: '/settings/privacy', label: 'Privacy', icon: 'eye' },
   { to: '/settings/notifications', label: 'Notification settings', icon: 'bell' },
   { to: '/settings/blocked', label: 'Blocked people', icon: 'ban' },
-  { to: '/settings/security', label: 'Devices & security', icon: 'shieldCheck' },
+  { to: '/invitations', label: 'Invitations', icon: 'inbox' },
+  { to: '/discover', label: 'Find by OGC ID', icon: 'userPlus' },
 ];
 
 /** Everything else on phones, in "More". */
 const SECONDARY: Destination[] = [
   CALLS,
+  { to: '/settings', label: 'All settings', icon: 'settings' },
   { to: '/discover', label: 'Discover', icon: 'userPlus' },
   { to: '/invitations', label: 'Invitations', icon: 'inbox' },
-  { to: '/profile/edit', label: 'Edit profile', icon: 'edit' },
+  { to: '/channels', label: 'Channels', icon: 'megaphone' },
+  { to: '/profile/edit', label: 'Profile', icon: 'user' },
+  { to: '/settings/appearance', label: 'Appearance', icon: 'palette' },
+  { to: '/settings/security', label: 'Security & devices', icon: 'shieldCheck' },
   { to: '/settings/privacy', label: 'Privacy', icon: 'eye' },
   { to: '/settings/notifications', label: 'Notification settings', icon: 'bell' },
   { to: '/settings/blocked', label: 'Blocked people', icon: 'ban' },
-  { to: '/settings/security', label: 'Devices & security', icon: 'shieldCheck' },
 ];
 
 /** Routes that belong to a destination (so it stays highlighted), on phones and in the sidebar. */
@@ -79,6 +87,30 @@ const SIDEBAR_SECTION: Record<string, string> = {
   '/join': '/communities',
   '/id': '/contacts',
 };
+
+const SIDEBAR_KEY = 'ogc.sidebar';
+
+/** Whether the wide-screen sidebar is collapsed to icons; remembered in this browser. */
+function useSidebarCollapsed(): [boolean, () => void] {
+  const [collapsed, setCollapsed] = useState(() => {
+    try {
+      return window.localStorage.getItem(SIDEBAR_KEY) === 'collapsed';
+    } catch {
+      return false;
+    }
+  });
+  const toggle = useCallback(() => {
+    setCollapsed((value) => {
+      try {
+        window.localStorage.setItem(SIDEBAR_KEY, value ? 'expanded' : 'collapsed');
+      } catch {
+        // Storage unavailable: the choice lasts for this visit.
+      }
+      return !value;
+    });
+  }, []);
+  return [collapsed, toggle];
+}
 
 function sectionOf(pathname: string, map: Record<string, string>): string | undefined {
   return Object.entries(map).find(([prefix]) => pathname.startsWith(prefix))?.[1];
@@ -151,10 +183,17 @@ function ProfileMenu() {
           <Icon name="edit" size={20} />
           Edit profile
         </Link>
-        <Link className={styles.menuLink} to="/settings/privacy" onClick={close}>
+        <Link className={styles.menuLink} to="/settings/security" onClick={close}>
+          <Icon name="shieldCheck" size={20} />
+          Security & devices
+        </Link>
+        <Link className={styles.menuLink} to="/settings" onClick={close}>
           <Icon name="settings" size={20} />
           Settings
         </Link>
+        <div className={styles.menuSection}>
+          <ThemeControls compact />
+        </div>
         <button
           type="button"
           className={[styles.menuLink, styles.danger].join(' ')}
@@ -164,6 +203,95 @@ function ProfileMenu() {
           Sign out
         </button>
       </div>
+    </div>
+  );
+}
+
+/**
+ * "Create": the actions that start something, reachable from every page. Each opens the same
+ * dialog or page as elsewhere in the app (no separate code paths).
+ */
+function CreateMenu({ iconOnly = false }: { iconOnly?: boolean }) {
+  const navigate = useNavigate();
+  const [open, setOpen] = useState(false);
+  const [dialog, setDialog] = useState<'message' | 'group' | null>(null);
+  const menuId = useId();
+  const ref = useRef<HTMLDivElement>(null);
+  const close = useCallback(() => {
+    setOpen(false);
+  }, []);
+  useDismiss(open, close, ref);
+  const choose = (next: 'message' | 'group') => {
+    setOpen(false);
+    setDialog(next);
+  };
+  return (
+    <div className={styles.createWrap} ref={ref}>
+      <button
+        type="button"
+        className={iconOnly ? styles.topAction : styles.createButton}
+        aria-expanded={open}
+        aria-controls={menuId}
+        aria-label={iconOnly ? 'Create' : undefined}
+        onClick={() => {
+          setOpen((value) => !value);
+        }}
+      >
+        <Icon name="plus" size={20} />
+        {iconOnly ? null : <span>New</span>}
+      </button>
+      <div id={menuId} className={[styles.menu, styles.createMenu].join(' ')} hidden={!open}>
+        <button
+          type="button"
+          className={styles.menuLink}
+          onClick={() => {
+            choose('message');
+          }}
+        >
+          <Icon name="chat" size={20} />
+          New message
+        </button>
+        <button
+          type="button"
+          className={styles.menuLink}
+          onClick={() => {
+            choose('group');
+          }}
+        >
+          <Icon name="community" size={20} />
+          New group
+        </button>
+        <Link className={styles.menuLink} to="/discover" onClick={close}>
+          <Icon name="userPlus" size={20} />
+          Find someone by OGC ID
+        </Link>
+        <Link className={styles.menuLink} to="/channels" onClick={close}>
+          <Icon name="compass" size={20} />
+          Explore channels
+        </Link>
+      </div>
+      {dialog === 'message' ? (
+        <NewConversationDialog
+          onClose={() => {
+            setDialog(null);
+          }}
+          onOpened={(opened) => {
+            setDialog(null);
+            void navigate(`/messages/${opened.id}`);
+          }}
+        />
+      ) : null}
+      {dialog === 'group' ? (
+        <CreateGroupDialog
+          onClose={() => {
+            setDialog(null);
+          }}
+          onCreated={(created) => {
+            setDialog(null);
+            void navigate(`/messages/${created.id}`);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -200,6 +328,7 @@ export function AppShell({
   const { pathname } = useLocation();
   const [moreOpen, setMoreOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [collapsed, toggleCollapsed] = useSidebarCollapsed();
   const moreId = useId();
   const moreRef = useRef<HTMLDivElement>(null);
   const closeMore = useCallback(() => {
@@ -226,6 +355,7 @@ export function AppShell({
     <NavLink
       key={item.to}
       to={item.to}
+      title={collapsed && className === styles.sideLink ? item.label : undefined}
       onClick={closeMore}
       className={({ isActive }) =>
         [className, isActive || section === item.to ? styles.active : ''].filter(Boolean).join(' ')
@@ -241,20 +371,36 @@ export function AppShell({
     notificationsUnread > 0 ? `Notifications, ${String(notificationsUnread)} new` : 'Notifications';
 
   return (
-    <div className={[styles.shell, focused ? styles.focused : ''].join(' ')}>
+    <div
+      className={[
+        styles.shell,
+        focused ? styles.focused : '',
+        collapsed ? styles.collapsed : '',
+      ].join(' ')}
+    >
       <aside className={styles.sidebar}>
-        <Link to="/home" className={styles.sideBrand} aria-label="OGC home">
-          <OgcLogo height={36} />
-          <span className={styles.tagline}>{LOGO_TAGLINE}</span>
-        </Link>
+        <div className={styles.sideHead}>
+          <Link to="/home" className={styles.sideBrand} aria-label="OGC home">
+            {collapsed ? <OgcMark size={32} /> : <OgcLogo height={30} />}
+          </Link>
+          <button
+            type="button"
+            className={styles.collapseToggle}
+            onClick={toggleCollapsed}
+            aria-pressed={collapsed}
+            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+          >
+            <Icon name="sidebar" size={20} />
+          </button>
+        </div>
         <nav className={styles.sideNav} aria-label="Main">
           {SIDEBAR.map((item) => link(item, styles.sideLink, sideSection))}
-          <p className={styles.sideHeading}>Settings & more</p>
+          <p className={styles.sideHeading}>You</p>
           {SIDEBAR_MORE.map((item) => link(item, styles.sideLink, sideSection))}
         </nav>
         {account ? (
           <div className={styles.account}>
-            <p className={styles.accountMotto}>One ID. A world of possibilities.</p>
             <div className={styles.accountRow}>
               <Avatar url={null} name={account.displayName} size={36} />
               <span className={styles.accountText}>
@@ -279,6 +425,7 @@ export function AppShell({
         <header className={styles.deskBar}>
           <GlobalSearch />
           <div className={styles.deskActions}>
+            <CreateMenu />
             <Link to="/notifications" className={styles.topAction} aria-label={notificationsLabel}>
               <Icon name="bell" size={22} />
               {notificationsUnread > 0 ? (
@@ -297,6 +444,7 @@ export function AppShell({
             <span>OGC</span>
           </Link>
           <div className={styles.topActions}>
+            <CreateMenu iconOnly />
             <button
               type="button"
               className={styles.topAction}

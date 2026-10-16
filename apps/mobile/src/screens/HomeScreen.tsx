@@ -1,18 +1,8 @@
 import type { OgcId, OwnProfile } from '@ogc/types';
-import { LOGO_TAGLINE, color, fontSize, fontWeight, radius, space } from '@ogc/ui';
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  Image,
-  Pressable,
-  ScrollView,
-  StyleSheet,
-  Text,
-  View,
-  useWindowDimensions,
-} from 'react-native';
+import { fontSize, fontWeight, radius, space } from '@ogc/ui';
+import { useCallback, useEffect, useMemo } from 'react';
+import { Pressable, ScrollView, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
-import GLOBE from '../../assets/welcome-globe.jpg';
 import { useAuth } from '../auth/AuthProvider';
 import { Icon, type IconName } from '../components/Icon';
 import { Avatar, OgcIdText, useCopy } from '../components/identity';
@@ -32,6 +22,7 @@ import { useResource } from '../lib/use-resource';
 import { useMessaging } from '../messaging/messaging-context';
 import { type Route, type Tab, useNavigation } from '../navigation';
 import { ConversationRow } from './messaging/MessagesScreen';
+import { color, themedStyles } from '../theme';
 
 const RECENT = 5;
 /** Direct-conversation peers whose presence the home screen watches (online dots). */
@@ -183,22 +174,21 @@ function IdentityChip({
   );
 }
 
-/** Your Global Identity: the OGC ID with copy, share, QR, and finding others by theirs. */
+/** Your OGC ID: copy, share, QR, and finding others by theirs. */
 function GlobalIdentity({ ogcId, displayName }: { ogcId: OgcId; displayName: string }) {
   const nav = useNavigation();
   const [copied, copy] = useCopy();
   return (
     <View style={styles.identity}>
-      <Image source={GLOBE} style={styles.identityGlobe} resizeMode="cover" accessible={false} />
       <View style={styles.identityTop}>
         <View style={styles.identityIcon}>
-          <Icon name="globe" size={24} tint={color.accent} />
+          <Icon name="user" size={22} tint={color.accent} />
         </View>
         <View style={styles.identityText}>
           <Text style={styles.identityTitle} accessibilityRole="header">
-            Your Global Identity
+            Your OGC ID
           </Text>
-          <Text style={styles.identitySub}>One ID. Endless possibilities.</Text>
+          <Text style={styles.identitySub}>Share it to be found — your email stays private.</Text>
         </View>
         <Pressable
           accessibilityRole="button"
@@ -306,54 +296,6 @@ function RecentChats() {
   );
 }
 
-/** The Earth behind the top of the screen, darkened so text keeps its contrast. */
-function EarthBackdrop({ width }: { width: number }) {
-  const [failed, setFailed] = useState(false);
-  const size = Math.min(width * 1.25, 720);
-  const height = size * 0.78;
-  if (failed) return null;
-  return (
-    <View
-      style={[styles.backdrop, { height }]}
-      pointerEvents="none"
-      accessible={false}
-      importantForAccessibility="no-hide-descendants"
-    >
-      <Image
-        source={GLOBE}
-        style={{
-          position: 'absolute',
-          width: size,
-          height: size,
-          top: -size * 0.16,
-          right: -size * 0.42,
-          opacity: 0.9,
-        }}
-        resizeMode="contain"
-        fadeDuration={0}
-        onError={() => {
-          setFailed(true);
-        }}
-      />
-      <Svg style={StyleSheet.absoluteFill} width="100%" height="100%" preserveAspectRatio="none">
-        <Defs>
-          <LinearGradient id="home-left" x1="0" y1="0" x2="1" y2="0">
-            <Stop offset="0" stopColor={color.background} stopOpacity={0.92} />
-            <Stop offset="0.55" stopColor={color.background} stopOpacity={0.55} />
-            <Stop offset="1" stopColor={color.background} stopOpacity={0.15} />
-          </LinearGradient>
-          <LinearGradient id="home-bottom" x1="0" y1="0" x2="0" y2="1">
-            <Stop offset="0.45" stopColor={color.background} stopOpacity={0} />
-            <Stop offset="1" stopColor={color.background} stopOpacity={1} />
-          </LinearGradient>
-        </Defs>
-        <Rect width="100%" height="100%" fill="url(#home-left)" />
-        <Rect width="100%" height="100%" fill="url(#home-bottom)" />
-      </Svg>
-    </View>
-  );
-}
-
 /** The signed-in hub: greeting, shortcuts, your OGC identity and the latest conversations. */
 export function HomeScreen() {
   const { client, state: auth } = useAuth();
@@ -370,7 +312,6 @@ export function HomeScreen() {
 
   return (
     <View style={styles.root}>
-      <EarthBackdrop width={width} />
       <ScrollView
         contentContainerStyle={[styles.content, { paddingTop: insets.top + space[3] }]}
         keyboardShouldPersistTaps="handled"
@@ -383,10 +324,7 @@ export function HomeScreen() {
               accessibilityRole="header"
               accessibilityLabel="OGC"
             >
-              <OgcLogo height={30} />
-              <Text style={styles.tagline} numberOfLines={2}>
-                {LOGO_TAGLINE.replace(' WITHOUT', '\nWITHOUT')}
-              </Text>
+              <OgcLogo height={28} />
             </View>
             <View style={styles.topActions}>
               <IconButton
@@ -491,215 +429,200 @@ export function HomeScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: color.background, overflow: 'hidden' },
-  backdrop: { position: 'absolute', top: 0, left: 0, right: 0, overflow: 'hidden' },
-  content: { flexGrow: 1, paddingHorizontal: space[5], paddingBottom: space[8] },
-  inner: { width: '100%', maxWidth: MAX_WIDTH, alignSelf: 'center', gap: space[5] },
-  top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  brand: { flexShrink: 1, gap: 4 },
-  tagline: {
-    color: color.textPrimary,
-    fontSize: 7.5,
-    lineHeight: 10,
-    fontWeight: fontWeight.medium,
-    letterSpacing: 1.6,
-    opacity: 0.85,
-  },
-  topActions: { flexDirection: 'row', alignItems: 'center' },
-  me: { marginLeft: space[1], padding: 3 },
-  meDot: {
-    position: 'absolute',
-    right: 2,
-    bottom: 2,
-    width: 11,
-    height: 11,
-    borderRadius: 6,
-    borderWidth: 2,
-    borderColor: color.background,
-  },
-  dotOnline: { backgroundColor: color.success },
-  dotOffline: { backgroundColor: color.textMuted },
-  greetingSkeleton: { gap: space[3], paddingTop: space[4] },
-  greetingBlock: { paddingTop: space[4], gap: space[1] },
-  statusPill: {
-    position: 'absolute',
-    top: 0,
-    right: 0,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: space[3],
-    paddingVertical: 5,
-    backgroundColor: 'rgba(20, 20, 24, 0.8)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-    borderRadius: radius.full,
-  },
-  pillDot: { width: 8, height: 8, borderRadius: 4 },
-  pillText: { color: color.textPrimary, fontSize: fontSize.xs, fontWeight: fontWeight.medium },
-  greeting: {
-    marginTop: space[4],
-    color: color.accent,
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.medium,
-  },
-  name: {
-    color: color.textPrimary,
-    fontSize: fontSize['3xl'],
-    fontWeight: fontWeight.bold,
-    letterSpacing: -0.6,
-    lineHeight: 40,
-  },
-  lead: {
-    maxWidth: 300,
-    marginTop: space[1],
-    color: color.textSecondary,
-    fontSize: fontSize.md,
-    lineHeight: 22,
-  },
-  bio: { color: color.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
-  shortcuts: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
-  shortcut: {
-    minHeight: 112,
-    gap: space[2],
-    padding: space[3],
-    backgroundColor: 'rgba(20, 22, 30, 0.88)',
-    borderWidth: 1,
-    borderColor: color.borderStrong,
-    borderRadius: radius.lg,
-  },
-  shortcutQuarter: { flexGrow: 1, flexBasis: '22%' },
-  shortcutHalf: { flexGrow: 1, flexBasis: '46%' },
-  shortcutPressed: { borderColor: color.accent, backgroundColor: color.surfaceRaised },
-  shortcutIcon: {
-    width: 38,
-    height: 38,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.accentSubtle,
-    borderWidth: 1,
-    borderColor: color.accentBorder,
-    borderRadius: 19,
-  },
-  shortcutBadge: {
-    position: 'absolute',
-    top: -5,
-    right: -8,
-    minWidth: 18,
-    height: 18,
-    paddingHorizontal: 4,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.accent,
-    borderRadius: 9,
-    borderWidth: 2,
-    borderColor: color.background,
-  },
-  shortcutBadgeText: { color: color.onAccent, fontSize: 10, fontWeight: fontWeight.bold },
-  shortcutLabel: {
-    color: color.textPrimary,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-  },
-  shortcutBottom: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, marginTop: 'auto' },
-  shortcutHint: { flex: 1, color: color.textSecondary, fontSize: 11, lineHeight: 14 },
-  identity: {
-    gap: space[4],
-    padding: space[4],
-    overflow: 'hidden',
-    backgroundColor: '#0E1220',
-    borderWidth: 1,
-    borderColor: color.accent,
-    borderRadius: radius.xl,
-  },
-  identityGlobe: {
-    position: 'absolute',
-    top: -40,
-    right: -70,
-    width: 200,
-    height: 200,
-    opacity: 0.35,
-  },
-  identityTop: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  identityIcon: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: color.accentBorder,
-    borderRadius: 22,
-  },
-  identityText: { flex: 1, gap: 2 },
-  identityTitle: {
-    color: color.accentHighlight,
-    fontSize: fontSize.lg,
-    fontWeight: fontWeight.semibold,
-  },
-  identitySub: { color: color.textSecondary, fontSize: fontSize.sm },
-  qrButton: {
-    width: 44,
-    height: 44,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(11, 11, 13, 0.6)',
-    borderWidth: 1,
-    borderColor: color.accentBorder,
-    borderRadius: radius.md,
-  },
-  identityId: { gap: space[1] },
-  overline: {
-    color: color.accent,
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-    letterSpacing: 1.8,
-  },
-  chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
-  chip: {
-    flexGrow: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    minHeight: 40,
-    paddingHorizontal: space[3],
-    backgroundColor: 'rgba(11, 11, 13, 0.55)',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: color.borderStrong,
-    borderRadius: radius.full,
-  },
-  chipPressed: { backgroundColor: color.accentSubtle },
-  chipText: { color: color.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.medium },
-  pressed: { opacity: 0.8 },
-  progress: {
-    gap: space[2],
-    padding: space[4],
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-  progressTop: { flexDirection: 'row', justifyContent: 'space-between' },
-  progressTitle: {
-    color: color.textPrimary,
-    fontSize: fontSize.md,
-    fontWeight: fontWeight.semibold,
-  },
-  progressCount: { color: color.accent, fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
-  track: {
-    flexDirection: 'row',
-    height: 6,
-    borderRadius: 3,
-    backgroundColor: color.surfaceHover,
-    overflow: 'hidden',
-  },
-  fill: { height: 6, borderRadius: 3, backgroundColor: color.accent },
-  progressHint: { color: color.textMuted, fontSize: fontSize.sm },
-  listSurface: {
-    backgroundColor: color.surface,
-    borderWidth: 1,
-    borderColor: color.border,
-    borderRadius: radius.lg,
-  },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    root: { flex: 1, backgroundColor: color.background, overflow: 'hidden' },
+    content: { flexGrow: 1, paddingHorizontal: space[5], paddingBottom: space[8] },
+    inner: { width: '100%', maxWidth: MAX_WIDTH, alignSelf: 'center', gap: space[5] },
+    top: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+    brand: { flexShrink: 1, gap: 4 },
+    topActions: { flexDirection: 'row', alignItems: 'center' },
+    me: { marginLeft: space[1], padding: 3 },
+    meDot: {
+      position: 'absolute',
+      right: 2,
+      bottom: 2,
+      width: 11,
+      height: 11,
+      borderRadius: 6,
+      borderWidth: 2,
+      borderColor: color.background,
+    },
+    dotOnline: { backgroundColor: color.success },
+    dotOffline: { backgroundColor: color.textMuted },
+    greetingSkeleton: { gap: space[3], paddingTop: space[4] },
+    greetingBlock: { paddingTop: space[4], gap: space[1] },
+    statusPill: {
+      position: 'absolute',
+      top: 0,
+      right: 0,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: space[3],
+      paddingVertical: 5,
+      backgroundColor: color.surfaceRaised,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: color.borderStrong,
+      borderRadius: radius.full,
+    },
+    pillDot: { width: 8, height: 8, borderRadius: 4 },
+    pillText: { color: color.textPrimary, fontSize: fontSize.xs, fontWeight: fontWeight.medium },
+    greeting: {
+      marginTop: space[4],
+      color: color.accent,
+      fontSize: fontSize.lg,
+      fontWeight: fontWeight.medium,
+    },
+    name: {
+      color: color.textPrimary,
+      fontSize: fontSize['3xl'],
+      fontWeight: fontWeight.bold,
+      letterSpacing: -0.6,
+      lineHeight: 40,
+    },
+    lead: {
+      maxWidth: 300,
+      marginTop: space[1],
+      color: color.textSecondary,
+      fontSize: fontSize.md,
+      lineHeight: 22,
+    },
+    bio: { color: color.textSecondary, fontSize: fontSize.sm, lineHeight: 20 },
+    shortcuts: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+    shortcut: {
+      minHeight: 112,
+      gap: space[2],
+      padding: space[3],
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.borderStrong,
+      borderRadius: radius.lg,
+    },
+    shortcutQuarter: { flexGrow: 1, flexBasis: '22%' },
+    shortcutHalf: { flexGrow: 1, flexBasis: '46%' },
+    shortcutPressed: { borderColor: color.accent, backgroundColor: color.surfaceRaised },
+    shortcutIcon: {
+      width: 38,
+      height: 38,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: color.accentSubtle,
+      borderWidth: 1,
+      borderColor: color.accentBorder,
+      borderRadius: 19,
+    },
+    shortcutBadge: {
+      position: 'absolute',
+      top: -5,
+      right: -8,
+      minWidth: 18,
+      height: 18,
+      paddingHorizontal: 4,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: color.accent,
+      borderRadius: 9,
+      borderWidth: 2,
+      borderColor: color.background,
+    },
+    shortcutBadgeText: { color: color.onAccent, fontSize: 10, fontWeight: fontWeight.bold },
+    shortcutLabel: {
+      color: color.textPrimary,
+      fontSize: fontSize.sm,
+      fontWeight: fontWeight.semibold,
+    },
+    shortcutBottom: { flexDirection: 'row', alignItems: 'flex-end', gap: 4, marginTop: 'auto' },
+    shortcutHint: { flex: 1, color: color.textSecondary, fontSize: 11, lineHeight: 14 },
+    identity: {
+      gap: space[4],
+      padding: space[4],
+      overflow: 'hidden',
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.accent,
+      borderRadius: radius.xl,
+    },
+    identityTop: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+    identityIcon: {
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: color.accentBorder,
+      borderRadius: 22,
+    },
+    identityText: { flex: 1, gap: 2 },
+    identityTitle: {
+      color: color.accentHighlight,
+      fontSize: fontSize.lg,
+      fontWeight: fontWeight.semibold,
+    },
+    identitySub: { color: color.textSecondary, fontSize: fontSize.sm },
+    qrButton: {
+      width: 44,
+      height: 44,
+      alignItems: 'center',
+      justifyContent: 'center',
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.accentBorder,
+      borderRadius: radius.md,
+    },
+    identityId: { gap: space[1] },
+    overline: {
+      color: color.accent,
+      fontSize: fontSize.xs,
+      fontWeight: fontWeight.semibold,
+      letterSpacing: 1.8,
+    },
+    chips: { flexDirection: 'row', flexWrap: 'wrap', gap: space[2] },
+    chip: {
+      flexGrow: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      minHeight: 40,
+      paddingHorizontal: space[3],
+      backgroundColor: color.surface,
+      borderWidth: StyleSheet.hairlineWidth,
+      borderColor: color.borderStrong,
+      borderRadius: radius.full,
+    },
+    chipPressed: { backgroundColor: color.accentSubtle },
+    chipText: { color: color.textPrimary, fontSize: fontSize.sm, fontWeight: fontWeight.medium },
+    pressed: { opacity: 0.8 },
+    progress: {
+      gap: space[2],
+      padding: space[4],
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+    progressTop: { flexDirection: 'row', justifyContent: 'space-between' },
+    progressTitle: {
+      color: color.textPrimary,
+      fontSize: fontSize.md,
+      fontWeight: fontWeight.semibold,
+    },
+    progressCount: { color: color.accent, fontSize: fontSize.sm, fontWeight: fontWeight.semibold },
+    track: {
+      flexDirection: 'row',
+      height: 6,
+      borderRadius: 3,
+      backgroundColor: color.surfaceHover,
+      overflow: 'hidden',
+    },
+    fill: { height: 6, borderRadius: 3, backgroundColor: color.accent },
+    progressHint: { color: color.textMuted, fontSize: fontSize.sm },
+    listSurface: {
+      backgroundColor: color.surface,
+      borderWidth: 1,
+      borderColor: color.border,
+      borderRadius: radius.lg,
+    },
+  }),
+);

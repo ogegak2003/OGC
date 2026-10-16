@@ -2,19 +2,14 @@
   <title id="t">OGC</title>
   <defs>
     <linearGradient id="gold" x1="0" y1="4" x2="0" y2="44" gradientUnits="userSpaceOnUse">
-      <stop offset="0" stop-color="#F6E8C4"/>
-      <stop offset="0.42" stop-color="#E6C273"/>
-      <stop offset="0.58" stop-color="#D8AD4E"/>
-      <stop offset="1" stop-color="#A07A2C"/>
+      <stop offset="0" stop-color="#EBD9AB"/>
+      <stop offset="0.5" stop-color="#D6B46A"/>
+      <stop offset="1" stop-color="#B8964F"/>
     </linearGradient>
   </defs>
   <g fill="none" stroke="url(#gold)">
     <circle cx="24" cy="24" r="19" stroke-width="3.5"/>
-    <g stroke-width="1" opacity="0.45">
-      <circle cx="24" cy="24" r="11"/>
-      <ellipse cx="24" cy="24" rx="5" ry="11"/>
-      <path d="M13 24H35"/>
-    </g>
+    <circle cx="24" cy="24" r="11" stroke-width="1" opacity="0.45"/>
     <path d="M88.12 11.29A19 19 0 1 0 93 24H78" stroke-width="3.5"/>
     <path d="M138.12 11.29A19 19 0 1 0 138.12 36.71" stroke-width="3.5"/>
   </g>

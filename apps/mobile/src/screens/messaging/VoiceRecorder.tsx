@@ -8,10 +8,11 @@ import {
 } from 'expo-audio';
 import { File } from 'expo-file-system';
 import { useEffect, useRef, useState } from 'react';
-import { color } from '@ogc/ui';
+
 import { Text, View } from 'react-native';
 import { IconButton } from '../../components/ui';
 import { m } from './styles';
+import { color } from '../../theme';
 
 export interface RecordedVoice {
   bytes: Uint8Array;

@@ -104,6 +104,9 @@ describe('mobile security and devices', () => {
       },
     });
     await fireEvent.press(await screen.findByRole('button', { name: 'Sign out Work laptop' }));
+    // Signing a device out is confirmed first.
+    expect(sent.map((s) => s.key)).not.toContain(`DELETE /v1/auth/sessions/${LAPTOP}`);
+    await fireEvent.press(screen.getByRole('button', { name: 'Confirm sign out Work laptop' }));
     expect(await screen.findByText('Work laptop was signed out.')).toBeOnTheScreen();
     expect(sent.map((s) => s.key)).toContain(`DELETE /v1/auth/sessions/${LAPTOP}`);
     expect(await screen.findByText('You are not signed in anywhere else.')).toBeOnTheScreen();

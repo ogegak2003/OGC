@@ -1,5 +1,5 @@
 import type { OgcId } from '@ogc/types';
-import { color, fontSize, fontWeight, radius, space } from '@ogc/ui';
+import { fontSize, fontWeight, radius, space } from '@ogc/ui';
 import { buildOgcIdLink, formatOgcIdForDisplay } from '@ogc/validation';
 import * as Clipboard from 'expo-clipboard';
 import { type ReactNode, useEffect, useMemo, useState } from 'react';
@@ -17,6 +17,7 @@ import { qrSvgPath } from '@ogc/ui';
 import { useAuth } from '../auth/AuthProvider';
 import { shareIdentity } from '../lib/share';
 import { Icon, type IconName } from './Icon';
+import { color, themeMode, themedStyles } from '../theme';
 
 export const monoFont = Platform.select({ ios: 'Menlo', android: 'monospace' });
 
@@ -80,12 +81,17 @@ export function LinkQrCode({
 }
 
 /** Quiet, dark tints for initials, chosen from the name so a person keeps their colour. */
-const TONES = ['#2E2413', '#1A2129', '#221B27', '#14221C', '#2A1B17', '#20211A'] as const;
+/** Initials backgrounds: quiet tints, one set per mode so the initials stay readable. */
+const TONES = {
+  dark: ['#2E2413', '#1A2129', '#221B27', '#14221C', '#2A1B17', '#20211A'],
+  light: ['#EFE4CC', '#DDE6F0', '#E8DFEC', '#DCEDE4', '#F1E0D9', '#E6E6D8'],
+} as const;
 
 function toneFor(name: string): string {
   let hash = 0;
   for (const char of name) hash = (hash * 31 + (char.codePointAt(0) ?? 0)) >>> 0;
-  return TONES[hash % TONES.length] ?? TONES[0];
+  const tones = TONES[themeMode()];
+  return tones[hash % tones.length] ?? tones[0];
 }
 
 export function initialsOf(name: string): string {
@@ -141,6 +147,37 @@ export function Avatar({
       >
         {initialsOf(name)}
       </Text>
+    </View>
+  );
+}
+
+/**
+ * An avatar marked with what kind of space it is: a lock (green) for an end-to-end encrypted
+ * group, a megaphone for a channel — green when it is an encrypted private channel, accent when it
+ * is an open community channel. Keeps groups and community channels visibly distinct.
+ */
+export function KindAvatar({
+  url,
+  name,
+  size = 48,
+  kind,
+}: {
+  url: string | null;
+  name: string;
+  size?: number;
+  kind: 'group' | 'encrypted-channel' | 'community-channel';
+}) {
+  const encrypted = kind !== 'community-channel';
+  return (
+    <View style={styles.kindWrap}>
+      <Avatar url={url} name={name} size={size} />
+      <View style={[styles.kindBadge, encrypted ? styles.kindSecure : styles.kindCommunity]}>
+        <Icon
+          name={kind === 'group' ? 'lock' : 'megaphone'}
+          size={11}
+          tint={encrypted ? color.background : color.onAccent}
+        />
+      </View>
     </View>
   );
 }
@@ -257,74 +294,95 @@ export function IdentityCard({
   );
 }
 
-const styles = StyleSheet.create({
-  qrFrame: {
-    alignSelf: 'center',
-    padding: space[3],
-    backgroundColor: color.textPrimary,
-    borderRadius: radius.lg,
-    borderWidth: 2,
-    borderColor: color.accent,
-  },
-  avatar: { backgroundColor: color.surfaceRaised, borderWidth: 1, borderColor: color.borderStrong },
-  fallback: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.06)',
-  },
-  initials: { color: color.accentHighlight, fontWeight: fontWeight.semibold },
-  ogcId: {
-    color: color.accentHighlight,
-    fontSize: fontSize.sm,
-    letterSpacing: 1.5,
-    fontVariant: ['tabular-nums'],
-    fontFamily: monoFont,
-  },
-  ogcIdSm: { fontSize: fontSize.xs, letterSpacing: 1 },
-  ogcIdLg: { fontSize: fontSize.xl, letterSpacing: 2.5, color: color.textPrimary },
-  identity: {
-    gap: space[4],
-    padding: space[5],
-    backgroundColor: color.accentSubtle,
-    borderWidth: 1,
-    borderColor: color.accentBorder,
-    borderRadius: radius.xl,
-  },
-  identityTop: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
-  identityText: { flex: 1, gap: space[1] },
-  overline: {
-    color: color.accent,
-    fontSize: fontSize.xs,
-    fontWeight: fontWeight.semibold,
-    letterSpacing: 1.8,
-  },
-  qrShortcut: {
-    width: 52,
-    height: 52,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: color.accentBorder,
-    backgroundColor: 'rgba(216, 173, 78, 0.08)',
-  },
-  actions: { flexDirection: 'row', gap: space[2] },
-  action: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space[2],
-    minHeight: 44,
-    paddingHorizontal: space[3],
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(216, 173, 78, 0.10)',
-  },
-  actionPressed: { opacity: 0.7 },
-  actionText: {
-    color: color.accentHighlight,
-    fontSize: fontSize.sm,
-    fontWeight: fontWeight.semibold,
-  },
-});
+const styles = themedStyles(() =>
+  StyleSheet.create({
+    kindWrap: { position: 'relative' },
+    kindBadge: {
+      position: 'absolute',
+      right: -2,
+      bottom: -2,
+      width: 20,
+      height: 20,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 2,
+      borderColor: color.background,
+      borderRadius: 10,
+    },
+    kindSecure: { backgroundColor: color.success },
+    kindCommunity: { backgroundColor: color.accent },
+    qrFrame: {
+      alignSelf: 'center',
+      padding: space[3],
+      backgroundColor: color.textPrimary,
+      borderRadius: radius.lg,
+      borderWidth: 2,
+      borderColor: color.accent,
+    },
+    avatar: {
+      backgroundColor: color.surfaceRaised,
+      borderWidth: 1,
+      borderColor: color.borderStrong,
+    },
+    fallback: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderWidth: 1,
+      borderColor: color.border,
+    },
+    initials: { color: color.accentHighlight, fontWeight: fontWeight.semibold },
+    ogcId: {
+      color: color.accentHighlight,
+      fontSize: fontSize.sm,
+      letterSpacing: 1.5,
+      fontVariant: ['tabular-nums'],
+      fontFamily: monoFont,
+    },
+    ogcIdSm: { fontSize: fontSize.xs, letterSpacing: 1 },
+    ogcIdLg: { fontSize: fontSize.xl, letterSpacing: 2.5, color: color.textPrimary },
+    identity: {
+      gap: space[4],
+      padding: space[5],
+      backgroundColor: color.accentSubtle,
+      borderWidth: 1,
+      borderColor: color.accentBorder,
+      borderRadius: radius.xl,
+    },
+    identityTop: { flexDirection: 'row', alignItems: 'center', gap: space[3] },
+    identityText: { flex: 1, gap: space[1] },
+    overline: {
+      color: color.accent,
+      fontSize: fontSize.xs,
+      fontWeight: fontWeight.semibold,
+      letterSpacing: 1.8,
+    },
+    qrShortcut: {
+      width: 52,
+      height: 52,
+      alignItems: 'center',
+      justifyContent: 'center',
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: color.accentBorder,
+      backgroundColor: color.accentSubtle,
+    },
+    actions: { flexDirection: 'row', gap: space[2] },
+    action: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space[2],
+      minHeight: 44,
+      paddingHorizontal: space[3],
+      borderRadius: radius.md,
+      backgroundColor: color.accentSubtle,
+    },
+    actionPressed: { opacity: 0.7 },
+    actionText: {
+      color: color.accentHighlight,
+      fontSize: fontSize.sm,
+      fontWeight: fontWeight.semibold,
+    },
+  }),
+);

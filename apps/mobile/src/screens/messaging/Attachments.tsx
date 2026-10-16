@@ -5,12 +5,13 @@ import { useAudioPlayer, useAudioPlayerStatus } from 'expo-audio';
 import type { File } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
 import { useEffect, useState } from 'react';
-import { color } from '@ogc/ui';
+
 import { ActivityIndicator, Image, Pressable, Text, View } from 'react-native';
 import { Icon } from '../../components/Icon';
 import { useMessaging } from '../../messaging/messaging-context';
 import { cacheFile } from '../../messaging/native-store';
 import { m } from './styles';
+import { color } from '../../theme';
 
 /**
  * Decrypted photos are shown from memory (a data URI), never written to disk.

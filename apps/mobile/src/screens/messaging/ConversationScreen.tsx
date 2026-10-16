@@ -27,7 +27,7 @@ import {
   MESSAGE_TEXT_MAX_LENGTH,
   formatOgcIdForDisplay,
 } from '@ogc/validation';
-import { color, space } from '@ogc/ui';
+import { space } from '@ogc/ui';
 import * as DocumentPicker from 'expo-document-picker';
 import { File } from 'expo-file-system';
 import * as ImagePicker from 'expo-image-picker';
@@ -63,14 +63,16 @@ import { AppBar } from '../Screen';
 import { AttachmentView } from './Attachments';
 import { m } from './styles';
 import { type RecordedVoice, VoiceRecorder } from './VoiceRecorder';
+import { color, themedStyles } from '../../theme';
 
-const STATUS: Record<MessageDisplayStatus, { icon: IconName; label: string; tint: string }> = {
-  PENDING: { icon: 'clock', label: 'Sending', tint: color.textMuted },
-  SENT: { icon: 'check', label: 'Sent', tint: color.textMuted },
-  DELIVERED: { icon: 'checkDouble', label: 'Delivered', tint: color.textMuted },
-  READ: { icon: 'checkDouble', label: 'Read', tint: color.accent },
-  FAILED: { icon: 'alert', label: 'Not sent', tint: color.danger },
-};
+const STATUS: Record<MessageDisplayStatus, { icon: IconName; label: string; tint: string }> =
+  themedStyles(() => ({
+    PENDING: { icon: 'clock', label: 'Sending', tint: color.textMuted },
+    SENT: { icon: 'check', label: 'Sent', tint: color.textMuted },
+    DELIVERED: { icon: 'checkDouble', label: 'Delivered', tint: color.textMuted },
+    READ: { icon: 'checkDouble', label: 'Read', tint: color.accent },
+    FAILED: { icon: 'alert', label: 'Not sent', tint: color.danger },
+  }));
 
 const EMOJI = [
   '😀',
@@ -171,6 +173,10 @@ function MessageRow({
 }) {
   const status = messageStatus(message, conversation);
   const readable = message.state === 'ok' && message.payload !== null;
+  // Your own message still sending, or not sent: its content is shown (it never left this device).
+  const showContent =
+    message.payload !== null &&
+    (readable || message.state === 'pending' || message.state === 'failed');
   const grouped = new Map<ReactionType, { count: number; mine: boolean }>();
   for (const r of message.reactions) {
     const entry = grouped.get(r.reaction) ?? { count: 0, mine: false };
@@ -187,8 +193,19 @@ function MessageRow({
         onLongPress={() => {
           onActions(message);
         }}
+        onPress={
+          message.state === 'failed'
+            ? () => {
+                onActions(message);
+              }
+            : undefined
+        }
         accessibilityRole="button"
-        accessibilityHint="Long press for message actions"
+        accessibilityHint={
+          message.state === 'failed'
+            ? 'Not sent. Tap to retry or discard'
+            : 'Long press for message actions'
+        }
         accessibilityActions={[{ name: 'longpress', label: 'Message actions' }]}
         onAccessibilityAction={() => {
           onActions(message);
@@ -213,7 +230,7 @@ function MessageRow({
             </Text>
           </View>
         ) : null}
-        {readable ? (
+        {showContent ? (
           <>
             {message.payload?.attachments?.map((attachment) => (
               <AttachmentView key={attachment.id} descriptor={attachment} />
@@ -237,6 +254,9 @@ function MessageRow({
             </View>
           ) : null}
         </View>
+        {message.state === 'failed' ? (
+          <Text style={m.failedHint}>Not sent · Tap to retry</Text>
+        ) : null}
       </Pressable>
       {grouped.size > 0 ? (
         <View style={m.reactions}>
@@ -999,6 +1019,25 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     if (!engine) return [];
     const actions: SheetAction[] = [];
     if (message.state === 'failed') {
+      const payload = message.payload;
+      if (payload) {
+        // Same as the web app: drop the failed copy and send the same content again.
+        actions.push({
+          label: 'Retry',
+          icon: 'refresh',
+          run: () => {
+            run(
+              engine.discardFailed(conversationId, message.clientMessageId).then(() =>
+                engine.send(conversationId, {
+                  ...(payload.text ? { text: payload.text } : {}),
+                  ...(payload.attachments ? { attachments: payload.attachments } : {}),
+                  ...(message.replyToId ? { replyToId: message.replyToId } : {}),
+                }),
+              ),
+            );
+          },
+        });
+      }
       actions.push({
         label: 'Discard',
         icon: 'trash',

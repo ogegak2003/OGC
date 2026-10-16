@@ -155,10 +155,12 @@ export function BlockedScreen() {
   const load = useCallback(() => client.blocks(), [client]);
   const { state, reload } = useResource(load);
   const [error, setError] = useState<string>();
+  const [confirming, setConfirming] = useState<string>();
 
   async function unblock(ogcId: string) {
     try {
       await client.unblock(ogcId);
+      setConfirming(undefined);
       reload();
     } catch (e) {
       setError(errorMessage(e));
@@ -168,7 +170,8 @@ export function BlockedScreen() {
   return (
     <Screen title="Blocked people" onBack={nav.back}>
       <Text style={social.muted}>
-        Blocked people cannot find you or send you requests. They are not told.
+        Blocked people cannot find you, message or call you, or send you requests. They are not
+        told. Unblocking does not add them back as a contact.
       </Text>
       {error ? <Notice>{error}</Notice> : null}
       {state.status === 'loading' ? <Loading label="Loading" /> : null}
@@ -185,12 +188,32 @@ export function BlockedScreen() {
               subtitle={formatOgcIdForDisplay(b.profile.ogcId)}
               leading={<Avatar url={b.profile.avatarUrl} name={b.profile.displayName} size={40} />}
               trailing={
-                <Button
-                  title="Unblock"
-                  variant="secondary"
-                  compact
-                  onPress={() => void unblock(b.profile.ogcId)}
-                />
+                confirming === b.profile.ogcId ? (
+                  <View style={social.row}>
+                    <Button
+                      title="Keep"
+                      variant="ghost"
+                      compact
+                      onPress={() => {
+                        setConfirming(undefined);
+                      }}
+                    />
+                    <Button
+                      title="Confirm unblock"
+                      compact
+                      onPress={() => void unblock(b.profile.ogcId)}
+                    />
+                  </View>
+                ) : (
+                  <Button
+                    title="Unblock"
+                    variant="secondary"
+                    compact
+                    onPress={() => {
+                      setConfirming(b.profile.ogcId);
+                    }}
+                  />
+                )
               }
             />
           ))}

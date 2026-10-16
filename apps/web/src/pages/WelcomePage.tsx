@@ -1,47 +1,54 @@
-import { LOGO_TAGLINE } from '@ogc/ui';
 import { Link } from 'react-router';
-import globe from '../assets/welcome-globe.webp';
-import { Icon } from '../components/Icon';
+import { Icon, type IconName } from '../components/Icon';
 import { OgcLogo } from '../components/OgcLogo';
 import styles from './WelcomePage.module.css';
 
+/** What OGC does today — each line describes a shipped capability, nothing aspirational. */
+const FEATURES: { icon: IconName; title: string; text: string }[] = [
+  {
+    icon: 'lock',
+    title: 'End-to-end encrypted messages',
+    text: 'Direct and group chats are encrypted on your devices with MLS.',
+  },
+  {
+    icon: 'user',
+    title: 'One OGC ID',
+    text: 'People find you by your OGC ID or QR code — your email stays private.',
+  },
+  {
+    icon: 'video',
+    title: 'Voice and video calls',
+    text: 'Call your contacts from any conversation, on the web or your phone.',
+  },
+  {
+    icon: 'megaphone',
+    title: 'Groups and channels',
+    text: 'Private groups for your people, public channels for your community.',
+  },
+];
+
 /**
- * The first screen signed-out visitors see: the OGC brand over the Earth at dawn, and the
- * way into the existing registration and sign-in flows.
+ * The first screen signed-out visitors see: the OGC brand, a plain statement of what OGC is,
+ * the way into the existing registration and sign-in flows, and what you get.
  */
 export function WelcomePage() {
   return (
     <main className={styles.page}>
       <div className={styles.layout}>
         <header className={styles.brand}>
-          <OgcLogo height={44} className={styles.logo} />
-          <p className={styles.tagline}>{LOGO_TAGLINE}</p>
+          <OgcLogo height={36} />
         </header>
 
-        {/* Decorative. The gradient behind the image stands in if it cannot load. */}
-        <div className={styles.globe} aria-hidden="true">
-          <img
-            src={globe}
-            alt=""
-            width={1400}
-            height={1400}
-            decoding="async"
-            fetchPriority="high"
-            onError={(event) => {
-              event.currentTarget.hidden = true;
-            }}
-          />
-        </div>
-
         <section className={styles.content} aria-labelledby="welcome-title">
-          <p className={styles.eyebrow}>Welcome to</p>
+          <p className={styles.eyebrow}>ObagaGlobal Communication</p>
           <h1 id="welcome-title" className={styles.title}>
-            OGC Global
+            Private conversations,
             <br />
-            Communication
+            one OGC ID.
           </h1>
           <p className={styles.lead}>
-            Connect with people, communities and opportunities — anywhere in the world.
+            Message, call and organise with the people who matter — encrypted on your devices,
+            reachable by an ID you control.
           </p>
           <div className={styles.actions}>
             <Link to="/register" className={styles.primary}>
@@ -50,12 +57,25 @@ export function WelcomePage() {
             </Link>
             <Link to="/login" className={styles.secondary}>
               Sign In
-              <Icon name="arrowRight" size={20} className={styles.arrow} />
             </Link>
           </div>
         </section>
 
-        <footer className={styles.footer}>One ID. A world of possibilities.</footer>
+        <ul className={styles.features} aria-label="What OGC offers">
+          {FEATURES.map((feature) => (
+            <li key={feature.title} className={styles.feature}>
+              <span className={styles.featureIcon}>
+                <Icon name={feature.icon} size={20} />
+              </span>
+              <span className={styles.featureTitle}>{feature.title}</span>
+              <span className={styles.featureText}>{feature.text}</span>
+            </li>
+          ))}
+        </ul>
+
+        <footer className={styles.footer}>
+          OGC never shows your email address to other people.
+        </footer>
       </div>
     </main>
   );

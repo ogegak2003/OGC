@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
 import { ConversationList } from '../components/messaging/ConversationList';
+import { ConversationDetails } from '../components/messaging/ConversationDetails';
 import { ConversationPanel } from '../components/messaging/ConversationPanel';
 import { NewConversationDialog } from '../components/messaging/Dialogs';
 import { CreateGroupDialog } from '../components/groups/CreateGroupDialog';
@@ -10,9 +11,40 @@ import { Alert } from '../components/ui';
 import { useMessaging } from '../messaging/messaging-context';
 import { Icon } from '../components/Icon';
 
+/** A layout choice remembered in this browser (storage failures just keep the default). */
+function useRememberedToggle(key: string, initial: boolean): [boolean, () => void, () => void] {
+  const [value, setValue] = useState(() => {
+    try {
+      const saved = window.localStorage.getItem(key);
+      return saved === null ? initial : saved === 'true';
+    } catch {
+      return initial;
+    }
+  });
+  const set = useCallback(
+    (next: boolean) => {
+      setValue(next);
+      try {
+        window.localStorage.setItem(key, String(next));
+      } catch {
+        // The choice lasts for this visit.
+      }
+    },
+    [key],
+  );
+  const toggle = useCallback(() => {
+    set(!value);
+  }, [set, value]);
+  const off = useCallback(() => {
+    set(false);
+  }, [set]);
+  return [value, toggle, off];
+}
+
 /**
- * `/messages` and `/messages/:conversationId`: conversation list beside the
- * open conversation on wide screens; one at a time on phones.
+ * `/messages` and `/messages/:conversationId`: a messaging workspace. Wide screens show the
+ * conversation list, the open conversation and (optionally) its details panel; the list and
+ * the details can be collapsed so the conversation gets the room. Phones show one at a time.
  */
 export function MessagesPage() {
   const { conversationId } = useParams();
@@ -20,6 +52,11 @@ export function MessagesPage() {
   const { conversations, engine, status, error } = useMessaging();
   const [creating, setCreating] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const [listCollapsed, toggleList] = useRememberedToggle('ogc.messages.listCollapsed', false);
+  const [detailsOpen, toggleDetails, closeDetails] = useRememberedToggle(
+    'ogc.messages.details',
+    false,
+  );
   const conversation = conversationId
     ? conversations.find((c) => c.id === conversationId)
     : undefined;
@@ -32,7 +69,14 @@ export function MessagesPage() {
 
   return (
     <AppShell title="Messages" layout="full" focused={Boolean(conversationId)}>
-      <div className={[styles.layout, conversationId ? styles.showPanel : ''].join(' ')}>
+      <div
+        className={[
+          styles.layout,
+          conversationId ? styles.showPanel : '',
+          listCollapsed ? styles.listCollapsed : '',
+          conversation && detailsOpen ? styles.withDetails : '',
+        ].join(' ')}
+      >
         <ConversationList
           activeId={conversationId}
           onNewConversation={() => {
@@ -43,7 +87,16 @@ export function MessagesPage() {
           }}
         />
         {conversation ? (
-          <ConversationPanel key={conversation.id} conversation={conversation} />
+          <ConversationPanel
+            key={conversation.id}
+            conversation={conversation}
+            workspace={{
+              listCollapsed,
+              onToggleList: toggleList,
+              detailsOpen,
+              onToggleDetails: toggleDetails,
+            }}
+          />
         ) : (
           <section className={styles.panelEmpty} aria-label="No conversation selected">
             {conversationId ? (
@@ -71,6 +124,13 @@ export function MessagesPage() {
             )}
           </section>
         )}
+        {conversation && detailsOpen ? (
+          <ConversationDetails
+            key={`details-${conversation.id}`}
+            conversation={conversation}
+            onClose={closeDetails}
+          />
+        ) : null}
       </div>
       {creating ? (
         <NewConversationDialog

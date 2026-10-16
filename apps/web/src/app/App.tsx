@@ -1,6 +1,7 @@
 import { type ReactNode, Suspense, lazy } from 'react';
 import { Navigate, Route, Routes } from 'react-router';
 import { GuestOnly, RequireAccount } from '../auth/guards';
+import { AppearancePage } from '../pages/AppearancePage';
 import { BlockedPage } from '../pages/BlockedPage';
 import { CheckEmailPage } from '../pages/CheckEmailPage';
 import { ContactsPage } from '../pages/ContactsPage';
@@ -17,6 +18,7 @@ import { RegisterPage } from '../pages/RegisterPage';
 import { ResetPasswordPage } from '../pages/ResetPasswordPage';
 import { ReportPage } from '../pages/ReportPage';
 import { SecurityPage } from '../pages/SecurityPage';
+import { SettingsPage } from '../pages/SettingsPage';
 import { VerifyEmailPage } from '../pages/VerifyEmailPage';
 import { WelcomePage } from '../pages/WelcomePage';
 import { Spinner } from '../components/ui';
@@ -100,9 +102,11 @@ function AppRoutes() {
       {/* Web form of the OGC identity link ogc://id/OGC… (future universal link). */}
       <Route path="/id/:ogcId" element={member(<PublicProfilePage />)} />
       <Route path="/contacts" element={member(<ContactsPage />)} />
+      <Route path="/settings" element={member(<SettingsPage />)} />
       <Route path="/settings/privacy" element={member(<PrivacyPage />)} />
       <Route path="/settings/blocked" element={member(<BlockedPage />)} />
       <Route path="/settings/security" element={member(<SecurityPage />)} />
+      <Route path="/settings/appearance" element={member(<AppearancePage />)} />
       <Route path="/report/:ogcId" element={member(<ReportPage />)} />
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
