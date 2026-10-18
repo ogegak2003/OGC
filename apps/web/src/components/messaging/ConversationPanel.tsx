@@ -6,6 +6,7 @@ import {
   conversationAvatar,
   conversationTitle,
   describeEvent,
+  describeGroupSecurity,
   mentionsIn,
 } from '@ogc/messaging';
 import type { CallView, ConversationView, GroupMemberView } from '@ogc/types';
@@ -25,7 +26,9 @@ import {
 import {
   useCall,
   useCallHistory,
+  useAwaitingAnotherDevice,
   useConversationMessages,
+  useGroupSecurityWarnings,
   useTimeline,
 } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
@@ -84,6 +87,9 @@ export function ConversationPanel({
   const [verifying, setVerifying] = useState(false);
   const [keyStatus, setKeyStatus] = useState<PeerKeyStatus | null>(null);
   const [keyCheck, setKeyCheck] = useState(0);
+  const [verifyMember, setVerifyMember] = useState<{ ogcId: string; displayName: string } | null>(
+    null,
+  );
   const [showInfo, setShowInfo] = useState(false);
   const [error, setError] = useState<string>();
   const [confirmDelete, setConfirmDelete] = useState<LocalMessage | null>(null);
@@ -116,6 +122,10 @@ export function ConversationPanel({
     };
   }, [engine, peerOgcId, conversation.id, conversation.version, keyCheck]);
   const verified = peer !== null && keyStatus?.state === 'verified';
+  // Groups: changes to the encrypted membership seen by this device's own MLS state.
+  const securityWarnings = useGroupSecurityWarnings(conversation.id, group !== null);
+  // This device lost its group state while it is the only device in the group (engine state).
+  const awaitingDevice = useAwaitingAnotherDevice(conversation.id);
 
   // Groups: the member directory names senders and timeline events (refreshed on changes).
   useEffect(() => {
@@ -160,6 +170,14 @@ export function ConversationPanel({
     if (name !== undefined && name !== '') return name;
     return formatOgcIdForDisplay(ogcId as never);
   };
+  // One other person with a new key: offer the safety-number comparison with them directly.
+  const keyChangedFor = [
+    ...new Set(
+      securityWarnings.flatMap((e) =>
+        e.change === 'new-device' && e.ogcId && e.ogcId !== myOgcId ? [e.ogcId] : [],
+      ),
+    ),
+  ];
 
   const items = useMemo<TimelineItem[]>(() => {
     const list: TimelineItem[] = [
@@ -442,6 +460,52 @@ export function ConversationPanel({
           </button>
         </div>
       ) : null}
+      {awaitingDevice ? (
+        <p className={styles.banner} role="status" aria-label="Encryption waiting">
+          Encryption is waiting for another device to join this conversation. Your pending messages
+          haven’t been sent yet.
+        </p>
+      ) : null}
+      {group && securityWarnings.length > 0 ? (
+        <div className={styles.banner} role="alert" aria-label="Group security">
+          <strong>
+            {securityWarnings.some((e) => e.level === 'verify')
+              ? 'Security keys changed in this group'
+              : 'Some group changes couldn’t be checked on this device'}
+          </strong>
+          <ul className={styles.securityList}>
+            {securityWarnings.slice(-3).map((e) => (
+              <li key={e.id}>{describeGroupSecurity(e, nameOf, myOgcId)}</li>
+            ))}
+          </ul>
+          {securityWarnings.length > 3 ? (
+            <span>And {String(securityWarnings.length - 3)} earlier changes. </span>
+          ) : null}
+          {keyChangedFor.length === 1 && keyChangedFor[0] ? (
+            <>
+              <button
+                type="button"
+                className={styles.linkButton}
+                onClick={() => {
+                  const ogcId = keyChangedFor[0] ?? '';
+                  setVerifyMember({ ogcId, displayName: nameOf(ogcId) });
+                }}
+              >
+                Compare safety numbers
+              </button>{' '}
+            </>
+          ) : null}
+          <button
+            type="button"
+            className={styles.linkButton}
+            onClick={() => {
+              run(engine?.acknowledgeGroupSecurity(conversation.id) ?? Promise.resolve());
+            }}
+          >
+            Dismiss
+          </button>
+        </div>
+      ) : null}
       {blocked && peer ? (
         <div className={styles.banner} role="status">
           You blocked {peer.displayName}. You won’t receive their messages.{' '}
@@ -584,6 +648,15 @@ export function ConversationPanel({
           senderName={nameOf(reporting.senderOgcId)}
           onClose={() => {
             setReporting(null);
+          }}
+        />
+      ) : null}
+      {verifyMember ? (
+        <SafetyNumberDialog
+          conversation={conversation}
+          member={verifyMember}
+          onClose={() => {
+            setVerifyMember(null);
           }}
         />
       ) : null}

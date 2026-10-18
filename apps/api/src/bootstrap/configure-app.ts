@@ -2,7 +2,7 @@ import { VersioningType } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import cookieParser from 'cookie-parser';
-import { json } from 'express';
+import { json, raw } from 'express';
 import helmet from 'helmet';
 import { Logger } from 'nestjs-pino';
 import type { Env } from '../config/env.schema.js';
@@ -12,6 +12,9 @@ export const API_PREFIX = 'api';
 export const BODY_SIZE_LIMIT = '100kb';
 export const MLS_COMMIT_ROUTE = '/api/v1/conversations/:id/mls/commits';
 export const MLS_COMMIT_BODY_LIMIT = '1mb';
+/** OGC Bridge provider webhooks: raw bytes, so signatures are checked over exactly what was sent. */
+export const BRIDGE_WEBHOOK_ROUTE = '/api/v1/bridge/webhooks';
+export const BRIDGE_WEBHOOK_BODY_LIMIT = '64kb';
 
 /**
  * Applies the HTTP security baseline and routing conventions. Shared by
@@ -41,6 +44,7 @@ export function configureApp(app: NestExpressApplication): void {
   // MLS commits carry the group's public ratchet tree (commit + GroupInfo + Welcome), so this
   // one route accepts larger JSON bodies; it runs first and the global parser then skips the body.
   app.use(MLS_COMMIT_ROUTE, json({ limit: MLS_COMMIT_BODY_LIMIT }));
+  app.use(BRIDGE_WEBHOOK_ROUTE, raw({ type: () => true, limit: BRIDGE_WEBHOOK_BODY_LIMIT }));
   app.useBodyParser('json', { limit: BODY_SIZE_LIMIT });
   app.useBodyParser('urlencoded', { limit: BODY_SIZE_LIMIT, extended: false });
 

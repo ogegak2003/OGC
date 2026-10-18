@@ -1,8 +1,10 @@
 import {
   type CallState,
+  type GroupSecurityEvent,
   IDLE_CALL_STATE,
   type LocalMessage,
   type TimelineEvent,
+  pendingGroupWarnings,
 } from '@ogc/messaging';
 import type { CallView } from '@ogc/types';
 import { useCallback, useEffect, useState, useSyncExternalStore } from 'react';
@@ -27,6 +29,45 @@ export function useConversationMessages(conversationId: string | undefined, limi
   }, [engine, conversationId, revision, limit]);
 
   return messages;
+}
+
+/**
+ * Whether this conversation waits for another device to join before encryption can resume
+ * (decided by the engine; re-read whenever the conversation changes).
+ */
+export function useAwaitingAnotherDevice(conversationId: string): boolean {
+  // Synchronous engine state: a `recovery` event bumps `messageRevision`, re-rendering this.
+  const { engine } = useMessaging();
+  return engine?.awaitingAnotherDevice(conversationId) ?? false;
+}
+
+/**
+ * A group's security changes that still need the person's attention, computed on this device
+ * from its own MLS state (re-read whenever the conversation changes).
+ */
+export function useGroupSecurityWarnings(
+  conversationId: string,
+  enabled: boolean,
+): GroupSecurityEvent[] {
+  const { engine, messageRevision } = useMessaging();
+  const revision = messageRevision[conversationId] ?? 0;
+  const [events, setEvents] = useState<GroupSecurityEvent[]>([]);
+
+  useEffect(() => {
+    if (!engine || !enabled) return;
+    let active = true;
+    engine.groupSecurity(conversationId).then(
+      (list) => {
+        if (active) setEvents(pendingGroupWarnings(list));
+      },
+      () => undefined,
+    );
+    return () => {
+      active = false;
+    };
+  }, [engine, conversationId, revision, enabled]);
+
+  return enabled ? events : [];
 }
 
 /** A group's membership and settings events stored on this device. */

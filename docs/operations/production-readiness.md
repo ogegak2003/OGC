@@ -158,7 +158,9 @@ deliberately runs with email `disabled`, so recovery answers "unavailable" there
   - log shipping and retention ([data-retention.md](data-retention.md));
   - a metrics store and dashboards;
   - **alerts**: error rate, readiness, DB and Redis, push failures, `429` rate,
-    `REFRESH_TOKEN_REUSE_DETECTED`, lockouts and reset spikes, disk, certificate expiry;
+    `REFRESH_TOKEN_REUSE_DETECTED`, lockouts and reset spikes, disk, certificate expiry,
+    and sustained `ogc_mls_resync_total{outcome="limited"}` (devices repeatedly losing MLS
+    state, or resync abuse);
   - uptime checks;
   - an on-call rota.
 
@@ -181,7 +183,11 @@ The scripts, runbook and local check are in place ([backup-and-restore.md](backu
   - a failed migration stops the deployment;
   - a half-applied schema makes readiness 503 (tested);
   - no-drift integration tests;
-  - additive migrations, so the previous code version runs on the new schema.
+  - additive migrations, so the previous code version runs on the new schema. Example:
+    `20261017120000_mls_resync_limits` adds `mls_commits.resync` (`NOT NULL DEFAULT false`;
+    existing commits are not resyncs) and an index on (sender device, resync, created at).
+    It is applied by the normal `migrate` job; on a very large `mls_commits` table, create the
+    index `CONCURRENTLY` beforehand to avoid a long write lock.
 - **Rollback:** check out the previous tag and rebuild ([deployment.md](deployment.md#7-migrations-and-rollback)).
   Restoring the database is the last resort.
 - **Missing:** a registry for instant image rollback, and a release checklist used in

@@ -301,7 +301,22 @@ describe('invitation links', () => {
         ),
     });
     renderApp(`/join#token=${TOKEN}`, fakeMessaging(new FakeEngine([])).dependencies);
-    expect(await screen.findByText('This invitation link is invalid or has expired.')).toBeTruthy();
+    expect(await screen.findByRole('heading', { name: 'Invitation link not valid' })).toBeTruthy();
+    expect(screen.getByText(/invalid, has expired or has been used up/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'See your invitations' }).getAttribute('href')).toBe(
+      '/invitations',
+    );
+  });
+
+  it('does not call a link expired when the check itself failed', async () => {
+    mockApi({
+      ...signedInRoutes(),
+      'POST /api/v1/invite-links/preview': () =>
+        json({ statusCode: 503, error: 'SERVICE_UNAVAILABLE', message: 'x' }, 503),
+    });
+    renderApp(`/join#token=${TOKEN}`, fakeMessaging(new FakeEngine([])).dependencies);
+    expect(await screen.findByText(/could not be checked/)).toBeTruthy();
+    expect(screen.queryByRole('heading', { name: 'Invitation link not valid' })).toBeNull();
   });
 });
 

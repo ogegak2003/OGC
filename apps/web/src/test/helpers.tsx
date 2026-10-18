@@ -53,9 +53,14 @@ export function mockApi(routes: Record<string, Handler>) {
   return fetchMock;
 }
 
-export function renderApp(path: string, messaging: MessagingDependencies = inertMessaging) {
+/** `before`: pages already visited in this tab (so "Go back" has somewhere to go). */
+export function renderApp(
+  path: string,
+  messaging: MessagingDependencies = inertMessaging,
+  before: string[] = [],
+) {
   return render(
-    <MemoryRouter initialEntries={[path]}>
+    <MemoryRouter initialEntries={[...before, path]} initialIndex={before.length}>
       <AuthProvider>
         <MessagingProvider dependencies={messaging}>
           <App />

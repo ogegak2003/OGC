@@ -9,7 +9,7 @@ import {
 import { ThrottlerException } from '@nestjs/throttler';
 import type { ApiErrorBody, ApiErrorCode } from '@ogc/types';
 import type { Request, Response } from 'express';
-import { ApiException } from '../errors.js';
+import { ApiException, RetryLaterException } from '../errors.js';
 
 const GENERIC_MESSAGE = 'An unexpected error occurred';
 
@@ -96,6 +96,9 @@ export class HttpExceptionFilter implements ExceptionFilter {
     };
     // Errors are always JSON, even from routes that declared a file type or download headers.
     response.removeHeader('Content-Disposition');
+    if (exception instanceof RetryLaterException) {
+      response.setHeader('Retry-After', String(exception.retryAfterSeconds));
+    }
     response.status(statusCode).type('application/json').json(body);
   }
 }

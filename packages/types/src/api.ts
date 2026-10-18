@@ -42,12 +42,26 @@ export type ApiErrorCode =
   | 'INVALID_MLS_MESSAGE'
   | 'PAYLOAD_TOO_LARGE'
   | 'MLS_MEMBERSHIP_STALE'
+  /** This device rejoined (MLS resync) too often; retry after `Retry-After` seconds. */
+  | 'MLS_RESYNC_RATE_LIMITED'
   | 'ARCHIVED'
   | 'MEMBER_LIMIT_REACHED'
   | 'HANDLE_TAKEN'
   | 'INVITATION_INVALID'
   | 'SUSPENDED'
-  | 'CONFIRMATION_REQUIRED';
+  | 'CONFIRMATION_REQUIRED'
+  // OGC Bridge (calls to telephone networks)
+  | 'BRIDGE_DISABLED'
+  | 'BRIDGE_NOT_CONFIGURED'
+  | 'PHONE_NUMBER_INVALID'
+  | 'PHONE_NUMBER_UNAVAILABLE'
+  | 'VERIFICATION_FAILED'
+  | 'VERIFICATION_EXPIRED'
+  | 'TOO_MANY_ATTEMPTS'
+  | 'RESEND_TOO_SOON'
+  | 'BRIDGE_NOT_ELIGIBLE'
+  | 'BRIDGE_LIMIT_REACHED'
+  | 'WEBHOOK_REJECTED';
 
 /**
  * Error body returned by the API. Never contains stack traces or internal

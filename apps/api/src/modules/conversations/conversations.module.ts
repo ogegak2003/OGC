@@ -6,12 +6,13 @@ import { ConversationAccessModule } from './conversation-access.module.js';
 import { ConversationsController, MessagesController } from './conversations.controller.js';
 import { ConversationsService } from './conversations.service.js';
 import { MessagesService } from './messages.service.js';
+import { MlsResyncLimiter } from './mls-resync-limits.js';
 import { MlsService } from './mls.service.js';
 
 @Module({
   imports: [AuditModule, E2eeModule, RelationshipsModule, ConversationAccessModule],
   controllers: [ConversationsController, MessagesController],
-  providers: [ConversationsService, MessagesService, MlsService],
+  providers: [ConversationsService, MessagesService, MlsService, MlsResyncLimiter],
   exports: [ConversationsService],
 })
 export class ConversationsModule {}

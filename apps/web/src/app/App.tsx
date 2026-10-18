@@ -1,5 +1,5 @@
 import { type ReactNode, Suspense, lazy } from 'react';
-import { Navigate, Route, Routes } from 'react-router';
+import { Route, Routes } from 'react-router';
 import { GuestOnly, RequireAccount } from '../auth/guards';
 import { AppearancePage } from '../pages/AppearancePage';
 import { BlockedPage } from '../pages/BlockedPage';
@@ -11,6 +11,7 @@ import { ForgotPasswordPage } from '../pages/ForgotPasswordPage';
 import { HomePage } from '../pages/HomePage';
 import { LoginPage } from '../pages/LoginPage';
 import { MessagesPage } from '../pages/MessagesPage';
+import { NotFoundPage } from '../pages/NotFoundPage';
 import { PendingVerificationPage } from '../pages/PendingVerificationPage';
 import { PrivacyPage } from '../pages/PrivacyPage';
 import { PublicProfilePage } from '../pages/PublicProfilePage';
@@ -44,6 +45,9 @@ const NotificationSettingsPage = lazy(() =>
   })),
 );
 const CallsPage = lazy(() => import('../pages/CallsPage').then((m) => ({ default: m.CallsPage })));
+const BridgePage = lazy(() =>
+  import('../pages/BridgePage').then((m) => ({ default: m.BridgePage })),
+);
 const NotificationsPage = lazy(() =>
   import('../pages/NotificationsPage').then((m) => ({ default: m.NotificationsPage })),
 );
@@ -95,6 +99,7 @@ function AppRoutes() {
       <Route path="/channels" element={lazyMember(<ChannelsPage />)} />
       <Route path="/channels/:channelId" element={lazyMember(<ChannelPage />)} />
       <Route path="/calls" element={lazyMember(<CallsPage />)} />
+      <Route path="/calls/bridge" element={lazyMember(<BridgePage />)} />
       <Route path="/settings/notifications" element={lazyMember(<NotificationSettingsPage />)} />
       <Route path="/notifications" element={lazyMember(<NotificationsPage />)} />
       <Route path="/profile/edit" element={member(<EditProfilePage />)} />
@@ -108,7 +113,8 @@ function AppRoutes() {
       <Route path="/settings/security" element={member(<SecurityPage />)} />
       <Route path="/settings/appearance" element={member(<AppearancePage />)} />
       <Route path="/report/:ogcId" element={member(<ReportPage />)} />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      {/* Unknown addresses get a branded 404 (inside the app when signed in). */}
+      <Route path="*" element={<NotFoundPage />} />
     </Routes>
   );
 }

@@ -88,6 +88,15 @@ enum AuditEventType {
   ACCOUNT_SUSPENDED
   ACCOUNT_REINSTATED
   RETENTION_PURGED
+  // OGC Bridge (telephone network calls)
+  BRIDGE_VERIFICATION_STARTED
+  BRIDGE_VERIFICATION_FAILED
+  BRIDGE_NUMBER_VERIFIED
+  BRIDGE_NUMBER_UNLINKED
+  BRIDGE_CALL_REQUESTED
+  BRIDGE_CALL_ENDED
+  BRIDGE_WEBHOOK_REJECTED
+  BRIDGE_USAGE_ADJUSTED
 }
 
 enum ProfileVisibility {
@@ -342,6 +351,11 @@ model User {
   pushDeliveries          PushDelivery[]
   callsMade               Call[]                    @relation("CallsMade")
   callsReceived           Call[]                    @relation("CallsReceived")
+  bridgeNumbers           BridgeNumber[]
+  bridgeVerifications     BridgeVerification[]
+  bridgeCallsMade         BridgeCall[]              @relation("BridgeCallsMade")
+  bridgeCallsReceived     BridgeCall[]              @relation("BridgeCallsReceived")
+  bridgeUsage             BridgeUsageEntry[]
 
   @@map("users")
 }
@@ -408,19 +422,24 @@ model Device {
 
 /// An authenticated session on one device. Tokens are opaque; only their SHA-256 hashes are stored.
 model Session {
-  id               String                   @id @default(uuid(7)) @db.Uuid
-  userId           String                   @map("user_id") @db.Uuid
-  deviceId         String                   @map("device_id") @db.Uuid
-  accessTokenHash  String                   @unique @map("access_token_hash") @db.Char(64)
-  accessExpiresAt  DateTime                 @map("access_expires_at") @db.Timestamptz(3)
+  id                           String                   @id @default(uuid(7)) @db.Uuid
+  userId                       String                   @map("user_id") @db.Uuid
+  deviceId                     String                   @map("device_id") @db.Uuid
+  accessTokenHash              String                   @unique @map("access_token_hash") @db.Char(64)
+  accessExpiresAt              DateTime                 @map("access_expires_at") @db.Timestamptz(3)
   /// Hash of the current refresh token; replaced on every rotation.
-  refreshTokenHash String                   @map("refresh_token_hash") @db.Char(64)
+  refreshTokenHash             String                   @map("refresh_token_hash") @db.Char(64)
+  /// When the refresh token was last rotated from the then-current one (starts the grace window).
+  refreshRotatedAt             DateTime?                @map("refresh_rotated_at") @db.Timestamptz(3)
+  /// Hashes of refresh tokens superseded since `refreshRotatedAt`. Until the grace window ends
+  /// they may still refresh (a lost response, a concurrent tab); after it, presenting one is reuse.
+  supersededRefreshTokenHashes String[]                 @default([]) @map("superseded_refresh_token_hashes")
   /// Absolute lifetime: the session cannot be refreshed past this point.
-  expiresAt        DateTime                 @map("expires_at") @db.Timestamptz(3)
-  lastUsedAt       DateTime                 @default(now()) @map("last_used_at") @db.Timestamptz(3)
-  revokedAt        DateTime?                @map("revoked_at") @db.Timestamptz(3)
-  revocationReason SessionRevocationReason? @map("revocation_reason")
-  createdAt        DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  expiresAt                    DateTime                 @map("expires_at") @db.Timestamptz(3)
+  lastUsedAt                   DateTime                 @default(now()) @map("last_used_at") @db.Timestamptz(3)
+  revokedAt                    DateTime?                @map("revoked_at") @db.Timestamptz(3)
+  revocationReason             SessionRevocationReason? @map("revocation_reason")
+  createdAt                    DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
 
   user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
   device Device @relation(fields: [deviceId], references: [id], onDelete: Cascade)
@@ -774,12 +793,16 @@ model MlsCommit {
   version           BigInt
   data              Bytes
   senderDeviceKeyId String?  @map("sender_device_key_id") @db.Uuid
+  /// An external-commit resync (a device rejoining from lost state); counted by the resync limits.
+  resync            Boolean  @default(false)
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
 
   @@id([conversationId, epoch])
   @@index([conversationId, version])
+  /// Rolling-window lookups of a device's resyncs (per conversation and device-wide).
+  @@index([senderDeviceKeyId, resync, createdAt])
   @@map("mls_commits")
 }
 
@@ -1230,4 +1253,196 @@ model PushDelivery {
   @@index([status, nextAttemptAt])
   @@index([createdAt])
   @@map("push_deliveries")
+}
+
+// ---------------------------------------------------------------------------------------------
+// OGC Bridge: optional calls from the OGC app to ordinary telephones through an authorized
+// voice provider (docs/architecture/bridge.md). Separate from `Call` (OGC-to-OGC WebRTC calls),
+// which Bridge never reads or changes.
+// ---------------------------------------------------------------------------------------------
+
+enum BridgeNumberStatus {
+  VERIFIED
+  REVOKED
+}
+
+enum BridgeNumberRevocationReason {
+  UNLINKED
+  REPLACED
+  ACCOUNT_CLOSED
+  ADMIN
+}
+
+enum BridgeCallStatus {
+  REQUESTED
+  RINGING
+  ANSWERED
+  COMPLETED
+  BUSY
+  NO_ANSWER
+  REJECTED
+  FAILED
+  CANCELED
+}
+
+enum BridgeUsageKind {
+  CHARGE
+  ADJUSTMENT
+  REFUND
+}
+
+enum BridgeUsageState {
+  ESTIMATE
+  CONFIRMED
+}
+
+/// A telephone number whose possession an account proved, linked for Bridge calls.
+/// At most one active (unrevoked) row per number and per account: partial unique indexes in
+/// the migration. Revoked rows are kept (without reuse) for audit and recycled-number handling.
+model BridgeNumber {
+  id                String                        @id @default(uuid(7)) @db.Uuid
+  userId            String                        @map("user_id") @db.Uuid
+  /// E.164, e.g. +254712345678. Never shown to anyone but its owner, and then masked.
+  e164              String                        @db.VarChar(16)
+  country           String                        @db.Char(2)
+  status            BridgeNumberStatus            @default(VERIFIED)
+  /// The owner allows their contacts to call this number through Bridge (off by default).
+  allowContactCalls Boolean                       @default(false) @map("allow_contact_calls")
+  consentedAt       DateTime                      @map("consented_at") @db.Timestamptz(3)
+  verifiedAt        DateTime                      @map("verified_at") @db.Timestamptz(3)
+  revokedAt         DateTime?                     @map("revoked_at") @db.Timestamptz(3)
+  revocationReason  BridgeNumberRevocationReason? @map("revocation_reason")
+  createdAt         DateTime                      @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user  User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  calls BridgeCall[]
+
+  @@index([userId])
+  @@map("bridge_numbers")
+}
+
+/// A one-time code sent to prove possession of a number. Only an HMAC of the code is stored.
+model BridgeVerification {
+  id         String    @id @default(uuid(7)) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  e164       String    @db.VarChar(16)
+  country    String    @db.Char(2)
+  /// HMAC-SHA-256 of the code with a server secret (hex); the code itself is never stored.
+  codeHash   String    @map("code_hash") @db.Char(64)
+  /// "sms", or "simulated" (development outbox only).
+  delivery   String    @db.VarChar(16)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz(3)
+  attempts   Int       @default(0)
+  sends      Int       @default(1)
+  lastSentAt DateTime  @default(now()) @map("last_sent_at") @db.Timestamptz(3)
+  consumedAt DateTime? @map("consumed_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([e164, createdAt])
+  @@map("bridge_verifications")
+}
+
+/// One Bridge call. State changes only on authenticated provider events (never on a client
+/// report), and every state change goes through `bridge_call_events` first.
+model BridgeCall {
+  id                 String           @id @default(uuid(7)) @db.Uuid
+  callerId           String           @map("caller_id") @db.Uuid
+  calleeId           String           @map("callee_id") @db.Uuid
+  numberId           String           @map("number_id") @db.Uuid
+  country            String           @db.Char(2)
+  provider           String           @db.VarChar(32)
+  providerCallId     String?          @map("provider_call_id") @db.VarChar(128)
+  /// No telephone was contacted: the development simulator produced every event.
+  simulated          Boolean          @default(false)
+  status             BridgeCallStatus @default(REQUESTED)
+  /// Idempotency key from the caller: retries of one request never start a second paid call.
+  idempotencyKey     String           @map("idempotency_key") @db.Uuid
+  maxDurationSeconds Int              @map("max_duration_seconds")
+  /// Provider-reported billable duration, once the call has ended.
+  durationSeconds    Int?             @map("duration_seconds")
+  failureReason      String?          @map("failure_reason") @db.VarChar(64)
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  answeredAt         DateTime?        @map("answered_at") @db.Timestamptz(3)
+  endedAt            DateTime?        @map("ended_at") @db.Timestamptz(3)
+  lastEventAt        DateTime?        @map("last_event_at") @db.Timestamptz(3)
+
+  caller User               @relation("BridgeCallsMade", fields: [callerId], references: [id], onDelete: Cascade)
+  callee User               @relation("BridgeCallsReceived", fields: [calleeId], references: [id], onDelete: Cascade)
+  number BridgeNumber       @relation(fields: [numberId], references: [id], onDelete: Cascade)
+  events BridgeCallEvent[]
+  usage  BridgeUsageEntry[]
+
+  @@unique([callerId, idempotencyKey])
+  @@unique([provider, providerCallId])
+  @@index([callerId, createdAt])
+  @@index([status, createdAt])
+  @@map("bridge_calls")
+}
+
+/// An authenticated provider event, stored once (provider + providerEventId is unique), so
+/// replayed webhooks change nothing.
+model BridgeCallEvent {
+  id                String           @id @default(uuid(7)) @db.Uuid
+  callId            String           @map("call_id") @db.Uuid
+  provider          String           @db.VarChar(32)
+  providerEventId   String           @map("provider_event_id") @db.VarChar(128)
+  status            BridgeCallStatus
+  occurredAt        DateTime         @map("occurred_at") @db.Timestamptz(3)
+  receivedAt        DateTime         @default(now()) @map("received_at") @db.Timestamptz(3)
+  durationSeconds   Int?             @map("duration_seconds")
+  /// Provider-reported cost in minor units of `currency`, when the provider sends one.
+  providerCostMinor BigInt?          @map("provider_cost_minor")
+  currency          String?          @db.Char(3)
+
+  call BridgeCall @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerEventId])
+  @@index([callId, occurredAt])
+  @@map("bridge_call_events")
+}
+
+/// Per-destination prices, configured by operators. No tariff means no paid calls to it.
+/// Provider cost and customer price are separate; amounts are integer minor units.
+model BridgeTariff {
+  id                         String   @id @default(uuid(7)) @db.Uuid
+  country                    String   @db.Char(2)
+  /// E.164 prefix the tariff applies to, e.g. "+2547"; the longest match wins.
+  prefix                     String   @db.VarChar(16)
+  currency                   String   @db.Char(3)
+  providerCostPerMinuteMinor Int      @map("provider_cost_per_minute_minor")
+  pricePerMinuteMinor        Int      @map("price_per_minute_minor")
+  billingIncrementSeconds    Int      @default(60) @map("billing_increment_seconds")
+  active                     Boolean  @default(true)
+  createdAt                  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([country, active])
+  @@map("bridge_tariffs")
+}
+
+/// Append-only usage ledger. `externalRef` makes each charge idempotent (one per call);
+/// corrections are new ADJUSTMENT or REFUND rows, never edits.
+model BridgeUsageEntry {
+  id                String           @id @default(uuid(7)) @db.Uuid
+  userId            String           @map("user_id") @db.Uuid
+  callId            String?          @map("call_id") @db.Uuid
+  kind              BridgeUsageKind
+  state             BridgeUsageState
+  currency          String           @db.Char(3)
+  /// Customer price in minor units (negative for refunds).
+  amountMinor       BigInt           @map("amount_minor")
+  providerCostMinor BigInt?          @map("provider_cost_minor")
+  externalRef       String           @unique @map("external_ref") @db.VarChar(128)
+  note              String?          @db.VarChar(200)
+  createdById       String?          @map("created_by_id") @db.Uuid
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+
+  user User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  call BridgeCall? @relation(fields: [callId], references: [id], onDelete: SetNull)
+
+  @@index([userId, createdAt])
+  @@map("bridge_usage_entries")
 }

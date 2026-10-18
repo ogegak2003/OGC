@@ -2,8 +2,8 @@ import { normalizeOgcId } from '@ogc/validation';
 import { useCallback } from 'react';
 import { useParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
+import { ErrorState } from '../components/ErrorState';
 import { PublicProfileCard } from '../components/PublicProfileCard';
-import styles from '../components/social.module.css';
 import { Alert, Spinner } from '../components/ui';
 import { ApiError, api } from '../lib/api';
 import { errorMessage } from '../lib/form';
@@ -30,10 +30,22 @@ export function PublicProfilePage() {
       {state.status === 'error' ? (
         state.error instanceof ApiError &&
         (state.error.status === 404 || state.error.status === 400) ? (
-          <div className={styles.empty} role="status">
-            This OGC profile is not available. The link may be wrong, or the account may not be
-            visible to you.
-          </div>
+          <ErrorState
+            kind="not-found"
+            title="Profile not available"
+            home={{ to: '/discover', label: 'Find someone by OGC ID', icon: 'userPlus' }}
+          >
+            <p>
+              This OGC profile is not available. The link may be wrong, or the account may not be
+              visible to you.
+            </p>
+          </ErrorState>
+        ) : state.error instanceof ApiError && state.error.status === 403 ? (
+          <ErrorState
+            kind="forbidden"
+            title="You can’t view this profile"
+            home={{ to: '/contacts', label: 'Go to Contacts', icon: 'contacts' }}
+          />
         ) : (
           <Alert>{errorMessage(state.error)}</Alert>
         )

@@ -23,6 +23,7 @@ import { Alert, Pressable, Share, StyleSheet, Text, TextInput, View } from 'reac
 import { communityApi } from '../../api/community';
 import { webAppUrl } from '../../config/runtime';
 import { useAuth } from '../../auth/AuthProvider';
+import { ErrorState } from '../../components/ErrorState';
 import { Icon, type IconName } from '../../components/Icon';
 import { Avatar, KindAvatar, LinkQrCode } from '../../components/identity';
 import {
@@ -492,7 +493,7 @@ export function ChannelScreen({ channelId }: { channelId: string }) {
   const [posts, setPosts] = useState<ChannelPostView[]>([]);
   const [pinned, setPinned] = useState<ChannelPostView[]>([]);
   const [error, setError] = useState<string>();
-  const [missing, setMissing] = useState(false);
+  const [missing, setMissing] = useState<'not-found' | 'forbidden'>();
   const [reload, setReload] = useState(0);
   const refresh = () => {
     setReload((n) => n + 1);
@@ -516,7 +517,9 @@ export function ChannelScreen({ channelId }: { channelId: string }) {
       },
       (cause: unknown) => {
         if (!active) return;
-        if ((cause as { status?: number }).status === 404) setMissing(true);
+        const status = (cause as { status?: number }).status;
+        if (status === 404) setMissing('not-found');
+        else if (status === 403) setMissing('forbidden');
         else setError(errorMessage(cause));
       },
     );
@@ -528,7 +531,15 @@ export function ChannelScreen({ channelId }: { channelId: string }) {
   if (missing) {
     return (
       <Screen title="Channel" onBack={nav.back}>
-        <Notice>This channel doesn’t exist or isn’t available to you.</Notice>
+        {missing === 'forbidden' ? (
+          <ErrorState kind="forbidden" title="You don’t have access to this channel">
+            It may be private, or a moderator may have removed you.
+          </ErrorState>
+        ) : (
+          <ErrorState kind="not-found" title="Channel not available">
+            This channel doesn’t exist or isn’t available to you.
+          </ErrorState>
+        )}
       </Screen>
     );
   }

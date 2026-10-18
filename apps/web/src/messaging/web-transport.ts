@@ -24,7 +24,7 @@ async function call<T>(run: () => Promise<T>): Promise<T> {
     return await run();
   } catch (error) {
     if (error instanceof ApiError)
-      throw new TransportError(error.message, error.status, error.code);
+      throw new TransportError(error.message, error.status, error.code, error.retryAfterSeconds);
     throw new TransportError(error instanceof Error ? error.message : 'Network error', 0);
   }
 }

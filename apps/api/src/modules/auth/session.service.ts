@@ -11,6 +11,9 @@ import { AuditService } from '../audit/audit.service.js';
 import {
   ACCESS_TOKEN_TTL_MS,
   LAST_USED_WRITE_INTERVAL_MS,
+  REFRESH_GRACE_MAX_TOKENS,
+  REFRESH_GRACE_WINDOW_MS,
+  REFRESH_MAX_ATTEMPTS,
   SESSION_TTL_MS,
 } from './auth.constants.js';
 import type { AuthContext } from './auth-context.js';
@@ -143,67 +146,94 @@ export class SessionService {
 
   /**
    * Exchanges a refresh token for new access and refresh tokens (rotation).
-   * Presenting a token that was already rotated away revokes the session.
+   *
+   * A token superseded less than `REFRESH_GRACE_WINDOW_MS` ago still refreshes, so a response
+   * lost in transit or a concurrent refresh from another tab does not look like theft. The
+   * window is anchored to the rotation from the current token and never extended by grace
+   * use. Presenting any other non-current token (older, or after the window) revokes the session.
    */
   async refresh(refreshToken: string, meta: RequestMeta): Promise<RefreshedSession> {
     const parsed = parseRefreshToken(refreshToken);
     if (!parsed) throw unauthenticated();
-    const session = await this.prisma.session.findUnique({
-      where: { id: parsed.sessionId },
-      include: { user: { select: { status: true } } },
-    });
-    const now = Date.now();
-    if (!session || session.revokedAt || session.expiresAt.getTime() <= now) {
-      throw unauthenticated();
-    }
-
     const presentedHash = hashToken(refreshToken);
-    if (!hashesEqual(presentedHash, session.refreshTokenHash)) {
+
+    // A lost compare-and-swap means a concurrent refresh rotated first: re-read and re-classify.
+    for (let attempt = 0; attempt < REFRESH_MAX_ATTEMPTS; attempt++) {
+      const session = await this.prisma.session.findUnique({
+        where: { id: parsed.sessionId },
+        include: { user: { select: { status: true } } },
+      });
+      const now = Date.now();
+      if (!session || session.revokedAt || session.expiresAt.getTime() <= now) {
+        throw unauthenticated();
+      }
+
+      const current = hashesEqual(presentedHash, session.refreshTokenHash);
+      const superseded = session.supersededRefreshTokenHashes;
+      const withinGrace =
+        !current &&
+        session.refreshRotatedAt !== null &&
+        now - session.refreshRotatedAt.getTime() < REFRESH_GRACE_WINDOW_MS &&
+        superseded.some((hash) => hashesEqual(presentedHash, hash));
+      if (!current && !withinGrace) {
+        await this.audit.record({
+          type: 'REFRESH_TOKEN_REUSE_DETECTED',
+          userId: session.userId,
+          sessionId: session.id,
+          meta,
+        });
+        await this.revoke(session.id, session.userId, 'REFRESH_TOKEN_REUSE', meta);
+        throw unauthenticated();
+      }
+      if (!canHoldSession(session.user.status)) {
+        await this.revoke(session.id, session.userId, 'ACCOUNT_DISABLED', meta);
+        throw accountUnavailable();
+      }
+      // Bounds grace use within one window; refused without revoking the session.
+      if (withinGrace && superseded.length >= REFRESH_GRACE_MAX_TOKENS) throw unauthenticated();
+
+      const accessToken = createAccessToken();
+      const nextRefreshToken = createRefreshToken(session.id);
+      const accessExpiresAt = new Date(
+        Math.min(now + ACCESS_TOKEN_TTL_MS, session.expiresAt.getTime()),
+      );
+      // Every rotation replaces the current hash, so compare-and-swap on it: of concurrent
+      // refreshes only one wins, and a session revoked meanwhile is never written back to life.
+      const { count } = await this.prisma.session.updateMany({
+        where: { id: session.id, refreshTokenHash: session.refreshTokenHash, revokedAt: null },
+        data: {
+          accessTokenHash: hashToken(accessToken),
+          accessExpiresAt,
+          refreshTokenHash: hashToken(nextRefreshToken),
+          lastUsedAt: new Date(now),
+          // Rotating from the current token opens a new window; a grace refresh joins the open one.
+          ...(current
+            ? {
+                refreshRotatedAt: new Date(now),
+                supersededRefreshTokenHashes: [session.refreshTokenHash],
+              }
+            : { supersededRefreshTokenHashes: [...superseded, session.refreshTokenHash] }),
+        },
+      });
+      if (count !== 1) continue;
       await this.audit.record({
-        type: 'REFRESH_TOKEN_REUSE_DETECTED',
+        type: 'SESSION_REFRESHED',
         userId: session.userId,
         sessionId: session.id,
         meta,
+        ...(withinGrace ? { details: { grace: true } } : {}),
       });
-      await this.revoke(session.id, session.userId, 'REFRESH_TOKEN_REUSE', meta);
-      throw unauthenticated();
-    }
-    if (!canHoldSession(session.user.status)) {
-      await this.revoke(session.id, session.userId, 'ACCOUNT_DISABLED', meta);
-      throw accountUnavailable();
-    }
 
-    const accessToken = createAccessToken();
-    const nextRefreshToken = createRefreshToken(session.id);
-    const accessExpiresAt = new Date(
-      Math.min(now + ACCESS_TOKEN_TTL_MS, session.expiresAt.getTime()),
-    );
-    // Compare-and-swap on the old hash: of two concurrent refreshes, only one wins.
-    const { count } = await this.prisma.session.updateMany({
-      where: { id: session.id, refreshTokenHash: session.refreshTokenHash, revokedAt: null },
-      data: {
-        accessTokenHash: hashToken(accessToken),
+      return {
+        sessionId: session.id,
+        userId: session.userId,
+        accessToken,
+        refreshToken: nextRefreshToken,
         accessExpiresAt,
-        refreshTokenHash: hashToken(nextRefreshToken),
-        lastUsedAt: new Date(now),
-      },
-    });
-    if (count !== 1) throw unauthenticated();
-    await this.audit.record({
-      type: 'SESSION_REFRESHED',
-      userId: session.userId,
-      sessionId: session.id,
-      meta,
-    });
-
-    return {
-      sessionId: session.id,
-      userId: session.userId,
-      accessToken,
-      refreshToken: nextRefreshToken,
-      accessExpiresAt,
-      expiresAt: session.expiresAt,
-    };
+        expiresAt: session.expiresAt,
+      };
+    }
+    throw unauthenticated();
   }
 
   /** Revokes one session. Idempotent. */

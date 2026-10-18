@@ -14,11 +14,13 @@ import { PrismaService } from '../../database/prisma.service.js';
 import type { AuthContext } from '../auth/auth-context.js';
 import { type ActiveDevice, DeviceKeysService, invalidMls } from '../e2ee/device-keys.service.js';
 import { RealtimePublisher } from '../realtime/realtime.publisher.js';
+import { RetryLaterException } from '../../common/errors.js';
 import {
   ConversationAccessService,
   type ParticipantAccess,
 } from './conversation-access.service.js';
 import { nextVersion, staleEpoch } from './conversation-version.js';
+import { MlsResyncLimiter } from './mls-resync-limits.js';
 import { devicesPerAccount } from './messaging.constants.js';
 import { bytesFromBase64, bytesToBase64 } from '../../common/bytes.js';
 
@@ -37,6 +39,8 @@ const forbidden = (message: string): ApiException =>
  *   and the accepted tree is recorded so new messages are refused until such
  *   devices are gone (ADR-033);
  * - the committer must be the submitting device;
+ * - an external commit (a device joining by itself) removes nobody — except a resync, where a
+ *   device still in the tree that lost its state removes exactly its own leaf (see checkResync);
  * - a device can only be removed if it is no longer active or belongs to the committer;
  * - added devices must use a key package that was published by them and claimed.
  *
@@ -51,6 +55,7 @@ export class MlsService {
     private readonly devices: DeviceKeysService,
     private readonly realtime: RealtimePublisher,
     private readonly metrics: MetricsService,
+    private readonly resyncLimiter: MlsResyncLimiter,
   ) {}
 
   async group(auth: AuthContext, conversationId: string): Promise<MlsGroupView> {
@@ -130,55 +135,69 @@ export class MlsService {
     const previous = current.groupInfo
       ? await inspectGroupInfo(bytesToBase64(current.groupInfo))
       : undefined;
-    this.checkSender(commit, previous, next, myDeviceKeyId);
+    const resync = this.checkSender(commit, previous, next, myDeviceKeyId, directory);
     this.checkRemovals(commit, previous, directory, auth.userId);
     const added = await this.checkAdds(commit, previous, input.welcome);
 
     const memberUserIds = [
       ...new Set(next.members.map((m) => directory.get(m.deviceKeyId)?.userId ?? '')),
     ];
-    const accepted = await this.prisma.$transaction(async (tx) => {
-      const { version, mlsEpoch } = await nextVersion(tx, conversationId);
-      if (mlsEpoch !== epoch) throw staleEpoch();
-      // Membership may have changed since the checks above; the row lock makes this final.
-      const participants = await tx.conversationParticipant.findMany({
-        where: { conversationId },
-        select: { userId: true },
-      });
-      const current = new Set(participants.map((p) => p.userId));
-      if (!current.has(auth.userId) || memberUserIds.some((id) => !current.has(id))) {
-        throw staleEpoch();
-      }
-      await tx.mlsCommit.create({
-        data: {
-          conversationId,
-          epoch,
-          version,
-          data: bytesFromBase64(input.commit),
-          senderDeviceKeyId: myDeviceKeyId,
-        },
-      });
-      await tx.conversation.update({
-        where: { id: conversationId },
-        data: {
-          mlsEpoch: epoch + 1n,
-          groupInfo: bytesFromBase64(input.groupInfo),
-          mlsMemberUserIds: memberUserIds,
-        },
-      });
-      if (input.welcome && added.length > 0) {
-        await tx.mlsWelcome.createMany({
-          data: added.map((deviceKeyId) => ({
-            conversationId,
-            deviceKeyId,
-            epoch: epoch + 1n,
-            data: bytesFromBase64(input.welcome ?? ''),
-          })),
-          skipDuplicates: true,
+    const accepted = await this.prisma
+      .$transaction(async (tx) => {
+        const { version, mlsEpoch } = await nextVersion(tx, conversationId);
+        if (mlsEpoch !== epoch) throw staleEpoch();
+        // Membership may have changed since the checks above; the row lock makes this final.
+        const participants = await tx.conversationParticipant.findMany({
+          where: { conversationId },
+          select: { userId: true },
         });
-      }
-      return { epoch: Number(epoch + 1n), version: Number(version) };
-    });
+        const current = new Set(participants.map((p) => p.userId));
+        if (!current.has(auth.userId) || memberUserIds.some((id) => !current.has(id))) {
+          throw staleEpoch();
+        }
+        // A validated resync is admitted only within its limits (counted in this transaction, so a
+        // rejected or rolled-back commit never counts); it is recorded at the time it was checked.
+        const resyncAt = resync
+          ? await this.resyncLimiter.admit(tx, conversationId, myDeviceKeyId)
+          : undefined;
+        await tx.mlsCommit.create({
+          data: {
+            conversationId,
+            epoch,
+            version,
+            data: bytesFromBase64(input.commit),
+            senderDeviceKeyId: myDeviceKeyId,
+            ...(resyncAt ? { resync: true, createdAt: resyncAt } : {}),
+          },
+        });
+        await tx.conversation.update({
+          where: { id: conversationId },
+          data: {
+            mlsEpoch: epoch + 1n,
+            groupInfo: bytesFromBase64(input.groupInfo),
+            mlsMemberUserIds: memberUserIds,
+          },
+        });
+        if (input.welcome && added.length > 0) {
+          await tx.mlsWelcome.createMany({
+            data: added.map((deviceKeyId) => ({
+              conversationId,
+              deviceKeyId,
+              epoch: epoch + 1n,
+              data: bytesFromBase64(input.welcome ?? ''),
+            })),
+            skipDuplicates: true,
+          });
+        }
+        return { epoch: Number(epoch + 1n), version: Number(version) };
+      })
+      .catch((error: unknown) => {
+        if (resync && error instanceof RetryLaterException) {
+          this.metrics.mlsResyncs.inc({ outcome: 'limited' });
+        }
+        throw error;
+      });
+    if (resync) this.metrics.mlsResyncs.inc({ outcome: 'accepted' });
 
     this.realtime.toUsers(
       access.members.map((m) => m.userId),
@@ -222,15 +241,21 @@ export class MlsService {
     previous: InspectedGroupInfo | undefined,
     next: InspectedGroupInfo,
     myDeviceKeyId: string,
-  ): void {
+    directory: Map<string, ActiveDevice>,
+  ): boolean {
     if (commit.sender.type === 'external') {
       if (!previous) throw invalidMls('The group does not exist yet');
       if (commit.sender.device.deviceKeyId !== myDeviceKeyId)
         throw forbidden('Devices can only join for themselves');
-      if (previous.members.some((m) => m.deviceKeyId === myDeviceKeyId)) {
-        throw invalidMls('This device is already a member');
+      const removes = commit.proposals.flatMap((p) => (p.type === 'remove' ? [p] : []));
+      const ownLeaves = previous.members.filter((m) => m.deviceKeyId === myDeviceKeyId);
+      if (ownLeaves.length === 0) {
+        // A device joining for the first time: an external commit removes nobody.
+        if (removes.length > 0) throw invalidMls('An external join cannot remove members');
+        return false;
       }
-      return;
+      this.checkResync(commit, removes, ownLeaves, next, myDeviceKeyId, directory);
+      return true;
     }
     // Member commit: identify the committer in the tree it was created from. For the very
     // first commit (group creation) the creator is leaf 0 of the resulting tree.
@@ -240,6 +265,56 @@ export class MlsService {
     if (committer?.deviceKeyId !== myDeviceKeyId)
       throw forbidden('Commit sender does not match this device');
     if (!previous && leafIndex !== 0) throw invalidMls('Invalid group creation');
+    // A member commit must add or remove devices: one that proposes nothing, or only updates,
+    // would just advance the epoch (and stall everyone's messages). OGC clients never send one.
+    // Only the creator's first commit may be empty: nobody else may have a device yet.
+    if (
+      commit.proposals.some((p) => p.type !== 'add' && p.type !== 'remove') ||
+      (previous && commit.proposals.length === 0)
+    ) {
+      throw invalidMls('Commits must add or remove devices');
+    }
+    return false;
+  }
+
+  /**
+   * The one exception for a device already in the tree: a resync (RFC 9420 §12.4.3.2), after
+   * it lost its group state. Checked from the parsed commit and trees and the authenticated
+   * device's registered key — never from a client flag. The commit must remove exactly the
+   * requesting device's own leaf (holding its registered key), propose nothing but that and the
+   * external init, and leave the device in the new tree exactly once (with its registered key,
+   * enforced by `checkMembers`). Anything else stays "already a member".
+   */
+  private checkResync(
+    commit: InspectedCommit,
+    removes: { leafIndex: number }[],
+    ownLeaves: InspectedGroupInfo['members'],
+    next: InspectedGroupInfo,
+    myDeviceKeyId: string,
+    directory: Map<string, ActiveDevice>,
+  ): void {
+    const [former] = ownLeaves;
+    const [removed] = removes;
+    if (
+      !former ||
+      ownLeaves.length !== 1 ||
+      removes.length !== 1 ||
+      removed?.leafIndex !== former.leafIndex ||
+      commit.proposals.length !== 2 ||
+      !commit.proposals.some((p) => p.type === 'external_init')
+    ) {
+      throw invalidMls('This device is already a member');
+    }
+    const registered = directory.get(myDeviceKeyId);
+    if (
+      registered?.ogcId !== former.ogcId ||
+      !Buffer.from(registered.signaturePublicKey).equals(former.signaturePublicKey)
+    ) {
+      throw forbidden('The rejoining device does not match its registered key');
+    }
+    if (next.members.filter((m) => m.deviceKeyId === myDeviceKeyId).length !== 1) {
+      throw invalidMls('The rejoining device must be in the group exactly once');
+    }
   }
 
   private checkRemovals(

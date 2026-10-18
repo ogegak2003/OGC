@@ -1,8 +1,9 @@
 import type { ChannelPostView, ChannelView, ReactionType } from '@ogc/types';
 import { CHANNEL_POST_MAX_LENGTH } from '@ogc/validation';
 import { lazy, Suspense, useCallback, useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router';
+import { useParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
+import { ErrorState } from '../components/ErrorState';
 import { Avatar } from '../components/Avatar';
 import { type PostActions, PostCard } from '../components/channels/PostCard';
 import community from '../components/community/community.module.css';
@@ -163,7 +164,8 @@ export function ChannelPage() {
   const [showSettings, setShowSettings] = useState(false);
   const [search, setSearch] = useState('');
   const [error, setError] = useState<string>();
-  const [missing, setMissing] = useState(false);
+  // Load failures the person cannot fix by retrying: no such channel, or no access to it.
+  const [unavailable, setUnavailable] = useState<'not-found' | 'forbidden'>();
   const [reload, setReload] = useState(0);
 
   const refresh = useCallback(() => {
@@ -193,7 +195,9 @@ export function ChannelPage() {
     };
     load().catch((cause: unknown) => {
       if (controller.signal.aborted) return;
-      if ((cause as { status?: number }).status === 404) setMissing(true);
+      const status = (cause as { status?: number }).status;
+      if (status === 404) setUnavailable('not-found');
+      else if (status === 403) setUnavailable('forbidden');
       else setError(describe(cause));
     });
     return () => {
@@ -217,13 +221,27 @@ export function ChannelPage() {
     // Also refreshed when the channel changes (realtime) or after an action.
   }, [threadId, revision, reload]);
 
-  if (missing) {
+  if (unavailable) {
     return (
-      <AppShell title="Channel">
-        <Alert>This channel doesn’t exist or isn’t available to you.</Alert>
-        <Link to="/channels" className={styles.primaryLink}>
-          Back to channels
-        </Link>
+      <AppShell title="Channel" hideTitle>
+        {unavailable === 'forbidden' ? (
+          <ErrorState
+            kind="forbidden"
+            title="You don’t have access to this channel"
+            home={{ to: '/channels', label: 'Back to channels', icon: 'megaphone' }}
+          >
+            <p>It may be private, or a moderator may have removed you.</p>
+          </ErrorState>
+        ) : (
+          <ErrorState
+            kind="not-found"
+            title="Channel not available"
+            home={{ to: '/channels', label: 'Back to channels', icon: 'megaphone' }}
+          >
+            <p>This channel doesn’t exist or isn’t available to you.</p>
+            <p>The link may be wrong, or the channel may have been deleted.</p>
+          </ErrorState>
+        )}
       </AppShell>
     );
   }

@@ -7,6 +7,7 @@ import {
   type MessagingTransport,
   SealedStore,
   TransportError,
+  parseRetryAfter,
 } from '@ogc/messaging';
 import {
   type ApiErrorBody,
@@ -59,7 +60,12 @@ export class HttpTransport implements MessagingTransport {
     const parsed = text ? (JSON.parse(text) as unknown) : undefined;
     if (!response.ok) {
       const error = parsed as Partial<ApiErrorBody> | undefined;
-      throw new TransportError(error?.message ?? response.statusText, response.status, error?.code);
+      throw new TransportError(
+        error?.message ?? response.statusText,
+        response.status,
+        error?.code,
+        parseRetryAfter(response.headers.get('Retry-After')),
+      );
     }
     return parsed as T;
   }

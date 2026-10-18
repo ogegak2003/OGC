@@ -12,6 +12,7 @@ import {
   type VerifyEmailResponse,
   WEB_CLIENT,
 } from '@ogc/types';
+import { parseRetryAfter } from '@ogc/messaging';
 import type {
   BlockView,
   CallPage,
@@ -40,6 +41,8 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
     readonly code?: ApiErrorCode,
+    /** Seconds from the response's `Retry-After`, when present. */
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -52,16 +55,24 @@ interface RequestOptions {
   signal?: AbortSignal | undefined;
   /** Retry once after refreshing the session when the access cookie has expired. */
   retryOnUnauthorized?: boolean;
+  /** Let the request finish (and its cookies be stored) even if the page unloads. */
+  keepalive?: boolean;
 }
 
 let refreshInFlight: Promise<boolean> | undefined;
 
-/** Single-flight refresh: concurrent 401s share one refresh, avoiding token-reuse detection. */
+/**
+ * Single-flight refresh: concurrent 401s share one refresh, avoiding token-reuse detection.
+ * Sent with `keepalive`: the server rotates the refresh token as soon as it answers, so if
+ * the page navigated away mid-request and the browser dropped the new cookie, the next page
+ * would present the old token, which the server treats as reuse and revokes the session.
+ */
 function refreshSession(): Promise<boolean> {
   refreshInFlight ??= send<AuthResponse>('/v1/auth/refresh', {
     method: 'POST',
     body: {},
     retryOnUnauthorized: false,
+    keepalive: true,
   })
     .then(() => true)
     .catch(() => false)
@@ -76,7 +87,7 @@ function refreshSession(): Promise<boolean> {
  * cookies (never readable here), and the client header doubles as CSRF proof.
  */
 export async function send<T>(path: string, options: RequestOptions = {}): Promise<T> {
-  const { method = 'GET', body, signal, retryOnUnauthorized = true } = options;
+  const { method = 'GET', body, signal, retryOnUnauthorized = true, keepalive } = options;
   const headers: Record<string, string> = {
     Accept: 'application/json',
     [CLIENT_HEADER]: WEB_CLIENT,
@@ -91,6 +102,7 @@ export async function send<T>(path: string, options: RequestOptions = {}): Promi
     credentials: 'same-origin',
     ...(body !== undefined ? { body: isForm ? body : JSON.stringify(body) } : {}),
     ...(signal ? { signal } : {}),
+    ...(keepalive ? { keepalive } : {}),
   });
 
   if (response.status === 401 && retryOnUnauthorized && (await refreshSession())) {
@@ -102,6 +114,7 @@ export async function send<T>(path: string, options: RequestOptions = {}): Promi
       response.status,
       error?.message ?? 'Something went wrong. Please try again.',
       error?.code,
+      parseRetryAfter(response.headers.get('Retry-After')),
     );
   }
   if (response.status === 204) return undefined as T;

@@ -27,6 +27,7 @@ import {
 } from '../../components/ui';
 import { errorMessage } from '../../lib/errors';
 import { useResource } from '../../lib/use-resource';
+import { ErrorState } from '../../components/ErrorState';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
@@ -342,15 +343,19 @@ export function PublicProfileScreen({ ogcId }: { ogcId: string }) {
   return (
     <Screen title="OGC profile" onBack={nav.canGoBack ? nav.back : undefined}>
       {state.status === 'loading' ? <Loading label="Loading" /> : null}
-      {state.status === 'error' ? (
-        <EmptyState
-          icon="user"
-          title={
-            state.error instanceof ApiError && state.error.status === 404
-              ? 'This OGC profile is not available.'
-              : errorMessage(state.error)
-          }
-        />
+      {state.status === 'error' &&
+      state.error instanceof ApiError &&
+      (state.error.status === 404 || state.error.status === 400) ? (
+        <ErrorState kind="not-found" title="Profile not available">
+          This OGC profile is not available. The link may be wrong, or the account may not be
+          visible to you.
+        </ErrorState>
+      ) : state.status === 'error' &&
+        state.error instanceof ApiError &&
+        state.error.status === 403 ? (
+        <ErrorState kind="forbidden" title="You can’t view this profile" />
+      ) : state.status === 'error' ? (
+        <EmptyState icon="user" title={errorMessage(state.error)} />
       ) : null}
       {state.status === 'ready' ? <ProfileCard profile={state.data} onChanged={reload} /> : null}
     </Screen>

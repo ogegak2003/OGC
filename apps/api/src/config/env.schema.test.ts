@@ -94,6 +94,29 @@ describe('validateEnv', () => {
     expect(() => validateEnv({ ...base, RATE_LIMIT_MESSAGE_SEND: '0' })).toThrow(/RATE_LIMIT/);
   });
 
+  it('defaults the MLS resync limits and rejects values that would disable them', () => {
+    expect(validateEnv(base)).toMatchObject({
+      RATE_LIMIT_MLS_RESYNC_PER_CONVERSATION: 3,
+      RATE_LIMIT_MLS_RESYNC_WINDOW_MINUTES: 10,
+      RATE_LIMIT_MLS_RESYNC_PER_DEVICE: 20,
+      RATE_LIMIT_MLS_RESYNC_DEVICE_HOURS: 24,
+    });
+    expect(
+      validateEnv({ ...base, RATE_LIMIT_MLS_RESYNC_PER_DEVICE: '50' })
+        .RATE_LIMIT_MLS_RESYNC_PER_DEVICE,
+    ).toBe(50);
+    for (const [key, value] of [
+      ['RATE_LIMIT_MLS_RESYNC_PER_CONVERSATION', '0'],
+      ['RATE_LIMIT_MLS_RESYNC_PER_CONVERSATION', 'abc'],
+      ['RATE_LIMIT_MLS_RESYNC_WINDOW_MINUTES', '1.5'],
+      ['RATE_LIMIT_MLS_RESYNC_WINDOW_MINUTES', '1441'],
+      ['RATE_LIMIT_MLS_RESYNC_PER_DEVICE', '-1'],
+      ['RATE_LIMIT_MLS_RESYNC_DEVICE_HOURS', '169'],
+    ] as const) {
+      expect(() => validateEnv({ ...base, [key]: value })).toThrow(new RegExp(key));
+    }
+  });
+
   it('requires a long metrics token when one is set', () => {
     expect(() => validateEnv({ ...base, METRICS_TOKEN: 'short' })).toThrow(/METRICS_TOKEN/);
   });

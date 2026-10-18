@@ -156,6 +156,14 @@ export const envSchema = z
     RATE_LIMIT_RECEIPT: perWindow(600),
     RATE_LIMIT_SYNC: perWindow(600),
     RATE_LIMIT_E2EE: perWindow(120),
+    // MLS resyncs (a device rejoining in place of its own leaf): successful ones only, rolling
+    // windows, enforced in PostgreSQL alongside RATE_LIMIT_E2EE (docs/architecture/encryption.md).
+    /** Per device and conversation within the conversation window. */
+    RATE_LIMIT_MLS_RESYNC_PER_CONVERSATION: z.coerce.number().int().min(1).max(1_000).default(3),
+    RATE_LIMIT_MLS_RESYNC_WINDOW_MINUTES: z.coerce.number().int().min(1).max(1_440).default(10),
+    /** Per device across all conversations within the device window. */
+    RATE_LIMIT_MLS_RESYNC_PER_DEVICE: z.coerce.number().int().min(1).max(10_000).default(20),
+    RATE_LIMIT_MLS_RESYNC_DEVICE_HOURS: z.coerce.number().int().min(1).max(168).default(24),
     RATE_LIMIT_TYPING: perWindow(60),
     RATE_LIMIT_PRESENCE: perWindow(60),
     RATE_LIMIT_SOCKET_CONNECT: perWindow(30),
@@ -209,6 +217,32 @@ export const envSchema = z
     WEBRTC_TURN_CREDENTIAL_TTL_SECONDS: z.coerce.number().int().min(300).max(86_400).default(3600),
     /** `relay` sends all media through TURN so participants never learn each other's IP address. */
     WEBRTC_ICE_TRANSPORT_POLICY: z.enum(['all', 'relay']).default('all'),
+    // OGC Bridge: optional calls to telephone networks (docs/architecture/bridge.md). Off by
+    // default; nothing Bridge-related is reachable until BRIDGE_ENABLED=true.
+    BRIDGE_ENABLED: z
+      .enum(['true', 'false'])
+      .transform((value) => value === 'true')
+      .default(false),
+    /**
+     * `disabled`: no provider (Bridge shows "not configured"). `simulated`: development only —
+     * reaches no telephone, writes codes to the dev outbox and labels every call as simulated.
+     */
+    BRIDGE_PROVIDER: z.enum(['disabled', 'simulated']).default('disabled'),
+    /** Countries (ISO alpha-2) enabled for linking and calling; must be in the registry. */
+    BRIDGE_COUNTRIES: csv.pipe(z.array(z.string().regex(/^[A-Z]{2}$/))).default(['KE']),
+    /** HMAC key for verification codes. Required in production when Bridge is enabled. */
+    BRIDGE_CODE_SECRET: optionalString(z.string().min(32).max(256)),
+    /** Shared secret for webhook signatures (simulated provider). */
+    BRIDGE_WEBHOOK_SECRET: optionalString(z.string().min(32).max(256)),
+    BRIDGE_WEBHOOK_TOLERANCE_SECONDS: z.coerce.number().int().min(30).max(900).default(300),
+    BRIDGE_OUTBOX_DIR: z.string().min(1).default('.dev-outbox/bridge'),
+    BRIDGE_MAX_CALL_SECONDS: z.coerce.number().int().min(60).max(14_400).default(1_800),
+    BRIDGE_CALLS_PER_DAY: z.coerce.number().int().min(1).max(1_000).default(20),
+    BRIDGE_CONCURRENT_CALLS: z.coerce.number().int().min(1).max(10).default(1),
+    /** Daily spend cap per account in minor units. 0 = no paid calls at all (the default). */
+    BRIDGE_DAILY_SPEND_LIMIT_MINOR: z.coerce.number().int().min(0).max(100_000_000).default(0),
+    /** E.164 prefixes never dialled (premium-rate and similar), e.g. "+254900,+254901". */
+    BRIDGE_BLOCKED_PREFIXES: csv.pipe(z.array(z.string().regex(/^\+[1-9]\d{0,14}$/))).default([]),
     // Retention cleanup (Phase 9, docs/operations/data-retention.md).
     RETENTION_ENABLED: z
       .enum(['true', 'false'])
@@ -314,6 +348,20 @@ export const envSchema = z
         code: 'custom',
         path: ['PUSH_PROVIDER'],
         message: 'The development push outbox cannot be used in production',
+      });
+    }
+    if (env.BRIDGE_PROVIDER === 'simulated') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['BRIDGE_PROVIDER'],
+        message: 'The simulated Bridge provider cannot be used in production',
+      });
+    }
+    if (env.BRIDGE_ENABLED && env.BRIDGE_PROVIDER !== 'disabled' && !env.BRIDGE_CODE_SECRET) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['BRIDGE_CODE_SECRET'],
+        message: 'BRIDGE_CODE_SECRET is required in production when Bridge is enabled',
       });
     }
     if (env.STORAGE_DRIVER === 'local') {

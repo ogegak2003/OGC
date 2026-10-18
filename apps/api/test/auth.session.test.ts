@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { REFRESH_GRACE_WINDOW_MS } from '../src/modules/auth/auth.constants.js';
 import { hashToken } from '../src/modules/auth/tokens.js';
 import {
   PASSWORD,
@@ -114,6 +115,11 @@ describe('sessions', () => {
         tokens: { accessToken: string; refreshToken: string };
       }
     ).tokens;
+    // Close the grace window (see auth.refresh-grace.test.ts for replays inside it).
+    await t.prisma.session.update({
+      where: { accessTokenHash: hashToken(rotated.accessToken) },
+      data: { refreshRotatedAt: new Date(Date.now() - REFRESH_GRACE_WINDOW_MS - 1_000) },
+    });
 
     // Replaying the superseded token signals theft: the whole session is revoked.
     await refresh(original.refreshToken).expect(401);

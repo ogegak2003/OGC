@@ -54,6 +54,11 @@ against the real database (`test/auth.register.test.ts`).
 - Refresh tokens **rotate on every use**. The session ID inside the token lets the server
   recognise an old, already-rotated token: presenting one is treated as theft and
   **revokes the whole session**. A compare-and-swap update makes concurrent refreshes safe.
+- **Grace window (30 s).** Tokens superseded since the last rotation from the current token
+  still refresh until 30 s after that rotation, so a lost response or a concurrent tab is not
+  mistaken for theft. The window is never extended by grace use, honours at most 5 tokens, and
+  never applies to a revoked or expired session; afterwards, or for any older token, reuse
+  revokes the session as before. Only token hashes are stored.
 - Sessions have an absolute lifetime; after 30 days the user signs in again.
 
 ### Clients

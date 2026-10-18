@@ -103,6 +103,30 @@ describe('MLS conversation groups', () => {
     await expect(s.bobWebGroup.decrypt(ciphertext, editAad(CONV, 'c-1', 1))).rejects.toThrow();
   });
 
+  it('rejects tampered or truncated application messages without harming the group state', async () => {
+    const s = await aliceAndBob();
+    const aad = messageAad(CONV, 'c-1');
+    const { ciphertext } = await s.aliceGroup.encrypt(utf8('meet at 6'), aad);
+    const bytes = Uint8Array.from(atob(ciphertext), (c) => c.charCodeAt(0));
+    const flip = (index: number) => {
+      const copy = bytes.slice();
+      copy[index] = (copy[index] ?? 0) ^ 0x01;
+      return toBase64(copy);
+    };
+    // One flipped bit in the header, the middle and the authentication tag; and a cut message.
+    for (const forged of [
+      flip(8),
+      flip(Math.floor(bytes.length / 2)),
+      flip(bytes.length - 1),
+      toBase64(bytes.slice(0, -16)),
+    ]) {
+      await expect(s.bobWebGroup.decrypt(forged, aad)).rejects.toThrow();
+    }
+    // The failed attempts changed nothing: the genuine message still decrypts.
+    const genuine = await s.bobWebGroup.decrypt(ciphertext, aad);
+    expect(fromUtf8(genuine.plaintext)).toBe('meet at 6');
+  });
+
   it('a device outside the group cannot decrypt, even with a valid key package of its own', async () => {
     const s = await aliceAndBob();
     const mallory = await makeDevice(MALLORY);

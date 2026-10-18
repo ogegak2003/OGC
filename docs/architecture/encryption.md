@@ -88,6 +88,11 @@ Four separate kinds of secret, never derived from each other:
 4. A device that is not in the group and has no Welcome (e.g. a new login while every other
    device is offline) performs an **external join** (RFC 9420 §12.4.3.2) using the GroupInfo
    that members publish with every commit.
+5. A device that is still in the tree but lost its group state (it could not verify a commit,
+   or fell behind) rejoins by a **resync** external commit: it removes exactly its own old leaf
+   and joins with fresh path secrets. The client decides this from the GroupInfo's verified
+   tree, only when exactly one leaf has its device ID and its own signature key, and fails
+   safely on anything ambiguous.
 
 ## Delivery-service policy (server-enforced, without decryption)
 
@@ -96,12 +101,50 @@ Commits are sent as MLS **PublicMessages**, so the server can check them. For ev
 - exactly one commit is accepted per epoch (compare-and-set on `conversations.mls_epoch` and
   the `(conversation, epoch)` primary key); concurrent commits get `409 STALE_EPOCH`;
 - the committer must be the submitting device (member leaf, or the joiner of an external commit);
+- an external commit removes nobody, except a resync: a device already in the tree must remove
+  exactly its own leaf (holding its registered key), propose nothing else besides the external
+  init, and appear in the new tree once — a plain second join is refused;
 - **every member of the resulting group must be an active device of one of the two
   participants**, with its registered signature key;
 - a device may only be removed if it is no longer active or belongs to the committer;
 - added devices must use a key package they published and that was claimed;
 - the Welcome must address exactly the added key packages;
-- the new GroupInfo must be validly signed and for the next epoch.
+- the new GroupInfo must be validly signed and for the next epoch;
+- a member commit must add or remove devices: an empty or update-only commit (which would
+  only advance the epoch and make every member's in-flight messages stale) is rejected with
+  `400 INVALID_MLS_MESSAGE`. Only the creator's first commit (group creation) may be empty.
+
+**Resync limits.** Successful resyncs (a device still in the tree rejoining after losing its
+state) are limited per device: by default **3 per conversation in a rolling 10 minutes** and
+**20 across all conversations in a rolling 24 hours** (`RATE_LIMIT_MLS_RESYNC_*`, see
+[environment.md](../development/environment.md)). They are counted in PostgreSQL inside the
+commit transaction, from `mls_commits` rows marked `resync`, so rejected, stale, duplicate and
+rolled-back attempts never count, and every API instance enforces the same limits. Lock order
+is the conversation row (taken by the commit's version update), then a transaction-scoped
+advisory lock for the device, which serializes one device's resyncs across conversations and
+instances; nothing takes a conversation lock while holding a device lock. Over a limit the
+server answers `429 MLS_RESYNC_RATE_LIMITED` with `Retry-After`: the seconds until **every**
+limit admits one more resync (when the oldest counted resync in each full window leaves it).
+Retrying while limited does not extend the wait. The client then pauses that conversation's
+recovery — no request for it at all, one timer — and retries once when `Retry-After` has passed
+(60 s if the header is missing or unreadable); a new limit replaces the pause. Messages sent
+meanwhile stay **pending** in the sealed outbox — not failed, and never reported as sent — and
+are sent once, through the normal path, after the resync succeeds. Only the structured
+`MLS_RESYNC_RATE_LIMITED` code pauses a conversation: the general `429 RATE_LIMITED` throttle
+and permanent errors (authorization, validation, invalid MLS) behave as before. Other
+conversations are unaffected. Metric: `ogc_mls_resync_total{outcome="accepted"|"limited"}`.
+These limits complement the per-account `RATE_LIMIT_E2EE` throttle; they do not address every
+denial-of-service vector (a member can still send many ordinary add/remove commits within
+`RATE_LIMIT_E2EE`).
+
+**A sole member that lost its state.** ts-mls 1.6.4 cannot remove a tree's last leaf, so a device
+whose verified leaf is the group's only one cannot resync (`MlsSoleMemberError`, not a security
+error). The conversation then **waits for another device**: its outgoing messages stay pending
+(stored in the device's sealed outbox, never reported as sent), and it makes no requests until a
+`mls.commit`, `group.member_joined` or `devices.changed` event for that conversation arrives, or
+the app restarts. Each such event allows one attempt, which first re-checks the published group;
+once another device has joined, the normal verified resync runs and the queue is sent. The state
+is kept in memory only. Nothing is reset: no new group, epoch reset or deleted history.
 
 Application messages are checked by their cleartext MLS header: right group, current epoch
 (stale epochs are rejected so no device is silently left out), and authenticated data equal

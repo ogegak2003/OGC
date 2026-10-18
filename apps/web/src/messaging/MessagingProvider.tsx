@@ -5,6 +5,7 @@ import { useAuth } from '../auth/auth-context';
 import { renewSession } from '../lib/api';
 import { notificationsApi } from '../lib/community-api';
 import { browserDependencies } from './browser-dependencies';
+import { INSECURE_CONTEXT_ERROR, canEncryptHere } from './secure-context';
 import {
   type MessagingContextValue,
   MessagingContext,
@@ -115,12 +116,20 @@ export function MessagingProvider({
 
     const start = async (): Promise<void> => {
       try {
+        // Explain an insecure page instead of failing on a missing Web Crypto API.
+        if (!canEncryptHere()) throw new Error(INSECURE_CONTEXT_ERROR);
         const engine = await dependencies.createEngine(ogcId);
         instance = engine;
-        if (isCancelled()) return;
+        // Unmounted (or replaced, e.g. React Strict Mode) while the engine was being created:
+        // this run's cleanup has already happened, so shut this engine down here.
+        if (isCancelled()) {
+          engine.dispose();
+          return;
+        }
         unsubscribe = engine.subscribe((event) => {
           if (event.type === 'conversations') setConversations(engine.conversations());
-          if (event.type === 'messages') {
+          // A group security change re-reads the conversation like new messages do.
+          if (event.type === 'messages' || event.type === 'security' || event.type === 'recovery') {
             setMessageRevision((current) => ({
               ...current,
               [event.conversationId]: (current[event.conversationId] ?? 0) + 1,
@@ -191,6 +200,9 @@ export function MessagingProvider({
       callEngine?.dispose();
       setCalls(undefined);
       link?.disconnect();
+      // Stops its retry timers and any further requests; queued messages stay in the sealed
+      // outbox for the next engine (each run owns the engine it created).
+      instance?.dispose();
       realtime.current = undefined;
       for (const timer of timers.values()) clearTimeout(timer);
     };

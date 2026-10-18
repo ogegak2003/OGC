@@ -11,5 +11,16 @@ export class ApiException extends HttpException {
   }
 }
 
+/** A 429 that tells the client when to retry (sent as `Retry-After`, in whole seconds). */
+export class RetryLaterException extends ApiException {
+  constructor(
+    code: ApiErrorCode,
+    message: string,
+    readonly retryAfterSeconds: number,
+  ) {
+    super(HttpStatus.TOO_MANY_REQUESTS, code, message);
+  }
+}
+
 export const unauthenticated = (): ApiException =>
   new ApiException(HttpStatus.UNAUTHORIZED, 'UNAUTHENTICATED', 'Authentication required');

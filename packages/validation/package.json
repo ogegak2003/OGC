@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@ogc/types": "workspace:*",
+    "libphonenumber-js": "1.13.15",
     "zod": "4.6.5"
   },
   "devDependencies": {

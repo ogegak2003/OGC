@@ -26,6 +26,7 @@ import type {
   ReportUserRequest,
   UpdateProfileRequest,
 } from '@ogc/validation';
+import { parseRetryAfter } from '@ogc/messaging';
 import type { TokenStore } from '../auth/token-store';
 
 export class ApiError extends Error {
@@ -33,6 +34,8 @@ export class ApiError extends Error {
     readonly status: number,
     message: string,
     readonly code?: ApiErrorCode,
+    /** Seconds from the response's `Retry-After`, when present. */
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -86,7 +89,12 @@ export class ApiClient {
     }
     if (!response.ok) {
       const error = (await response.json().catch(() => undefined)) as ApiErrorBody | undefined;
-      throw new ApiError(response.status, error?.message ?? 'Request failed', error?.code);
+      throw new ApiError(
+        response.status,
+        error?.message ?? 'Request failed',
+        error?.code,
+        parseRetryAfter(response.headers.get('Retry-After')),
+      );
     }
     if (response.status === 204) return undefined as T;
     return (await response.json()) as T;

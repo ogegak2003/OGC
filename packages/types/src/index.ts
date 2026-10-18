@@ -128,3 +128,20 @@ export type {
 } from './community.js';
 export type { NotificationPreview, NotificationSettingsView, PushData } from './notifications.js';
 export { NOTIFICATION_PREVIEWS } from './notifications.js';
+export type {
+  BridgeCallStatus,
+  BridgeCallView,
+  BridgeChargeView,
+  BridgeCountryView,
+  BridgeEligibilityView,
+  BridgeIneligibleReason,
+  BridgeLimitsView,
+  BridgeNumberStatus,
+  BridgeNumberView,
+  BridgeProviderName,
+  BridgeStatusView,
+  BridgeUsageEntryView,
+  BridgeUsageView,
+  BridgeVerificationView,
+} from './bridge.js';
+export { BRIDGE_FINAL_STATUSES } from './bridge.js';

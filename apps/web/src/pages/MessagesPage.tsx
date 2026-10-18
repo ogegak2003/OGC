@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import { AppShell } from '../components/AppShell';
 import { ConversationList } from '../components/messaging/ConversationList';
+import { ErrorState } from '../components/ErrorState';
 import { ConversationDetails } from '../components/messaging/ConversationDetails';
 import { ConversationPanel } from '../components/messaging/ConversationPanel';
 import { NewConversationDialog } from '../components/messaging/Dialogs';
@@ -9,6 +10,7 @@ import { CreateGroupDialog } from '../components/groups/CreateGroupDialog';
 import styles from '../components/messaging/messaging.module.css';
 import { Alert } from '../components/ui';
 import { useMessaging } from '../messaging/messaging-context';
+import { INSECURE_CONTEXT_ERROR } from '../messaging/secure-context';
 import { Icon } from '../components/Icon';
 
 /** A layout choice remembered in this browser (storage failures just keep the default). */
@@ -99,16 +101,30 @@ export function MessagesPage() {
           />
         ) : (
           <section className={styles.panelEmpty} aria-label="No conversation selected">
-            {conversationId ? (
-              // Phones show this panel without the list: always offer the way back.
+            {conversationId && status !== 'ready' ? (
+              // Phones show this panel without the list: always offer the way back (the
+              // "not available" state below has its own).
               <Link to="/messages" className={styles.back} aria-label="Back to conversations">
                 <Icon name="back" size={22} />
               </Link>
             ) : null}
             {status === 'error' ? (
-              <Alert>Secure messaging could not start on this device. {error}</Alert>
+              <Alert>
+                {error === INSECURE_CONTEXT_ERROR
+                  ? error
+                  : `Secure messaging could not start on this device. ${error ?? ''}`}
+              </Alert>
             ) : conversationId && status === 'ready' ? (
-              <p className={styles.sidebarNote}>This conversation isn’t available.</p>
+              <ErrorState
+                kind="not-found"
+                title="Conversation not available"
+                home={{ to: '/messages', label: 'Back to conversations', icon: 'chat' }}
+              >
+                <p>
+                  It may have been deleted or you may have left it, or the link may be wrong.
+                  Conversations only open on devices that are part of them.
+                </p>
+              </ErrorState>
             ) : conversationId ? (
               <p className={styles.sidebarNote} role="status">
                 Opening conversation…

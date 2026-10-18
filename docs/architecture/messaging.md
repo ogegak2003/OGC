@@ -72,6 +72,11 @@ is unique in the database: a retry after a lost response returns the original me
 concurrent duplicate loses the race to the constraint and gets the same answer. The engine
 keeps unsent messages in a sealed outbox and retries them on reconnect ("pending"). Errors
 that will not succeed on retry (4xx other than 429) mark the message "failed" (Retry/Discard).
+Every change to a conversation's outbox (queueing, removal once sent, marking failed,
+discarding, removal when sync shows the message already arrived) is serialized per
+conversation, so concurrent sends never overwrite each other. When the outbox is flushed, a
+`429` leaves that conversation's message pending and moves on to the next conversation; an
+offline or server error stops the flush until the next reconnect or sync.
 
 ### Editing
 

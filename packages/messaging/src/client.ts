@@ -4,6 +4,7 @@ import {
   type GeneratedKeyPackage,
   type LocalDevice,
   MlsGroup,
+  MlsSoleMemberError,
   decryptAttachment,
   editAad,
   encryptAttachment,
@@ -36,6 +37,14 @@ import {
   messagePayloadSchema,
 } from '@ogc/validation';
 import {
+  type GroupSecurityEvent,
+  type GroupSecurityRecord,
+  type GroupTransition,
+  acknowledgeGroup,
+  baselineGroup,
+  reconcileGroup,
+} from './group-security.js';
+import {
   type PeerKeyRecord,
   type PeerKeyStatus,
   acknowledgePeerKeys,
@@ -65,6 +74,9 @@ const DIRECTORY_CACHE_MS = 5_000;
 const CLAIM_BATCH = 50;
 /** Timeline events (joins, role changes…) kept per conversation on this device. */
 const TIMELINE_MAX = 500;
+/** Wait used when a rate-limited resync carries no `Retry-After`, and the longest honoured. */
+const RESYNC_RETRY_DEFAULT_S = 60;
+const RESYNC_RETRY_MAX_S = 24 * 60 * 60;
 
 interface StoredIdentity {
   ogcId: string;
@@ -91,6 +103,10 @@ export type MessagingEvent =
   | { type: 'notification'; notification: NotificationView }
   /** A community channel changed (channels are server-readable and not managed by this engine). */
   | { type: 'channel'; channelId: string; event: keyof ServerToClientEvents; postId?: string }
+  /** A group's cryptographic membership changed in a way that needs the person's attention. */
+  | { type: 'security'; conversationId: string }
+  /** The conversation started or stopped waiting for another device (see `awaitingAnotherDevice`). */
+  | { type: 'recovery'; conversationId: string }
   | { type: 'error'; conversationId?: string; error: unknown };
 
 /** A membership or settings change in a group's timeline, with its position. */
@@ -121,8 +137,99 @@ export interface Draft {
 }
 
 export class MessagingError extends Error {
-  override readonly name = 'MessagingError';
+  override readonly name: string = 'MessagingError';
 }
+
+/**
+ * This device lost its group state while it is the conversation's only device in the group, and
+ * the MLS library cannot resync a sole member. Recoverable: it waits until another device joins
+ * (messages stay pending meanwhile). Not a security failure.
+ */
+export class ConversationWaitingError extends MessagingError {
+  override readonly name = 'ConversationWaitingError';
+
+  constructor() {
+    super('Encryption is waiting for another device to join this conversation');
+  }
+}
+
+/**
+ * The server rate-limited this device's resync for the conversation (`MLS_RESYNC_RATE_LIMITED`),
+ * and the engine is waiting out its `Retry-After`. Temporary: the conversation's outgoing
+ * messages stay pending, and one recovery attempt follows when the pause ends.
+ */
+export class ResyncPausedError extends MessagingError {
+  override readonly name = 'ResyncPausedError';
+
+  constructor(
+    readonly resumesAt: number,
+    now: number,
+  ) {
+    super(
+      `Restoring encryption for this conversation is paused; it resumes in ${String(
+        Math.max(1, Math.ceil((resumesAt - now) / 1000)),
+      )} s`,
+    );
+  }
+}
+
+/** The engine was disposed (sign-out, account change, provider unmount): it does no more work. */
+export class EngineDisposedError extends MessagingError {
+  override readonly name = 'EngineDisposedError';
+
+  constructor() {
+    super('This messaging engine has been shut down');
+  }
+}
+
+/**
+ * The engine's view of the transport: once disposed, every request is refused before it is
+ * made, so work still in flight (a recovery, a flush) stops at its next network step. Methods
+ * are looked up on each call, so the underlying transport object stays the single source.
+ */
+function guardedTransport(
+  transport: MessagingTransport,
+  isDisposed: () => boolean,
+): MessagingTransport {
+  return new Proxy(transport, {
+    get(target, property, receiver) {
+      const value: unknown = Reflect.get(target, property, receiver);
+      if (typeof value !== 'function') return value;
+      return (...args: unknown[]): unknown => {
+        if (isDisposed()) return Promise.reject(new EngineDisposedError());
+        return (value as (...a: unknown[]) => unknown).apply(target, args);
+      };
+    },
+  });
+}
+
+/**
+ * A temporary MLS resync rate limit (the server's structured code, or the engine's own pause) —
+ * never any other 429, such as the general request throttle.
+ */
+function isResyncPause(error: unknown): boolean {
+  return error instanceof ResyncPausedError || errorCode(error) === 'MLS_RESYNC_RATE_LIMITED';
+}
+
+/** Timer source (tests substitute a deterministic one). */
+export interface EngineTimers {
+  now(): number;
+  setTimeout(callback: () => void, ms: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+const systemTimers: EngineTimers = {
+  now: () => Date.now(),
+  setTimeout: (callback, ms) => {
+    const handle = setTimeout(callback, ms);
+    // Node only: a pending retry must not keep a process (or test run) alive.
+    (handle as { unref?: () => void }).unref?.();
+    return handle;
+  },
+  clearTimeout: (handle) => {
+    clearTimeout(handle as ReturnType<typeof setTimeout>);
+  },
+};
 
 const metaKey = (c: string): string => `meta:${c}`;
 const groupKey = (c: string): string => `group:${c}`;
@@ -133,6 +240,8 @@ const kpKey = (ref: string): string => `kp:${ref}`;
 const timelineKey = (c: string): string => `timeline:${c}`;
 /** Device keys last accepted for a person (key-change detection). */
 const peerKeysKey = (ogcId: string): string => `peerkeys:${ogcId}`;
+/** The group's MLS tree last accepted on this device and its security changes. */
+const groupSecurityKey = (c: string): string => `groupsec:${c}`;
 
 function toCryptoDirectory(devices: DirectoryDevice[]): CryptoDirectoryDevice[] {
   return devices.map((d) => ({
@@ -153,17 +262,57 @@ function toCryptoDirectory(devices: DirectoryDevice[]): CryptoDirectoryDevice[] 
  */
 export class MessagingClient {
   private readonly lock = new KeyedLock();
+  /**
+   * Serializes every change to a conversation's outbox record (a read-modify-write of one sealed
+   * value). A leaf lock: held only around that read and write, never while taking the
+   * conversation lock, so the order is always conversation lock → outbox lock (no deadlock).
+   */
+  private readonly outboxLock = new KeyedLock();
   private readonly listeners = new Set<(event: MessagingEvent) => void>();
   private readonly scheduledSyncs = new Map<string, Promise<void>>();
   private identity: LocalDevice | undefined;
   private conversationCache = new Map<string, ConversationView>();
   private readonly directoryCache = new Map<string, { at: number; devices: DirectoryDevice[] }>();
+  /**
+   * Conversations waiting for another device (sole member without group state). In memory only:
+   * after a restart the first attempt finds out again. `armed`: a membership event allows one
+   * attempt, which re-checks the published group first.
+   */
+  private readonly recovery = new Map<string, 'waiting' | 'armed'>();
+  /** Conversations whose resync the server rate-limited: when to retry, and the one retry timer. */
+  private readonly resyncPaused = new Map<string, { until: number; timer: unknown }>();
+
+  private readonly transport: MessagingTransport;
+  /** Set by `dispose()`; never cleared. */
+  private disposed = false;
 
   constructor(
-    private readonly transport: MessagingTransport,
+    transport: MessagingTransport,
     private readonly store: SealedStore,
     readonly ogcId: string,
-  ) {}
+    private readonly timers: EngineTimers = systemTimers,
+  ) {
+    this.transport = guardedTransport(transport, () => this.disposed);
+  }
+
+  /**
+   * Shuts the engine down (sign-out, account change, provider unmount). Idempotent. Clears every
+   * pending retry timer, stops events, and refuses all further network requests — so recovery or
+   * flushing still in flight stops at its next step. Local data is kept: queued (pending)
+   * messages stay in the sealed outbox for the next engine on this device. `wipe()` erases it.
+   */
+  dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
+    for (const { timer } of this.resyncPaused.values()) this.timers.clearTimeout(timer);
+    this.resyncPaused.clear();
+    this.recovery.clear();
+    this.listeners.clear();
+  }
+
+  get isDisposed(): boolean {
+    return this.disposed;
+  }
 
   get deviceKeyId(): string | undefined {
     return this.identity?.deviceKeyId;
@@ -175,6 +324,7 @@ export class MessagingClient {
   }
 
   private emit(event: MessagingEvent): void {
+    if (this.disposed) return;
     for (const listener of this.listeners) listener(event);
   }
 
@@ -264,6 +414,7 @@ export class MessagingClient {
           const directory = toCryptoDirectory(await this.directory(welcome.conversationId));
           const group = await MlsGroup.joinFromWelcome(welcome.welcome, keyPackage, directory);
           await this.saveGroup(welcome.conversationId, group);
+          await this.trackGroup(welcome.conversationId, undefined, group, { kind: 'join' });
           const meta = await this.meta(welcome.conversationId);
           await this.saveMeta(welcome.conversationId, { ...meta, joinEpoch: Number(group.epoch) });
           await this.store.delete(kpKey(keyPackage.ref));
@@ -365,9 +516,27 @@ export class MessagingClient {
     return (await this.store.getJson<LocalMessage[]>(pendingKey(conversationId))) ?? [];
   }
 
-  private async setPending(conversationId: string, messages: LocalMessage[]): Promise<void> {
-    if (messages.length === 0) await this.store.delete(pendingKey(conversationId));
-    else await this.store.setJson(pendingKey(conversationId), messages);
+  /**
+   * Changes a conversation's outbox: `change` gets the current list (read inside the lock) and
+   * returns the new one, which is written before the lock is released. Every outbox write goes
+   * through here, so concurrent changes can never overwrite each other. Storage errors propagate.
+   */
+  private updatePending(
+    conversationId: string,
+    change: (messages: LocalMessage[]) => LocalMessage[],
+  ): Promise<LocalMessage[]> {
+    return this.outboxLock.run(conversationId, async () => {
+      const next = change(await this.pending(conversationId));
+      if (next.length === 0) await this.store.delete(pendingKey(conversationId));
+      else await this.store.setJson(pendingKey(conversationId), next);
+      return next;
+    });
+  }
+
+  private withoutPending(conversationId: string, clientMessageId: string): Promise<LocalMessage[]> {
+    return this.updatePending(conversationId, (messages) =>
+      messages.filter((m) => m.clientMessageId !== clientMessageId),
+    );
   }
 
   /** The newest `limit` messages of a conversation (oldest first), followed by unsent ones. */
@@ -445,8 +614,13 @@ export class MessagingClient {
         this.conversationCache.set(conversation.id, conversation);
         const meta = await this.meta(conversation.id);
         if (conversation.version > meta.cursor) {
-          await this.syncConversation(conversation.id);
-          synced++;
+          try {
+            await this.syncConversation(conversation.id);
+            synced++;
+          } catch (error) {
+            // A rate-limited resync is retried by its own timer; the others still sync.
+            if (!isResyncPause(error)) throw error;
+          }
         }
       }
       cursor = page.cursor;
@@ -469,8 +643,28 @@ export class MessagingClient {
     const identity = this.requireIdentity();
     for (let attempt = 0; attempt < MAX_EPOCH_RETRIES; attempt++) {
       const existing = await this.loadGroup(conversationId);
-      if (existing) return existing;
+      if (existing) {
+        if (this.recovery.has(conversationId)) this.resolveRecovery(conversationId);
+        return existing;
+      }
+      // Waiting for another device: no request at all until a membership event arms an attempt.
+      const waiting = this.recovery.get(conversationId);
+      if (waiting === 'waiting') throw new ConversationWaitingError();
+      // A resync the server rate-limited waits for its retry time: no request at all until then.
+      const paused = this.resyncPaused.get(conversationId);
+      if (paused && this.timers.now() < paused.until) {
+        throw new ResyncPausedError(paused.until, this.timers.now());
+      }
       const server = await this.transport.mlsGroup(conversationId);
+      if (waiting === 'armed') {
+        // Re-check first: if this device is still the group's only member, nothing can be done
+        // (this server view only ever skips an attempt; joining verifies the published tree).
+        if (server.members.length === 1 && server.members[0] === identity.deviceKeyId) {
+          this.waitForAnotherDevice(conversationId);
+          throw new ConversationWaitingError();
+        }
+        this.recovery.delete(conversationId);
+      }
       const listed = await this.directory(conversationId);
       const directory = toCryptoDirectory(listed);
       try {
@@ -491,6 +685,7 @@ export class MessagingClient {
           });
           wipeConsumed(result.consumed);
           await this.saveGroup(conversationId, result.group);
+          await this.trackGroup(conversationId, created, result.group, { kind: 'own-commit' });
           await this.saveMeta(conversationId, {
             ...(await this.meta(conversationId)),
             joinEpoch: Number(result.group.epoch),
@@ -505,24 +700,128 @@ export class MessagingClient {
           await this.processWelcomesUnlocked(conversationId);
           continue;
         }
-        // …otherwise join by ourselves from the published GroupInfo (external commit).
-        const joined = await MlsGroup.joinExternal(identity, server.groupInfo, directory);
+        // …otherwise join by ourselves from the published GroupInfo (external commit; a resync
+        // if the tree still holds this device). Every leaf of that tree is checked against the
+        // directory, so fetch it fresh: the cached copy may predate a newly added device.
+        this.directoryCache.delete(conversationId);
+        const fresh = toCryptoDirectory(await this.directory(conversationId));
+        const joined = await MlsGroup.joinExternal(identity, server.groupInfo, fresh);
         await this.transport.submitCommit(conversationId, {
           epoch: server.epoch,
           commit: joined.commit,
           groupInfo: joined.groupInfo,
         });
         await this.saveGroup(conversationId, joined.group);
+        await this.trackGroup(conversationId, undefined, joined.group, { kind: 'join' });
         await this.saveMeta(conversationId, {
           ...(await this.meta(conversationId)),
           joinEpoch: Number(joined.group.epoch),
         });
+        if (waiting) this.resolveRecovery(conversationId);
+        else {
+          // Messages queued while there was no group (e.g. during a rate-limited resync) go out
+          // now, after the current (locked) operation; each is re-checked under the lock.
+          void Promise.resolve().then(() => this.flushConversation(conversationId));
+        }
         return joined.group;
       } catch (error) {
+        if (error instanceof MlsSoleMemberError) {
+          this.waitForAnotherDevice(conversationId);
+          throw new ConversationWaitingError();
+        }
+        if (errorCode(error) === 'MLS_RESYNC_RATE_LIMITED' && error instanceof TransportError) {
+          this.pauseResync(conversationId, error.retryAfterSeconds);
+        }
         if (errorCode(error) !== 'STALE_EPOCH') throw error;
       }
     }
     throw new MessagingError('Could not establish the secure session; try again');
+  }
+
+  /**
+   * True while the conversation waits for another device to join before encryption can resume
+   * (this device is the group's only member and lost its group state). Its outgoing messages stay
+   * pending meanwhile; other conversations are unaffected.
+   */
+  awaitingAnotherDevice(conversationId: string): boolean {
+    return this.recovery.has(conversationId);
+  }
+
+  private waitForAnotherDevice(conversationId: string): void {
+    // Only a conversation that was not waiting before is news (armed → waiting is not).
+    const started = !this.recovery.has(conversationId);
+    this.recovery.set(conversationId, 'waiting');
+    if (started) this.emit({ type: 'recovery', conversationId });
+  }
+
+  /** A membership or device change may have brought another device: allow one attempt. */
+  private armRecovery(conversationId: string): void {
+    if (this.recovery.get(conversationId) === 'waiting') this.recovery.set(conversationId, 'armed');
+  }
+
+  /** The conversation has a group again: stop waiting and send what was queued meanwhile. */
+  private resolveRecovery(conversationId: string): void {
+    this.recovery.delete(conversationId);
+    this.emit({ type: 'recovery', conversationId });
+    // After the current (locked) operation: deliver takes the conversation lock itself.
+    void Promise.resolve().then(() => this.flushConversation(conversationId));
+  }
+
+  /** Sends one conversation's pending messages; failures stay as `deliver` leaves them. */
+  private async flushConversation(conversationId: string): Promise<void> {
+    if (this.disposed) return;
+    for (const message of await this.pending(conversationId)) {
+      if (message.state !== 'pending') continue;
+      try {
+        const result = await this.deliverIfPending(conversationId, message.clientMessageId);
+        if (result && result.state !== 'ok') return;
+      } catch {
+        return;
+      }
+    }
+  }
+
+  /**
+   * Delivers a queued message if it is still pending once the conversation lock is held — a
+   * concurrent send or flush may have delivered it meanwhile, and it must be submitted once.
+   */
+  private deliverIfPending(
+    conversationId: string,
+    clientMessageId: string,
+  ): Promise<LocalMessage | undefined> {
+    return this.lock.run(conversationId, async () => {
+      const message = (await this.pending(conversationId)).find(
+        (m) => m.clientMessageId === clientMessageId && m.state === 'pending',
+      );
+      return message ? this.deliver(message) : undefined;
+    });
+  }
+
+  /**
+   * When this conversation's resync may be tried again (epoch ms), if the server rate-limited it.
+   * Other conversations are not affected.
+   */
+  resyncPausedUntil(conversationId: string): number | undefined {
+    const paused = this.resyncPaused.get(conversationId);
+    return paused && this.timers.now() < paused.until ? paused.until : undefined;
+  }
+
+  /** Waits out a rate-limited resync, then syncs (and so retries) once — one timer per conversation. */
+  private pauseResync(conversationId: string, retryAfterSeconds: number | undefined): void {
+    if (this.disposed) return;
+    const seconds = Math.min(
+      Math.max(retryAfterSeconds ?? RESYNC_RETRY_DEFAULT_S, 1),
+      RESYNC_RETRY_MAX_S,
+    );
+    // A new server answer replaces the previous pause (and its timer): never two timers.
+    const existing = this.resyncPaused.get(conversationId);
+    if (existing) this.timers.clearTimeout(existing.timer);
+    const timer = this.timers.setTimeout(() => {
+      this.resyncPaused.delete(conversationId);
+      if (this.disposed) return;
+      void this.scheduleSync(conversationId);
+    }, seconds * 1000);
+    this.resyncPaused.set(conversationId, { until: this.timers.now() + seconds * 1000, timer });
   }
 
   /** Claims key packages in batches the server accepts. Devices without packages are skipped. */
@@ -554,6 +853,7 @@ export class MessagingClient {
         const directory = toCryptoDirectory(await this.directory(conversationId));
         const group = await MlsGroup.joinFromWelcome(welcome.welcome, keyPackage, directory);
         await this.saveGroup(conversationId, group);
+        await this.trackGroup(conversationId, undefined, group, { kind: 'join' });
         await this.saveMeta(conversationId, {
           ...(await this.meta(conversationId)),
           joinEpoch: Number(group.epoch),
@@ -570,7 +870,12 @@ export class MessagingClient {
    * including every device of someone who left or was removed from a group.
    */
   async reconcile(conversationId: string): Promise<void> {
-    await this.lock.run(conversationId, () => this.reconcileUnlocked(conversationId, true));
+    try {
+      await this.lock.run(conversationId, () => this.reconcileUnlocked(conversationId, true));
+    } catch (error) {
+      // Nothing to reconcile while the conversation waits for another device.
+      if (!(error instanceof ConversationWaitingError)) throw error;
+    }
   }
 
   private async reconcileUnlocked(conversationId: string, force: boolean): Promise<void> {
@@ -617,6 +922,7 @@ export class MessagingClient {
       }
       wipeConsumed(result.consumed);
       await this.saveGroup(conversationId, result.group);
+      await this.trackGroup(conversationId, group, result.group, { kind: 'own-commit' });
       return;
     }
   }
@@ -632,6 +938,7 @@ export class MessagingClient {
 
   /** Coalesces bursts of realtime events into one sync per conversation. */
   scheduleSync(conversationId: string): Promise<void> {
+    if (this.disposed) return Promise.resolve();
     const existing = this.scheduledSyncs.get(conversationId);
     if (existing) return existing;
     const run = Promise.resolve()
@@ -655,6 +962,8 @@ export class MessagingClient {
         await this.forgetConversation(conversationId);
         return;
       }
+      // Waiting for another device: nothing to sync here; other conversations carry on.
+      if (error instanceof ConversationWaitingError) return;
       throw error;
     }
   }
@@ -700,12 +1009,71 @@ export class MessagingClient {
     }
     await this.store.delete(groupKey(conversationId));
     await this.store.delete(metaKey(conversationId));
-    await this.store.delete(pendingKey(conversationId));
+    await this.updatePending(conversationId, () => []);
     await this.store.delete(timelineKey(conversationId));
+    await this.store.delete(groupSecurityKey(conversationId));
     this.directoryCache.delete(conversationId);
     if (this.conversationCache.delete(conversationId)) await this.persistConversations();
     this.emit({ type: 'removed', conversationId });
     this.emit({ type: 'conversations' });
+  }
+
+  /**
+   * Records how the group's MLS tree changed (see group-security.ts). Runs under the
+   * conversation lock, after the new state is saved. `before` is the state the change was
+   * applied to; without it (a join) the stored record is the reference.
+   */
+  private async trackGroup(
+    conversationId: string,
+    before: MlsGroup | undefined,
+    after: MlsGroup,
+    transition: GroupTransition,
+  ): Promise<void> {
+    const key = groupSecurityKey(conversationId);
+    const tracked = (group: MlsGroup) =>
+      group.members().map((m) => ({
+        ogcId: m.ogcId,
+        deviceKeyId: m.deviceKeyId,
+        key: toBase64(m.signaturePublicKey),
+      }));
+    let stored = await this.store.getJson<GroupSecurityRecord>(key);
+    if (!stored) {
+      // First sight on this device (or data from before this feature): trust what is there.
+      if (!before) {
+        await this.store.setJson(key, baselineGroup(Number(after.epoch), tracked(after)));
+        return;
+      }
+      stored = baselineGroup(Number(before.epoch), tracked(before));
+    }
+    const { record, added } = reconcileGroup(
+      stored,
+      Number(after.epoch),
+      tracked(after),
+      transition,
+    );
+    if (record !== stored) await this.store.setJson(key, record);
+    if (added.some((e) => !e.acknowledged)) this.emit({ type: 'security', conversationId });
+  }
+
+  /**
+   * Security-relevant changes to a group's encrypted membership seen by this device, oldest
+   * first. Computed and stored only on this device, from its own MLS state.
+   */
+  async groupSecurity(conversationId: string): Promise<GroupSecurityEvent[]> {
+    return (
+      (await this.store.getJson<GroupSecurityRecord>(groupSecurityKey(conversationId)))?.events ??
+      []
+    );
+  }
+
+  /** The person reviewed the group's security changes (dismisses the warning). */
+  async acknowledgeGroupSecurity(conversationId: string): Promise<void> {
+    await this.lock.run(conversationId, async () => {
+      const key = groupSecurityKey(conversationId);
+      const stored = await this.store.getJson<GroupSecurityRecord>(key);
+      if (stored) await this.store.setJson(key, acknowledgeGroup(stored));
+    });
+    this.emit({ type: 'security', conversationId });
   }
 
   /** Membership and settings events of a group, oldest first. */
@@ -747,9 +1115,16 @@ export class MessagingClient {
             return this.rejoin(conversationId);
           }
         }
-        const { group: next, consumed } = processed;
+        const { group: next, consumed, committer } = processed;
         await this.saveGroup(conversationId, next);
         wipeConsumed(consumed);
+        await this.trackGroup(conversationId, group, next, {
+          kind: 'commit',
+          committer:
+            committer.kind === 'member'
+              ? { kind: 'member', ogcId: committer.ogcId }
+              : { kind: 'external' },
+        });
         if (!next.members().some((m) => m.deviceKeyId === this.requireIdentity().deviceKeyId)) {
           // This device was removed: forget the group; it can rejoin if still active.
           await this.store.delete(groupKey(conversationId));
@@ -816,10 +1191,7 @@ export class MessagingClient {
         payload: local?.payload ?? null,
       });
       // Accepted by the server even if this device never saw the response: leave the outbox.
-      await this.setPending(
-        conversationId,
-        pending.filter((m) => m.clientMessageId !== view.clientMessageId),
-      );
+      await this.withoutPending(conversationId, view.clientMessageId);
       return group;
     }
     if (view.epoch < meta.joinEpoch) {
@@ -864,6 +1236,7 @@ export class MessagingClient {
     conversationId: string,
     draft: Draft & { forwardedFromId?: string },
   ): Promise<LocalMessage> {
+    if (this.disposed) throw new EngineDisposedError();
     const payload: MessagePayload = messagePayloadSchema.parse({
       v: 1,
       ...(draft.text !== undefined && draft.text.trim() !== '' ? { text: draft.text } : {}),
@@ -888,7 +1261,7 @@ export class MessagingClient {
       reactions: [],
       attachmentIds: payload.attachments?.map((a) => a.id) ?? [],
     };
-    await this.setPending(conversationId, [...(await this.pending(conversationId)), message]);
+    await this.updatePending(conversationId, (messages) => [...messages, message]);
     this.emit({ type: 'messages', conversationId });
     return this.lock.run(conversationId, () =>
       this.deliver(message, draft.forwardedFromId, draft.mentions),
@@ -929,12 +1302,7 @@ export class MessagingClient {
             payload: message.payload,
           };
           await this.putMessage(sent);
-          await this.setPending(
-            conversationId,
-            (await this.pending(conversationId)).filter(
-              (m) => m.clientMessageId !== message.clientMessageId,
-            ),
-          );
+          await this.withoutPending(conversationId, message.clientMessageId);
           this.emit({ type: 'messages', conversationId });
           return sent;
         } catch (error) {
@@ -951,10 +1319,14 @@ export class MessagingClient {
         }
       }
     } catch (error) {
+      // Not sent, and not failed: it stays pending until another device joins, or until a
+      // rate-limited resync can be retried (then the queue is sent after recovery).
+      if (error instanceof ConversationWaitingError || isResyncPause(error)) return message;
+      // Shut down mid-delivery: the message stays pending for the next engine on this device.
+      if (error instanceof EngineDisposedError) throw error;
       if (!isRetryable(error)) {
-        await this.setPending(
-          conversationId,
-          (await this.pending(conversationId)).map((m) =>
+        await this.updatePending(conversationId, (messages) =>
+          messages.map((m) =>
             m.clientMessageId === message.clientMessageId ? { ...m, state: 'failed' as const } : m,
           ),
         );
@@ -966,15 +1338,25 @@ export class MessagingClient {
 
   /** Retries every pending message (after reconnecting). Failures stay queued. */
   async flushOutbox(): Promise<number> {
+    if (this.disposed) return 0;
     let sent = 0;
     for (const key of await this.store.keys('pending:')) {
       const conversationId = key.slice('pending:'.length);
+      // A conversation waiting for another device, or whose resync is rate-limited, keeps its
+      // queue; the others are still sent.
+      if (this.recovery.get(conversationId) === 'waiting') continue;
+      if (this.resyncPausedUntil(conversationId) !== undefined) continue;
       for (const message of await this.pending(conversationId)) {
         if (message.state !== 'pending') continue;
         try {
-          await this.lock.run(conversationId, () => this.deliver(message));
+          const result = await this.deliverIfPending(conversationId, message.clientMessageId);
+          if (!result) continue;
+          if (result.state !== 'ok') break;
           sent++;
         } catch (error) {
+          // Throttled (429): this message stays pending; try the other conversations. Offline
+          // or a server error: stop, the next reconnect or sync flushes again.
+          if (error instanceof TransportError && error.status === 429) break;
           if (isRetryable(error)) return sent;
         }
       }
@@ -984,10 +1366,7 @@ export class MessagingClient {
 
   /** Removes a message that failed permanently from the outbox. */
   async discardFailed(conversationId: string, clientMessageId: string): Promise<void> {
-    await this.setPending(
-      conversationId,
-      (await this.pending(conversationId)).filter((m) => m.clientMessageId !== clientMessageId),
-    );
+    await this.withoutPending(conversationId, clientMessageId);
     this.emit({ type: 'messages', conversationId });
   }
 
@@ -1167,6 +1546,7 @@ export class MessagingClient {
     event: E,
     payload: Parameters<ServerToClientEvents[E]>[0],
   ): void {
+    if (this.disposed) return;
     const run = (task: Promise<unknown>, conversationId?: string): void => {
       task.catch((error: unknown) => {
         this.emit({ type: 'error', ...(conversationId ? { conversationId } : {}), error });
@@ -1195,6 +1575,7 @@ export class MessagingClient {
       case 'mls.commit':
       case 'conversation.updated': {
         const { conversationId } = payload as { conversationId: string };
+        if (event === 'mls.commit') this.armRecovery(conversationId);
         run(this.scheduleSync(conversationId), conversationId);
         return;
       }
@@ -1210,6 +1591,7 @@ export class MessagingClient {
       case 'devices.changed': {
         const { conversationId } = payload as { conversationId: string };
         this.directoryCache.delete(conversationId);
+        this.armRecovery(conversationId);
         run(this.reconcile(conversationId), conversationId);
         return;
       }
@@ -1226,6 +1608,7 @@ export class MessagingClient {
       case 'group.member_left': {
         const { conversationId } = payload as { conversationId: string };
         this.directoryCache.delete(conversationId);
+        if (event === 'group.member_joined') this.armRecovery(conversationId);
         run(this.scheduleSync(conversationId), conversationId);
         return;
       }
@@ -1390,6 +1773,9 @@ export class MessagingClient {
 
   /** Erases all local messaging data (sign-out). Server-side, logout revokes the device key. */
   async wipe(): Promise<void> {
+    for (const { timer } of this.resyncPaused.values()) this.timers.clearTimeout(timer);
+    this.resyncPaused.clear();
+    this.recovery.clear();
     await this.store.clear();
     this.identity = undefined;
     this.conversationCache.clear();

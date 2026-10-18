@@ -6,9 +6,10 @@ import { AppShell } from '../components/AppShell';
 import { Avatar } from '../components/Avatar';
 import { CallButtons } from '../components/calls/CallButtons';
 import { Icon } from '../components/Icon';
-import { EmptyState, PageIntro, SegmentedTabs } from '../components/kit';
+import { EmptyState, PageIntro, SegmentedTabs, Section, SettingRow } from '../components/kit';
 import { tabId, tabPanelId } from '../components/kit-ids';
 import { Alert, Skeleton } from '../components/ui';
+import { bridgeApi } from '../lib/bridge-api';
 import { listTime } from '../messaging/format';
 import { useRecentCalls } from '../messaging/hooks';
 import { useMessaging } from '../messaging/messaging-context';
@@ -26,6 +27,7 @@ export function CallsPage() {
   const [filter, setFilter] = useState<'all' | 'missed'>('all');
   const missedCount = calls?.filter(isMissedCall).length ?? 0;
   const shown = filter === 'missed' ? calls?.filter(isMissedCall) : calls;
+  const bridgeEnabled = useBridgeEnabled();
 
   useEffect(() => {
     const ogcIds = callable.flatMap((c) => (c.peer ? [c.peer.ogcId] : []));
@@ -154,6 +156,37 @@ export function CallsPage() {
           </ul>
         )}
       </section>
+
+      {bridgeEnabled ? (
+        <Section title="Telephone calls">
+          <SettingRow
+            icon="phone"
+            title="OGC Bridge"
+            detail="Call a contact's ordinary phone. Not end-to-end encrypted."
+            to="/calls/bridge"
+          />
+        </Section>
+      ) : null}
     </AppShell>
   );
+}
+
+/** Whether the optional OGC Bridge is switched on. Hidden on any error: OGC calls are unaffected. */
+function useBridgeEnabled(): boolean {
+  const [enabled, setEnabled] = useState(false);
+  useEffect(() => {
+    const controller = new AbortController();
+    bridgeApi.status(controller.signal).then(
+      (status) => {
+        setEnabled(status.enabled);
+      },
+      () => {
+        setEnabled(false);
+      },
+    );
+    return () => {
+      controller.abort();
+    };
+  }, []);
+  return enabled;
 }

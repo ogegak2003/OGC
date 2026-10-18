@@ -18,6 +18,7 @@ export {
 } from './credential.js';
 export {
   type CommitResult,
+  type CommitSender,
   type DirectoryDevice,
   type GeneratedKeyPackage,
   type GroupMember,
@@ -25,6 +26,7 @@ export {
   type LocalDevice,
   MlsGroup,
   MlsSecurityError,
+  MlsSoleMemberError,
   type SigningKeyPair,
   editAad,
   generateKeyPackages,

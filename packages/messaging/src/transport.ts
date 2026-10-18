@@ -82,6 +82,8 @@ export class TransportError extends Error {
     message: string,
     readonly status: number,
     readonly code?: ApiErrorCode,
+    /** From the response's `Retry-After` (whole seconds), when the server sent one. */
+    readonly retryAfterSeconds?: number,
   ) {
     super(message);
   }
@@ -90,6 +92,12 @@ export class TransportError extends Error {
   get retryable(): boolean {
     return this.status === 0 || this.status === 429 || this.status >= 500;
   }
+}
+
+/** Parses a `Retry-After` header given in seconds (the form the OGC API sends). */
+export function parseRetryAfter(header: string | null | undefined): number | undefined {
+  if (!header || !/^\d{1,9}$/.test(header.trim())) return undefined;
+  return Number(header.trim());
 }
 
 export function errorCode(error: unknown): ApiErrorCode | undefined {

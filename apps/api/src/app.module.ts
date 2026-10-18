@@ -22,6 +22,7 @@ import { AuthGuard } from './modules/auth/auth.guard.js';
 import { AttachmentsModule } from './modules/attachments/attachments.module.js';
 import { AuthModule } from './modules/auth/auth.module.js';
 import { BlocksModule } from './modules/blocks/blocks.module.js';
+import { BridgeModule } from './modules/bridge/bridge.module.js';
 import { CallsModule } from './modules/calls/calls.module.js';
 import { CommunityModule } from './modules/community/community.module.js';
 import { ContactsModule } from './modules/contacts/contacts.module.js';
@@ -94,6 +95,7 @@ import { StorageModule } from './modules/storage/storage.module.js';
     NotificationsModule,
     CommunityModule,
     CallsModule,
+    BridgeModule,
     RetentionModule,
     RealtimeGatewayModule,
   ],

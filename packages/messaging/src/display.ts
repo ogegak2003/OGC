@@ -1,4 +1,5 @@
 import type { AttachmentKind, ConversationEventView, ConversationView } from '@ogc/types';
+import type { GroupSecurityEvent } from './group-security.js';
 import type { LocalMessage } from './payload.js';
 
 /**
@@ -166,5 +167,39 @@ export function describeEvent(
       return `${actor} archived the ${noun}`;
     case 'UNARCHIVED':
       return `${actor} restored the ${noun}`;
+  }
+}
+
+/**
+ * One line describing a group security change (see group-security.ts). Worded by what this
+ * device actually knows: a new key is not called an attack, and a change it could not check
+ * is never presented as confirmed. Never includes keys or content.
+ */
+export function describeGroupSecurity(
+  event: Pick<GroupSecurityEvent, 'change' | 'level' | 'ogcId' | 'devices' | 'via' | 'by'>,
+  nameOf: (ogcId: string | null) => string,
+  myOgcId: string,
+): string {
+  const name = nameOf(event.ogcId);
+  switch (event.change) {
+    case 'new-device':
+      if (event.ogcId === myOgcId) {
+        return 'A device on your account that this device hadn’t seen in this group was added. If you didn’t sign in somewhere new, sign out devices you don’t recognise.';
+      }
+      return `${name} has ${event.devices === 1 ? 'a new security key' : 'new security keys'} in this group — maybe a new device. To be sure nobody else is reading, compare safety numbers with them.`;
+    case 'resynced':
+      return 'This device had to rejoin the group’s encryption, so changes made while it was away couldn’t be checked one by one. If anything looks unexpected, compare safety numbers with members.';
+    case 'member-joined':
+      if (event.level === 'unconfirmed')
+        return `${name} joined while this device was away (not checked here).`;
+      if (event.via === 'member' && event.by) {
+        const adder = event.by === myOgcId ? 'Your other device' : `${nameOf(event.by)}’s device`;
+        return `${adder} added ${name} to the group’s encryption.`;
+      }
+      return `${name} joined the group’s encryption.`;
+    case 'member-left':
+      return event.level === 'unconfirmed'
+        ? `${name} left while this device was away (not checked here).`
+        : `${name}’s devices were removed from the group’s encryption.`;
   }
 }

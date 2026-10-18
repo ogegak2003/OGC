@@ -112,7 +112,12 @@ export function MessagingProvider({
       try {
         const engine = await dependencies.createEngine(ogcId, client);
         instance = engine;
-        if (isCancelled()) return;
+        // Unmounted (or replaced, e.g. React Strict Mode) while the engine was being created:
+        // this run's cleanup has already happened, so shut this engine down here.
+        if (isCancelled()) {
+          engine.dispose();
+          return;
+        }
         unsubscribe = engine.subscribe((event) => {
           if (event.type === 'conversations') setConversations(engine.conversations());
           if (event.type === 'notification') setNotificationsUnread((n) => n + 1);
@@ -123,7 +128,8 @@ export function MessagingProvider({
               [event.channelId]: (revisions[event.channelId] ?? 0) + 1,
             }));
           }
-          if (event.type === 'messages') {
+          // A group security change re-reads the conversation like new messages do.
+          if (event.type === 'messages' || event.type === 'security' || event.type === 'recovery') {
             setMessageRevision((current) => ({
               ...current,
               [event.conversationId]: (current[event.conversationId] ?? 0) + 1,
@@ -192,6 +198,9 @@ export function MessagingProvider({
       callEngine?.dispose();
       setCalls(undefined);
       link?.disconnect();
+      // Stops its retry timers and any further requests; queued messages stay in the sealed
+      // outbox for the next engine (each run owns the engine it created).
+      instance?.dispose();
       realtime.current = undefined;
       for (const timer of timers.values()) clearTimeout(timer);
     };

@@ -31,6 +31,20 @@ describe('api client (browser mode)', () => {
     ]);
   });
 
+  it('sends the refresh with keepalive so a page change cannot drop the rotated cookie', async () => {
+    let calls = 0;
+    const fetchMock = mockApi({
+      'GET /api/v1/auth/me': () => (calls++ === 0 ? unauthenticated() : json(account())),
+      'POST /api/v1/auth/refresh': () => json({ account: account(), session: {} }),
+    });
+    await api.me();
+    const refresh = fetchMock.mock.calls.find(([url]) => url === '/api/v1/auth/refresh');
+    expect(refresh?.[1]?.keepalive).toBe(true);
+    // Ordinary requests are not kept alive (they may be large, and may be cancelled).
+    const me = fetchMock.mock.calls.find(([url]) => url === '/api/v1/auth/me');
+    expect(me?.[1]?.keepalive).toBeUndefined();
+  });
+
   it('shares one refresh between concurrent requests (avoids refresh-token reuse)', async () => {
     let meCalls = 0;
     const fetchMock = mockApi({

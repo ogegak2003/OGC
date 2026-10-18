@@ -13,6 +13,16 @@ export const VERIFICATION_RESEND_INTERVAL_MS = MINUTE;
 export const PASSWORD_RESET_EMAIL_INTERVAL_MS = MINUTE;
 export const PASSWORD_RESET_EMAILS_PER_HOUR = 3;
 export const PASSWORD_RESET_WINDOW_MS = HOUR;
+/**
+ * After a rotation, the superseded refresh token (and any issued from it in the meantime) may
+ * still refresh for this long: covers a response lost in transit and concurrent refreshes from
+ * several tabs. Anchored to the rotation, never extended by grace use; afterwards it is reuse.
+ */
+export const REFRESH_GRACE_WINDOW_MS = 30_000;
+/** At most this many superseded tokens are honoured within one grace window. */
+export const REFRESH_GRACE_MAX_TOKENS = 5;
+/** Concurrent refreshes losing the compare-and-swap re-read the session this many times. */
+export const REFRESH_MAX_ATTEMPTS = 3;
 /** Session/device "last used" timestamps are written at most this often. */
 export const LAST_USED_WRITE_INTERVAL_MS = 5 * MINUTE;
 

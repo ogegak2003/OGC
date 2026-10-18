@@ -4,6 +4,7 @@ import type {
   CallMediaPlatform,
   CallRequestName,
   Draft,
+  GroupSecurityEvent,
   LocalMessage,
   MessagingEvent,
   OutgoingAttachment,
@@ -114,6 +115,24 @@ export class FakeEngine implements MessagingEngine {
   events = new Map<string, TimelineEvent[]>();
   timeline = (conversationId: string) =>
     Promise.resolve([...(this.events.get(conversationId) ?? [])]);
+  /** Group security changes reported per conversation (tests set them). */
+  security = new Map<string, GroupSecurityEvent[]>();
+  groupSecurity = (conversationId: string) =>
+    Promise.resolve([...(this.security.get(conversationId) ?? [])]);
+  dispose = jest.fn();
+  /** Conversations waiting for another device (tests set them). */
+  waitingForDevice = new Set<string>();
+  awaitingAnotherDevice = jest.fn((conversationId: string) =>
+    this.waitingForDevice.has(conversationId),
+  );
+  acknowledgeGroupSecurity = jest.fn((conversationId: string) => {
+    this.security.set(
+      conversationId,
+      (this.security.get(conversationId) ?? []).map((e) => ({ ...e, acknowledged: true })),
+    );
+    this.emit({ type: 'security', conversationId });
+    return Promise.resolve();
+  });
   forgetConversation = jest.fn((conversationId: string) => {
     this.list = this.list.filter((c) => c.id !== conversationId);
     this.data.delete(conversationId);

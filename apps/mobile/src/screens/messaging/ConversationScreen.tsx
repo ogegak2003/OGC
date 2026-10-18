@@ -8,6 +8,7 @@ import {
   conversationTitle,
   callDescription,
   describeEvent,
+  describeGroupSecurity,
   mentionsIn,
   messageStatus,
   previewText,
@@ -47,16 +48,19 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../auth/AuthProvider';
 import { Icon, type IconName } from '../../components/Icon';
 import { Avatar } from '../../components/identity';
-import { IconButton } from '../../components/ui';
+import { IconButton, Loading } from '../../components/ui';
 import { dayLabel, messageTime, sameDay } from '../../lib/time';
 import { useKeyboardVisible } from '../../lib/use-keyboard';
 import { communityApi } from '../../api/community';
 import {
   useCall,
   useCallHistory,
+  useAwaitingAnotherDevice,
   useConversationMessages,
+  useGroupSecurityWarnings,
   useTimeline,
 } from '../../messaging/hooks';
+import { ErrorState } from '../../components/ErrorState';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { AppBar } from '../Screen';
@@ -286,8 +290,17 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
   const insets = useSafeAreaInsets();
   const keyboardOpen = useKeyboardVisible();
   const { client } = useAuth();
-  const { engine, conversations, typing, presence, connection, setTyping, watchPresence, calls } =
-    useMessaging();
+  const {
+    engine,
+    conversations,
+    status: messagingStatus,
+    typing,
+    presence,
+    connection,
+    setTyping,
+    watchPresence,
+    calls,
+  } = useMessaging();
   const call = useCall();
   const conversation = conversations.find((c) => c.id === conversationId);
   const messages = useConversationMessages(conversationId);
@@ -346,6 +359,10 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
       active = false;
     };
   }, [engine, peerOgcId, conversationId, version, keyCheck]);
+  // Groups: changes to the encrypted membership seen by this device's own MLS state.
+  const securityWarnings = useGroupSecurityWarnings(conversationId, group !== null);
+  // This device lost its group state while it is the only device in the group (engine state).
+  const awaitingDevice = useAwaitingAnotherDevice(conversationId);
 
   useEffect(() => {
     if (!engine) return;
@@ -382,7 +399,15 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     return (
       <View style={m.root}>
         <AppBar title="Conversation" onBack={nav.back} />
-        <Text style={m.note}>This conversation isn’t available.</Text>
+        {messagingStatus === 'starting' || messagingStatus === 'idle' ? (
+          <Loading label="Opening conversation" />
+        ) : (
+          <View style={m.padded}>
+            <ErrorState kind="not-found" title="Conversation not available">
+              It may have been deleted or you may have left it, or the link may be wrong.
+            </ErrorState>
+          </View>
+        )}
       </View>
     );
   }
@@ -522,6 +547,14 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
     if (name !== undefined && name !== '') return name;
     return formatOgcIdForDisplay(ogcId as never);
   };
+  // One other person with a new key: offer the safety-number comparison with them directly.
+  const keyChangedFor = [
+    ...new Set(
+      securityWarnings.flatMap((e) =>
+        e.change === 'new-device' && e.ogcId && e.ogcId !== engine?.ogcId ? [e.ogcId] : [],
+      ),
+    ),
+  ];
   const peer = conversation.peer;
   const title = conversationTitle(conversation);
   const avatar = conversationAvatar(conversation);
@@ -655,6 +688,57 @@ export function ConversationScreen({ conversationId }: { conversationId: string 
                   setKeyCheck((n) => n + 1);
                 }),
               );
+            }}
+          >
+            Dismiss
+          </Text>
+        </View>
+      ) : null}
+      {awaitingDevice ? (
+        <View
+          style={m.banner}
+          accessibilityLabel="Encryption waiting"
+          accessibilityLiveRegion="polite"
+        >
+          <Icon name="shieldCheck" size={16} tint={color.warning} />
+          <Text style={m.bannerText}>
+            Encryption is waiting for another device to join this conversation. Your pending
+            messages haven’t been sent yet.
+          </Text>
+        </View>
+      ) : null}
+      {group && securityWarnings.length > 0 ? (
+        <View style={m.banner} accessibilityRole="alert" accessibilityLabel="Group security">
+          <Icon name="shieldCheck" size={16} tint={color.warning} />
+          <Text style={m.bannerText}>
+            {securityWarnings.some((e) => e.level === 'verify')
+              ? 'Security keys changed in this group. '
+              : 'Some group changes couldn’t be checked on this device. '}
+            {securityWarnings
+              .slice(-3)
+              .map((e) => describeGroupSecurity(e, nameOf, engine?.ogcId ?? ''))
+              .join(' ')}
+            {securityWarnings.length > 3
+              ? ` And ${String(securityWarnings.length - 3)} earlier changes.`
+              : ''}
+          </Text>
+          {keyChangedFor.length === 1 && keyChangedFor[0] ? (
+            <Text
+              style={m.bannerAction}
+              accessibilityRole="button"
+              onPress={() => {
+                const [ogcId = ''] = keyChangedFor;
+                nav.push({ name: 'safety-number', conversationId, ogcId });
+              }}
+            >
+              Compare
+            </Text>
+          ) : null}
+          <Text
+            style={m.bannerAction}
+            accessibilityRole="button"
+            onPress={() => {
+              run(engine?.acknowledgeGroupSecurity(conversationId) ?? Promise.resolve());
             }}
           >
             Dismiss

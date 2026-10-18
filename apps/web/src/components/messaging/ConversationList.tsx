@@ -5,6 +5,8 @@ import { Link } from 'react-router';
 import { listTime } from '../../messaging/format';
 import { previewText, useLastMessage } from '../../messaging/hooks';
 import { useMessaging } from '../../messaging/messaging-context';
+import { INSECURE_CONTEXT_ERROR } from '../../messaging/secure-context';
+import { Alert } from '../ui';
 import { Avatar } from '../Avatar';
 import { Icon } from '../Icon';
 import styles from './messaging.module.css';
@@ -89,7 +91,7 @@ export function ConversationList({
   onNewConversation: () => void;
   onNewGroup: () => void;
 }) {
-  const { conversations, engine, status } = useMessaging();
+  const { conversations, engine, status, error, retry } = useMessaging();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<LocalMessage[]>([]);
   const trimmed = query.trim();
@@ -165,6 +167,20 @@ export function ConversationList({
           }}
         />
       </div>
+      {status === 'error' ? (
+        <Alert>
+          {error === INSECURE_CONTEXT_ERROR ? (
+            error
+          ) : (
+            <>
+              Secure messaging could not start on this device. {error}{' '}
+              <button type="button" className={styles.linkButton} onClick={retry}>
+                Retry
+              </button>
+            </>
+          )}
+        </Alert>
+      ) : null}
       {status === 'starting' && conversations.length === 0 ? (
         <p className={styles.sidebarNote} role="status">
           Setting up secure messaging…

@@ -530,4 +530,31 @@ describe('end-to-end encrypted messaging', () => {
     expect(hits.map((m) => m.payload?.text)).toEqual([SECRET]);
     expect(await bobDevice.client.search('x')).toEqual([]);
   });
+
+  // Last in this file: it adds messages to the shared conversation.
+  it('rejects ciphertext a malicious server altered, and keeps working afterwards', async () => {
+    await aliceDevice.client.send(conversation.id, { text: 'transfer 10 to Bob' });
+    // The server flips one bit of the stored message before Bob fetches it.
+    const stored = await t.prisma.message.findFirstOrThrow({
+      where: { conversationId: conversation.id },
+      orderBy: { seq: 'desc' },
+    });
+    const tampered = Buffer.from(stored.ciphertext ?? new Uint8Array());
+    const middle = Math.floor(tampered.length / 2);
+    tampered[middle] = (tampered[middle] ?? 0) ^ 0x01;
+    await t.prisma.message.update({ where: { id: stored.id }, data: { ciphertext: tampered } });
+
+    await bobDevice.client.syncConversation(conversation.id);
+    const forged = (await bobDevice.client.messages(conversation.id)).find(
+      (m) => m.id === stored.id,
+    );
+    // Shown as undecryptable, never as altered text.
+    expect(forged).toMatchObject({ state: 'undecryptable', payload: null });
+    expect(await textsOf(bobDevice, conversation.id)).not.toContain('transfer 10 to Bob');
+
+    // The failed message does not break the conversation: the next one arrives intact.
+    await aliceDevice.client.send(conversation.id, { text: 'genuine follow-up' });
+    await bobDevice.client.syncConversation(conversation.id);
+    expect((await textsOf(bobDevice, conversation.id)).at(-1)).toBe('genuine follow-up');
+  });
 });

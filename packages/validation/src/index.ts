@@ -216,3 +216,20 @@ export {
 export type { CallHistoryQuery, CallSignalRequest, CallStartRequest } from './calls.js';
 export { isTimeZone, notificationSettingsUpdateSchema } from './notifications.js';
 export type { NotificationSettingsUpdate } from './notifications.js';
+export {
+  BRIDGE_CODE_LENGTH,
+  BRIDGE_COUNTRY_CODES,
+  BRIDGE_COUNTRY_REGISTRY,
+  type BridgeConfirmVerification,
+  type BridgeStartCall,
+  type BridgeStartVerification,
+  type PhoneNumberResult,
+  bridgeConfirmVerificationSchema,
+  bridgeCountry,
+  bridgeEligibilityQuerySchema,
+  bridgePreferencesSchema,
+  bridgeStartCallSchema,
+  bridgeStartVerificationSchema,
+  maskPhoneNumber,
+  normalizePhoneNumber,
+} from './bridge.js';

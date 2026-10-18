@@ -1,11 +1,21 @@
 export {
+  ConversationWaitingError,
   type Draft,
+  EngineDisposedError,
+  type EngineTimers,
   MessagingClient,
   MessagingError,
   type MessagingEvent,
   type OutgoingAttachment,
+  ResyncPausedError,
   type TimelineEvent,
 } from './client.js';
+export {
+  type GroupSecurityChange,
+  type GroupSecurityEvent,
+  type GroupSecurityLevel,
+  pendingGroupWarnings,
+} from './group-security.js';
 export { KeyedLock } from './lock.js';
 export {
   type PeerKeyRecord,
@@ -27,13 +37,20 @@ export {
   type RealtimeSocket,
 } from './realtime.js';
 export { type KeyValueStore, MemoryKeyValueStore, SealedStore } from './store.js';
-export { type MessagingTransport, TransportError, errorCode, isRetryable } from './transport.js';
+export {
+  type MessagingTransport,
+  TransportError,
+  errorCode,
+  isRetryable,
+  parseRetryAfter,
+} from './transport.js';
 export { type MessageDisplayStatus, messageStatus } from './status.js';
 export {
   attachmentKind,
   conversationAvatar,
   conversationTitle,
   describeEvent,
+  describeGroupSecurity,
   duration,
   mentionsIn,
   fileSize,

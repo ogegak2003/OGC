@@ -41,6 +41,7 @@ import {
 } from '../../components/ui';
 import { errorMessage } from '../../lib/errors';
 import { useResource } from '../../lib/use-resource';
+import { ErrorState } from '../../components/ErrorState';
 import { useMessaging } from '../../messaging/messaging-context';
 import { useNavigation } from '../../navigation';
 import { Screen } from '../Screen';
@@ -182,7 +183,7 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
   const nav = useNavigation();
   const api = useCommunity();
   const { client } = useAuth();
-  const { engine, conversations } = useMessaging();
+  const { engine, conversations, status } = useMessaging();
   const conversation = conversations.find((c) => c.id === conversationId);
   const group = conversation?.group;
   const [members, setMembers] = useState<GroupMemberView[]>([]);
@@ -213,7 +214,13 @@ export function GroupInfoScreen({ conversationId }: { conversationId: string }) 
   if (!group) {
     return (
       <Screen title="Group" onBack={nav.back}>
-        <Notice>This group isn’t available.</Notice>
+        {status === 'starting' || status === 'idle' ? (
+          <Loading label="Loading group" />
+        ) : (
+          <ErrorState kind="not-found" title="Group not available">
+            You may have left this group or been removed from it, or the link may be wrong.
+          </ErrorState>
+        )}
       </Screen>
     );
   }

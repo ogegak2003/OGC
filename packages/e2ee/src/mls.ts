@@ -2,6 +2,7 @@ import {
   type ClientConfig,
   type ClientState,
   type Credential,
+  type GroupInfo,
   type IncomingMessageCallback,
   type KeyPackage,
   type MLSMessage,
@@ -28,6 +29,7 @@ import {
   processPublicMessage,
   zeroOutUint8Array,
 } from 'ts-mls';
+import { ratchetTreeFromExtension } from 'ts-mls/groupInfo.js';
 import { makeKeyPackageRef } from 'ts-mls/keyPackage.js';
 import { unprotectPrivateMessage } from 'ts-mls/messageProtection.js';
 import { equalBytes, fromBase64, toBase64, toHex, utf8 } from './bytes.js';
@@ -68,6 +70,15 @@ export interface GeneratedKeyPackage {
 
 export class MlsSecurityError extends Error {
   override readonly name = 'MlsSecurityError';
+}
+
+/**
+ * Not a security failure: this device's leaf — verified as its own (identity and signature key) —
+ * is the only non-blank leaf of the published tree, and ts-mls 1.6.4 cannot remove a tree's last
+ * leaf, so it cannot resync now. It can once any other device joins the group.
+ */
+export class MlsSoleMemberError extends Error {
+  override readonly name = 'MlsSoleMemberError';
 }
 
 /** Key packages expire so a stale, possibly compromised, package cannot be used forever. */
@@ -220,6 +231,51 @@ function memberList(state: ClientState): GroupMember[] {
   return members;
 }
 
+/**
+ * The leaf index of this device in a GroupInfo's ratchet tree, if it is there. The device is
+ * there only if exactly one leaf carries its credential and that leaf uses its own signature
+ * key. Anything ambiguous (its ID with another key, its key under another identity, more than
+ * one leaf) is refused: building a resync commit from it could remove the wrong leaf.
+ */
+function ownLeafInGroupInfo(info: GroupInfo, device: LocalDevice): number | undefined {
+  const tree = ratchetTreeFromExtension(info);
+  if (!tree) throw new MlsSecurityError('GroupInfo must include the ratchet tree');
+  const byIdentity: number[] = [];
+  const byKey: number[] = [];
+  let leaves = 0;
+  tree.forEach((node, nodeIndex) => {
+    if (node?.nodeType !== 'leaf') return;
+    leaves++;
+    const credential = parseDeviceCredential(node.leaf.credential);
+    const leafIndex = nodeIndex / 2;
+    if (credential?.deviceKeyId === device.deviceKeyId) byIdentity.push(leafIndex);
+    if (equalBytes(node.leaf.signaturePublicKey, device.signing.publicKey)) byKey.push(leafIndex);
+  });
+  if (byIdentity.length === 0 && byKey.length === 0) return undefined;
+  const [leaf] = byIdentity;
+  const node = leaf === undefined ? undefined : tree[leaf * 2];
+  const credential =
+    node?.nodeType === 'leaf' ? parseDeviceCredential(node.leaf.credential) : undefined;
+  if (
+    byIdentity.length !== 1 ||
+    byKey.length !== 1 ||
+    byKey[0] !== leaf ||
+    credential?.ogcId !== device.ogcId
+  ) {
+    throw new MlsSecurityError(
+      'This device appears in the group with a different identity or key; it cannot rejoin safely',
+    );
+  }
+  // ts-mls cannot remove a tree's only leaf (it fails internally): a sole member cannot resync.
+  // Checked last, so only a leaf verified as this device's own reaches it.
+  if (leaves === 1) {
+    throw new MlsSoleMemberError(
+      'This device is the only member of the group, so it cannot rejoin it until another device joins',
+    );
+  }
+  return leaf;
+}
+
 /** Only membership changes are allowed in OGC commits: no PSKs, re-inits or extension changes. */
 const membershipOnly: IncomingMessageCallback = (incoming) => {
   const proposals =
@@ -233,6 +289,9 @@ const membershipOnly: IncomingMessageCallback = (incoming) => {
   );
   return allowed ? 'accept' : 'reject';
 };
+
+/** Who made a processed commit: an existing member device, or a device joining by itself. */
+export type CommitSender = ({ kind: 'member' } & DeviceCredential) | { kind: 'external' };
 
 export interface CommitResult {
   group: MlsGroup;
@@ -347,33 +406,58 @@ export class MlsGroup {
    * Joins an existing group without being added by a member (RFC 9420 §12.4.3.2),
    * using the GroupInfo the members publish with every commit. Used by a new
    * device of a participant when no other member device is online.
+   *
+   * If the published tree still holds this device (it lost its group state), the join is a
+   * resync: the commit removes exactly that leaf and adds a fresh one, so the device is in the
+   * group once, with new path secrets. Whether to resync is decided from the GroupInfo's tree,
+   * which ts-mls verifies (tree hash and signature of a directory-checked member) before
+   * building the commit — never from local state or the server's member list.
+   * `requireResync` refuses to join unless this is a resync.
    */
   static async joinExternal(
     device: LocalDevice,
     groupInfo: string,
     directory: readonly DirectoryDevice[],
-  ): Promise<{ group: MlsGroup; commit: string; groupInfo: string }> {
+    options: { requireResync?: boolean } = {},
+  ): Promise<{ group: MlsGroup; commit: string; groupInfo: string; resynced: boolean }> {
     const cs = await ogcSuite();
     const message = decodeMessageBase64(groupInfo);
     if (message.wireformat !== 'mls_group_info') throw new MlsSecurityError('Not a GroupInfo');
+    const formerLeaf = ownLeafInGroupInfo(message.groupInfo, device);
+    if (options.requireResync && formerLeaf === undefined) {
+      throw new MlsSecurityError('This device is not in the group, so it cannot resync');
+    }
     const map = directoryMap(directory);
     const [own] = await generateKeyPackages(device, 1);
     if (!own) throw new Error('Key package generation failed');
     const { keyPackage, priv } = parsePrivate(own.privateKey);
+    // ts-mls must only be asked to resync when the leaf exists: given a missing leaf it does
+    // not fail (it computes an invalid leaf index and never returns).
+    const resync = formerLeaf !== undefined;
     const { newState, publicMessage } = await joinGroupExternal(
       message.groupInfo,
       keyPackage,
       priv,
-      false,
+      resync,
       cs,
       undefined,
       clientConfig(map),
     );
+    if (publicMessage.content.contentType !== 'commit') throw new MlsSecurityError('Not a commit');
+    const removed = publicMessage.content.commit.proposals.flatMap((p) =>
+      p.proposalOrRefType === 'proposal' && p.proposal.proposalType === 'remove'
+        ? [p.proposal.remove.removed]
+        : [],
+    );
+    if (removed.length !== (resync ? 1 : 0) || (resync && removed[0] !== formerLeaf)) {
+      throw new MlsSecurityError('The rejoin would change other members; refusing it');
+    }
     const group = new MlsGroup(newState, map);
     return {
       group,
       commit: encodeMessage({ version: 'mls10', wireformat: 'mls_public_message', publicMessage }),
       groupInfo: await group.groupInfo(),
+      resynced: resync,
     };
   }
 
@@ -423,8 +507,14 @@ export class MlsGroup {
     };
   }
 
-  /** Applies a commit from another member (or an external join), advancing the epoch. */
-  async processCommit(commit: string): Promise<{ group: MlsGroup; consumed: Uint8Array[] }> {
+  /**
+   * Applies a commit from another member (or an external join), advancing the epoch.
+   * `committer` is taken from the verified commit: a member device of the previous epoch's
+   * tree, or `external` when a device added itself from the published GroupInfo.
+   */
+  async processCommit(
+    commit: string,
+  ): Promise<{ group: MlsGroup; consumed: Uint8Array[]; committer: CommitSender }> {
     const cs = await ogcSuite();
     const message = decodeMessageBase64(commit);
     if (message.wireformat !== 'mls_public_message') {
@@ -441,7 +531,16 @@ export class MlsGroup {
       membershipOnly,
     );
     if (actionTaken !== 'accept') throw new MlsSecurityError('Commit rejected');
-    return { group: new MlsGroup(newState, this.directory), consumed };
+    const sender = message.publicMessage.content.sender;
+    let committer: CommitSender = { kind: 'external' };
+    if (sender.senderType === 'member') {
+      const leaf = this.state.ratchetTree[sender.leafIndex * 2];
+      const credential =
+        leaf?.nodeType === 'leaf' ? parseDeviceCredential(leaf.leaf.credential) : undefined;
+      if (!credential) throw new MlsSecurityError('Unknown sender');
+      committer = { kind: 'member', ...credential };
+    }
+    return { group: new MlsGroup(newState, this.directory), consumed, committer };
   }
 
   /** Encrypts application data (an OGC message payload) for every device in the group. */

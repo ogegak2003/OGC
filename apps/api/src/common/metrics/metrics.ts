@@ -65,6 +65,14 @@ export class MetricsService {
     registers: [this.registry],
   });
 
+  /** `accepted`: a resync committed; `limited`: one denied by the resync limits. No identifiers. */
+  readonly mlsResyncs = new Counter({
+    name: 'ogc_mls_resync_total',
+    help: 'MLS resync commits (devices rejoining from lost state) by outcome',
+    labelNames: ['outcome'] as const,
+    registers: [this.registry],
+  });
+
   readonly callsStarted = new Counter({
     name: 'ogc_calls_started_total',
     help: 'Calls started, by media type',

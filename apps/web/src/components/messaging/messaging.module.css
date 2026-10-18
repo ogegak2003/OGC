@@ -431,6 +431,11 @@
   border-bottom: 1px solid var(--ogc-color-border);
 }
 
+.securityList {
+  margin: var(--ogc-space-1) 0;
+  padding-left: var(--ogc-space-4);
+}
+
 .log {
   display: flex;
   flex: 1;

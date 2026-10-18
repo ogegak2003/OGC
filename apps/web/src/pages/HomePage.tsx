@@ -21,6 +21,7 @@ import { useResource } from '../lib/use-resource';
 import { listTime } from '../messaging/format';
 import { useRecentCalls } from '../messaging/hooks';
 import { useMessaging } from '../messaging/messaging-context';
+import { INSECURE_CONTEXT_ERROR } from '../messaging/secure-context';
 import styles from './HomePage.module.css';
 
 /** Activity entries shown on the dashboard (conversations and calls together). */
@@ -180,10 +181,16 @@ function ActivityFeed({
       </div>
       {status === 'error' ? (
         <Alert>
-          Secure messaging could not start on this device. {error}{' '}
-          <button type="button" className={styles.inlineButton} onClick={retry}>
-            Retry
-          </button>
+          {error === INSECURE_CONTEXT_ERROR ? (
+            error
+          ) : (
+            <>
+              Secure messaging could not start on this device. {error}{' '}
+              <button type="button" className={styles.inlineButton} onClick={retry}>
+                Retry
+              </button>
+            </>
+          )}
         </Alert>
       ) : status !== 'ready' ? (
         <div role="status" aria-label="Loading your conversations">
@@ -423,14 +430,14 @@ export function HomePage() {
         <Stat
           icon="chat"
           label="Unread messages"
-          value={status === 'ready' ? unreadTotal : undefined}
+          value={status === 'ready' ? unreadTotal : status === 'error' ? '—' : undefined}
           to="/messages"
           tone={unreadTotal > 0 ? 'attention' : 'default'}
         />
         <Stat
           icon="phoneOff"
           label="Missed calls, 7 days"
-          value={missed}
+          value={missed ?? (status === 'error' ? '—' : undefined)}
           to="/calls"
           tone={typeof missed === 'number' && missed > 0 ? 'attention' : 'default'}
         />
@@ -438,7 +445,7 @@ export function HomePage() {
         <Stat
           icon="bell"
           label="New notifications"
-          value={status === 'ready' ? notificationsUnread : undefined}
+          value={status === 'ready' ? notificationsUnread : status === 'error' ? '—' : undefined}
           to="/notifications"
         />
       </section>

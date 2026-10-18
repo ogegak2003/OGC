@@ -582,6 +582,8 @@ able to inject devices; MLS commit cost grows with the tree.
   per epoch; stale and replayed commits are rejected.
 - A device that cannot verify a historical commit drops its state and re-joins by external
   commit (allowed only for eligible devices); messages in between show as unavailable there.
+  While its old leaf is still in the tree this is a resync that removes exactly that leaf
+  (RFC 9420 §12.4.3.2), enforced by the server from the parsed commit and the device's key.
 
 **Consequences.** Sub-second commits for typical groups. A member's 5th and later devices
 cannot take part in a group (documented limitation). New members cannot read history from

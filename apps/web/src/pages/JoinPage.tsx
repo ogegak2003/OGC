@@ -3,6 +3,7 @@ import { parseInviteToken } from '@ogc/validation';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router';
 import { AppShell } from '../components/AppShell';
+import { ErrorState } from '../components/ErrorState';
 import { Avatar } from '../components/Avatar';
 import styles from '../components/messaging/messaging.module.css';
 import { Alert, Button, Spinner } from '../components/ui';
@@ -24,6 +25,7 @@ export function JoinPage() {
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [pending, setPending] = useState(false);
+  const [expired, setExpired] = useState(false);
 
   useEffect(() => {
     if (!token) return;
@@ -32,8 +34,12 @@ export function JoinPage() {
       (result) => {
         if (active) setPreview(result);
       },
-      () => {
-        if (active) setError('This invitation link is invalid or has expired.');
+      (cause: unknown) => {
+        if (!active) return;
+        const status = (cause as { status?: number }).status ?? 0;
+        // 4xx: the link itself is wrong, used up or expired. Anything else may be temporary.
+        if (status >= 400 && status < 500) setExpired(true);
+        else setError('The invitation could not be checked. Check your connection and try again.');
       },
     );
     return () => {
@@ -47,8 +53,19 @@ export function JoinPage() {
   return (
     <AppShell title="Invitation">
       {!token ? <Alert>This invitation link is incomplete. Ask for a new one.</Alert> : null}
+      {expired ? (
+        <ErrorState
+          kind="unavailable"
+          title="Invitation link not valid"
+          home={{ to: '/invitations', label: 'See your invitations', icon: 'inbox' }}
+        >
+          <p>
+            This invitation link is invalid, has expired or has been used up. Ask for a new one.
+          </p>
+        </ErrorState>
+      ) : null}
       {error ? <Alert>{error}</Alert> : null}
-      {token && !preview && !error ? <Spinner label="Checking the invitation" /> : null}
+      {token && !preview && !error && !expired ? <Spinner label="Checking the invitation" /> : null}
       {preview ? (
         <div className={styles.card}>
           <Avatar url={preview.avatarUrl} name={preview.name} size={64} />
