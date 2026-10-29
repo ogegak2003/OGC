@@ -19,7 +19,7 @@ RUN pnpm turbo run build --filter=@ogc/web...
 RUN find apps/web/dist -name '*.map' -delete
 
 # ---- Serve with unprivileged nginx ----
-FROM nginxinc/nginx-unprivileged:1.30-alpine AS runtime
+FROM nginxinc/nginx-unprivileged:1.31-alpine AS runtime
 COPY infrastructure/docker/nginx/web.conf /etc/nginx/conf.d/default.conf
 COPY infrastructure/docker/nginx/security-headers.conf /etc/nginx/snippets/security-headers.conf
 COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
