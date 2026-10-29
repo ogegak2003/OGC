@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Build: install the workspace, build the API and its workspace dependencies ----
-FROM node:24.18.0-alpine AS build
+FROM node:26.12.1-alpine AS build
 ENV CI=true
 RUN corepack enable
 WORKDIR /repo
@@ -30,7 +30,7 @@ USER node
 CMD ["./node_modules/.bin/prisma", "migrate", "deploy"]
 
 # ---- Runtime: minimal, non-root ----
-FROM node:24.18.0-alpine AS runtime
+FROM node:26.12.1-alpine AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 

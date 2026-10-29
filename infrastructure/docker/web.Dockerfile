@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1
 
 # ---- Build the static web client ----
-FROM node:24.18.0-alpine AS build
+FROM node:26.12.1-alpine AS build
 ENV CI=true
 RUN corepack enable
 WORKDIR /repo
