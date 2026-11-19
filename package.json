@@ -25,7 +25,7 @@
     "deploy:check-stack": "bash infrastructure/docker/tests/check-prod-stack.sh"
   },
   "devDependencies": {
-    "prettier": "3.9.10",
+    "prettier": "3.10.1",
     "turbo": "2.11.7",
     "typescript": "~6.0.3"
   }
